@@ -1,4 +1,4 @@
-import { el, getPath } from './render-sections.js'
+import { el, getPath, row, selectCtrl } from './render-sections.js'
 
 function findModel(catalog, id) {
   const list = catalog?.models ?? []
@@ -70,9 +70,7 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
 }
 
 /**
- * 独立「模型选择」页签：
- * - 实时读取当前 Antigravity 可用模型列表（含完整家族、Thinking 强度、标签与实时配额）。
- * - 仅支持点击选择，不提供容易写错的手打输入框。
+ * Tab 3：模型选择（含会话轮换周期）
  */
 export function renderModelsTab(state, actions) {
   const cfg = state.cfg
@@ -87,6 +85,9 @@ export function renderModelsTab(state, actions) {
 
   const activeId = activeRole === 'main' ? mainId : workerId
   const missingInCatalog = isLive && activeId && !findModel(catalog, activeId)
+  const curRotate = Number(getPath(cfg, ['sessionRotateDays']) ?? 0)
+  const rotateChoices = [0, 3, 7, 14, 30]
+  const rotateVal = rotateChoices.includes(curRotate) ? curRotate : 0
 
   const roleCard = (role, title, desc, modelId) => {
     const selected = activeRole === role
@@ -103,6 +104,24 @@ export function renderModelsTab(state, actions) {
     el('div', { className: 'role-card-id mono' }, modelId))
   }
 
+  const sessionCard = el('div', { className: 'card' },
+    el('h2', {}, '会话轮换周期'),
+    el('p', { className: 'card-sub' }, '长对话累积过多历史会增加模型上下文开销；定期在空闲时自动开启新会话可省配额，旧会话保留不删，长期记忆无缝续接。'),
+    row(
+      '自动轮换新会话周期',
+      '每过指定天数趁大鲸鱼空闲时自动开一个干净新会话；选「不自动轮换」则持续复用同一会话。',
+      selectCtrl(
+        String(rotateVal),
+        [
+          ['0', '不自动轮换（默认）'],
+          ['3', '每 3 天轮换一次'],
+          ['7', '每 7 天轮换一次（省配额推荐）'],
+          ['14', '每 14 天轮换一次'],
+          ['30', '每 30 天轮换一次'],
+        ],
+        v => actions.setCfg(['sessionRotateDays'], Number(v), true),
+      )))
+
   return el('div', {},
     el('div', { className: 'card' },
       el('div', { className: 'card-head' },
@@ -117,10 +136,10 @@ export function renderModelsTab(state, actions) {
           disabled: !!state.busy,
           onClick: actions.refreshModels,
         }, state.busy === 'models' ? '读取中…' : '刷新模型列表')),
-      el('p', { className: 'card-sub' }, '全程仅使用当前 Antigravity 内置模型，无需任何外部 API Key。先点选上方要配置的角色，再在下方直接点击模型档位即可（记得点击右上角「保存配置」生效）。'),
+      el('p', { className: 'card-sub' }, '全程仅使用当前 Antigravity 内置模型，无需外部 API Key。先点选上方要配置的角色，再在下方直接点击模型档位即可（记得点右上角「保存配置」）。'),
       el('div', { className: 'role-grid' },
         roleCard('main', '前台主线模型', '负责刷视频、看画面、聊私信与评论互动（建议均衡或高表现模型）', mainId),
-        roleCard('worker', '后台 Worker 模型', '负责记忆归纳、心情、日记与社交判断，运行完自动归档（建议省配额轻量模型）', workerId)),
+        roleCard('worker', '后台 Worker 模型', '负责记忆归纳与外发内容安全语义复审，运行完自动归档（建议省配额轻量模型）', workerId)),
       !isLive && catalog?.note
         ? el('div', { className: 'banner warn' }, `${catalog.note}。后台守护启动后点击右上角「刷新模型列表」即可拉取完整清单。`)
         : null,
@@ -141,5 +160,6 @@ export function renderModelsTab(state, actions) {
         ? el('div', { className: 'model-list' }, ...liveGroups.map(g => renderGroupCard(g, {
             activeRole, mainId, workerId, onPick: actions.selectModel,
           })))
-        : null))
+        : null),
+    sessionCard)
 }

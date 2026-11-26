@@ -42,14 +42,14 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.equal(APP_URI, 'ui://antigravity-bili-whale/app.html')
     assert.deepEqual(openTool._meta['com.google.antigravity/ui'].entrypoints, [{ type: 'global', title: '哔哩哔哩大鲸鱼' }])
 
-    // App-only tools hidden from AI model
+    // App-only tools hidden from AI model (6 management tools, pending/corpus retired)
     const appTools = tools.filter(t => t.name.startsWith('whale_app_'))
-    assert.equal(appTools.length, 8)
+    assert.equal(appTools.length, 6)
     for (const t of appTools) assert.deepEqual(t._meta.ui.visibility, ['app'])
 
-    // Manual cookie auth action must NOT be exposed in schema or runner
+    // Auth tool supports QR login + logout, NEVER manual cookie
     const authTool = tools.find(t => t.name === 'whale_app_auth')
-    assert.deepEqual(authTool.inputSchema.properties.action.enum, ['qr_start', 'qr_poll', 'qr_cancel'])
+    assert.deepEqual(authTool.inputSchema.properties.action.enum, ['qr_start', 'qr_poll', 'qr_cancel', 'logout'])
     const badAuth = await router.handleRequest({ jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'whale_app_auth', arguments: { action: 'cookie' } } })
     assert.equal(badAuth.result.isError, true)
 

@@ -48,12 +48,20 @@ const opt = {}
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i].startsWith('--')) opt[argv[i].slice(2)] = argv[i + 1]?.startsWith('--') ? true : argv[++i] ?? true
 }
-const watchAuto = (() => { try { return config().watch?.auto ?? {} } catch { return {} } })()
+const watchProfile = (() => {
+  try {
+    const w = config().watch ?? {}
+    const p = String(opt.profile ?? 'auto').toLowerCase()
+    if (p === 'owner' || p === 'owner-mention') return w.ownerMention ?? w.auto ?? {}
+    if (p === 'fan' || p === 'fan-mention') return w.fanMention ?? w.auto ?? {}
+    return w.auto ?? {}
+  } catch { return {} }
+})()
 const BUCKET = Number(opt.bucket ?? 30)
 const TOP = Number(opt.top ?? 5)
-const GRID = String(opt.grid ?? watchAuto.frameGrid ?? '3x3')
+const GRID = String(opt.grid ?? watchProfile.frameGrid ?? '3x3')
 const NCOM = Number(opt.comments ?? 8)
-const SKIP_FRAMES = Boolean(opt['no-frames']) || (!opt.grid && !opt.every && watchAuto.mode === 'text_only')
+const SKIP_FRAMES = Boolean(opt['no-frames']) || (!opt.grid && !opt.every && watchProfile.mode === 'text_only')
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
 // ── profile 预检（取数之前，静态检查，不发任何请求）────────────────────
@@ -209,9 +217,9 @@ if (!SKIP_FRAMES) {
     //   改成按时长算：120s + 每秒视频 1.5s（25 分钟 → 约 40 分钟余量 ✓）
     const framesTimeout = 120_000 + Math.round((Number(dur ?? 0) || 0) * 1.5) * 1000
     const watchArgs = [watch, bvid, GRID]
-    if (!opt.grid && (opt.every !== undefined || watchAuto.frameStrategy === 'interval')) {
-      const everySec = opt.every !== undefined ? Number(opt.every) : Number(watchAuto.frameEverySec ?? 15)
-      const maxFrames = Number(watchAuto.maxFrames ?? 16)
+    if (!opt.grid && (opt.every !== undefined || watchProfile.frameStrategy === 'interval')) {
+      const everySec = opt.every !== undefined ? Number(opt.every) : Number(watchProfile.frameEverySec ?? 15)
+      const maxFrames = Number(watchProfile.maxFrames ?? 16)
       if (Number.isFinite(everySec) && everySec >= 3) watchArgs.push('--every', String(Math.floor(everySec)))
       if (Number.isInteger(maxFrames) && maxFrames >= 4) watchArgs.push('--max-frames', String(maxFrames))
     }

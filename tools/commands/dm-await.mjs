@@ -3,85 +3,263 @@ import { HOME, dataPath } from '../lib/paths.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import {config} from '../lib/config.mjs'
-import {readHistory} from '../lib/dm-history.mjs'
-import {acquireProcessLock} from '../lib/process-lock.mjs'
-const argv=process.argv.slice(2),peek=argv.includes('--peek'),json=argv.includes('--json')
-const owner=String(config().owner?.mid??'').trim(),name=String(config().owner?.name??'主人')
-const home=HOME
-const file=dataPath('dm-await-state.json')
+import { config } from '../lib/config.mjs'
+import { readHistory } from '../lib/dm-history.mjs'
+import { acquireProcessLock } from '../lib/process-lock.mjs'
+import { exactJson } from '../lib/json-exact.mjs'
+import { guardedFetch as fetch } from '../lib/traffic.mjs'
+import { isFollowerOfWhale } from '../lib/relation.mjs'
+import { checkFanQuota } from '../lib/fan-quota.mjs'
+
+const argv = process.argv.slice(2)
+const peek = argv.includes('--peek')
+const json = argv.includes('--json')
+const cfg = config()
+const owner = String(cfg.owner?.mid ?? '').trim()
+const ownerName = String(cfg.owner?.name ?? '主人')
+const selfMid = String(cfg.self?.mid ?? '').trim()
+const dmOwnerOn = cfg.listen?.dmOwner === true
+const dmFanOn = cfg.listen?.dmFan === true
+const file = dataPath('dm-await-state.json')
+const receiptsFile = dataPath('dm-fan-receipts.json')
+
 function save(state) {
-  const tmp=file+'.'+crypto.randomUUID()+'.tmp'
-  try{fs.writeFileSync(tmp,JSON.stringify(state,null,2));fs.renameSync(tmp,file)}finally{fs.rmSync(tmp,{force:true})}
+  const tmp = file + '.' + crypto.randomUUID() + '.tmp'
+  try { fs.writeFileSync(tmp, JSON.stringify(state, null, 2)); fs.renameSync(tmp, file) }
+  finally { fs.rmSync(tmp, { force: true }) }
 }
-function acknowledge(state,message) {
-  const same=Number(state.lastSeen)===message.ts
-  return {...state,owner,lastSeen:message.ts,lastKey:message.key,lastKeys:[...new Set([...(same?(state.lastKeys??(state.lastKey?[state.lastKey]:[])):[]),message.key])],pending:undefined,queue:state.queue??[],at:new Date().toISOString()}
+
+function recordFanReceipt(receipt, mid) {
+  let map = {}
+  try { map = JSON.parse(fs.readFileSync(receiptsFile, 'utf8')) ?? {} } catch {}
+  const now = Date.now()
+  for (const [k, v] of Object.entries(map)) {
+    if (now - Number(v?.at ?? 0) > 24 * 3600_000) delete map[k]
+  }
+  map[receipt] = { mid: String(mid), at: now }
+  const tmp = receiptsFile + '.' + crypto.randomUUID() + '.tmp'
+  try { fs.writeFileSync(tmp, JSON.stringify(map, null, 2)); fs.renameSync(tmp, receiptsFile) }
+  finally { fs.rmSync(tmp, { force: true }) }
 }
-// 结果未知（宿主持久化/投递超时）不能卡住后面的消息：把这条按回执记为待核查，
-// 同时推进已读位置，普通 --peek 就能取下一条。重启后既不重复投递，也不丢这条记录。
-const UNCONFIRMED_MAX=50
-function markUnconfirmed(state,receipt) {
-  const p=state.pending
-  if(!p||p.mid!==owner||p.receipt!==receipt)return null
-  const entry={key:p.key,ts:p.ts,receipt:p.receipt,text:String(p.text??'').slice(0,200),at:new Date().toISOString()}
-  const list=[...(state.unconfirmed??[]).filter(x=>x.key!==entry.key),entry].slice(-UNCONFIRMED_MAX)
-  const next=acknowledge({...state,unconfirmed:list},p)
-  return {...next,unconfirmed:list}
-}
-function pendingVerification(state){return (state.unconfirmed??[]).filter(x=>x&&x.key)}
-function emit(message){console.log(json?JSON.stringify(message):'DM_HIT mid='+owner+' text='+message.text)}
-async function main(){
-  if(!owner){console.error('配置里 owner.mid 为空');return 2}
-  let state={}
-  try{state=JSON.parse(fs.readFileSync(file,'utf8'));if(!state||typeof state!=='object'||Array.isArray(state))throw Error('invalid state')}
-  catch(e){if(e.code!=='ENOENT')throw Error('私信状态无法读取，已停止推进已读位置：'+e.message)}
-  if(state.owner&&state.owner!==owner)state={}
-  if(state.lastSeen!==undefined&&(!Number.isFinite(Number(state.lastSeen))||Number(state.lastSeen)<0))throw Error('私信游标损坏，已停止读取')
-  if(state.queue!==undefined&&!Array.isArray(state.queue))throw Error('私信待交付队列损坏')
-  if(state.unconfirmed!==undefined&&!Array.isArray(state.unconfirmed))throw Error('私信待核查列表损坏')
-  const ackIndex=argv.indexOf('--ack')
-  if(ackIndex>=0){
-    if(!state.pending||state.pending.mid!==owner||state.pending.receipt!==argv[ackIndex+1]){console.error('私信确认凭据不匹配，未推进已读状态');return 2}
-    save(acknowledge(state,state.pending));console.log('私信交付已确认');return 0
-  }
-  // 结果未知：按回执结案为"待核查"，不让它继续占着 pending 挡住后面的消息。
-  const unconfirmedIndex=argv.indexOf('--mark-unconfirmed')
-  if(unconfirmedIndex>=0){
-    const receipt=argv[unconfirmedIndex+1]
-    const next=markUnconfirmed(state,receipt)
-    if(!next){console.error('没有与该回执匹配的待确认私信');return 2}
-    save(next);console.log('私信结果未确认，已转入待核查：'+receipt);return 0
-  }
-  if(argv.includes('--list-unconfirmed')){
-    const list=pendingVerification(state)
-    console.log(JSON.stringify({count:list.length,items:list}));return 0
-  }
-  if(state.pending?.mid===owner&&!argv.includes('--baseline')){emit(state.pending);return 0}
-  if(!state.queue?.length||argv.includes('--baseline')){
-    const cred=JSON.parse(fs.readFileSync(dataPath('credentials.json'),'utf8'))
-    const headers={'user-agent':'Mozilla/5.0',referer:'https://www.bilibili.com/',cookie:'SESSDATA='+cred.sessdata+'; bili_jct='+cred.bili_jct+'; buvid3='+cred.buvid3}
-    const result=await readHistory(owner,headers,state,{baseline:argv.includes('--baseline')})
-    if(argv.includes('--baseline')){
-      const latest=result.all.at(-1),ts=latest?.ts??0
-      save({owner,lastSeen:ts,lastKey:latest?.key,lastKeys:result.all.filter(r=>r.ts===ts).map(r=>r.key),lastIncoming:state.lastIncoming,queue:[]})
-      console.log('已把当前私信状态标记为已读');return 0
+
+function acknowledge(state, message) {
+  if (message.isFan) {
+    const fanCursors = { ...(state.fanCursors ?? {}) }
+    const prev = fanCursors[message.mid] ?? {}
+    const same = Number(prev.lastSeen) === message.ts
+    fanCursors[message.mid] = {
+      lastSeen: message.ts,
+      lastKey: message.key,
+      lastKeys: [...new Set([...(same ? (prev.lastKeys ?? []) : []), message.key])],
     }
-    state={...state,owner,queue:result.messages,lastIncoming:Math.max(Number(state.lastIncoming??0),...result.messages.map(r=>r.ts))}
+    return { ...state, fanCursors, pending: undefined, queue: state.queue ?? [], at: new Date().toISOString() }
+  }
+  const same = Number(state.lastSeen) === message.ts
+  return {
+    ...state,
+    owner,
+    lastSeen: message.ts,
+    lastKey: message.key,
+    lastKeys: [...new Set([...(same ? (state.lastKeys ?? (state.lastKey ? [state.lastKey] : [])) : []), message.key])],
+    pending: undefined,
+    queue: state.queue ?? [],
+    at: new Date().toISOString(),
+  }
+}
+
+const UNCONFIRMED_MAX = 50
+function markUnconfirmed(state, receipt) {
+  const p = state.pending
+  if (!p || p.receipt !== receipt) return null
+  const entry = { key: p.key, mid: p.mid, isFan: !!p.isFan, ts: p.ts, receipt: p.receipt, text: String(p.text ?? '').slice(0, 200), at: new Date().toISOString() }
+  const list = [...(state.unconfirmed ?? []).filter(x => x.key !== entry.key), entry].slice(-UNCONFIRMED_MAX)
+  const next = acknowledge({ ...state, unconfirmed: list }, p)
+  return { ...next, unconfirmed: list }
+}
+
+function emit(message) {
+  console.log(json ? JSON.stringify(message) : `DM_HIT mid=${message.mid} fan=${!!message.isFan} text=${message.text}`)
+}
+
+async function pollFanSessions(headers, state) {
+  const fanCursors = { ...(state.fanCursors ?? {}) }
+  const url = 'https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&group_fold=1&unfollow_fold=0&sort_rule=2&size=20&build=0&mobi_app=web'
+  const res = await exactJson(await fetch(url, { headers }))
+  if (res?.code !== 0 || !Array.isArray(res.data?.session_list)) return { messages: [], fanCursors }
+
+  const out = []
+  for (const sess of res.data.session_list.slice(0, 12)) {
+    const talker = String(sess.talker_id ?? '').trim()
+    if (!/^[1-9]\d{0,19}$/.test(talker)) continue
+    if (talker === owner || talker === selfMid) continue
+    const lastTs = Number(sess.last_msg?.timestamp ?? 0)
+    const senderUid = String(sess.last_msg?.sender_uid ?? '')
+    // 跳过自己发出的最后一条或没有新消息的会话
+    const cursor = fanCursors[talker]
+    if (!cursor) {
+      // 首次见到该粉丝会话：只记基线，不倒灌历史旧私信
+      fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+      continue
+    }
+    if (senderUid && senderUid !== talker) continue
+    if (lastTs <= Number(cursor.lastSeen ?? 0)) continue
+
+    // 严格校验：对方必须关注了大鲸鱼，且今日未超粉丝私信回复限额
+    const isFan = await isFollowerOfWhale(talker, headers)
+    if (!isFan) {
+      fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+      continue
+    }
+    const fq = checkFanQuota({
+      channel: 'dm',
+      uid: talker,
+      perUserDaily: cfg.fanLimits?.dmPerUserDaily ?? 2,
+      totalDaily: cfg.fanLimits?.dmTotalDaily ?? 10,
+    })
+    if (!fq.allowed) continue
+
+    try {
+      const hist = await readHistory(talker, headers, cursor)
+      for (const m of hist.messages) {
+        out.push({
+          ...m,
+          mid: talker,
+          name: sess.account_info?.name || `粉丝(${talker})`,
+          isFan: true,
+        })
+      }
+      if (hist.messages.length === 0 && lastTs > Number(cursor.lastSeen ?? 0)) {
+        fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+      }
+    } catch {}
+    if (out.length >= 5) break
+  }
+  return { messages: out, fanCursors }
+}
+
+async function main() {
+  if (!dmOwnerOn && !dmFanOn) {
+    console.log(json ? JSON.stringify({ hit: false }) : '私信监听未开启')
+    return 1
+  }
+  let state = {}
+  try {
+    state = JSON.parse(fs.readFileSync(file, 'utf8'))
+    if (!state || typeof state !== 'object' || Array.isArray(state)) throw Error('invalid state')
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw Error('私信状态无法读取，已停止推进已读位置：' + e.message)
+  }
+  if (state.owner && owner && state.owner !== owner) state = { fanCursors: state.fanCursors ?? {} }
+
+  const ackIndex = argv.indexOf('--ack')
+  if (ackIndex >= 0) {
+    if (!state.pending || state.pending.receipt !== argv[ackIndex + 1]) {
+      console.error('私信确认凭据不匹配，未推进已读状态')
+      return 2
+    }
+    save(acknowledge(state, state.pending))
+    console.log('私信交付已确认')
+    return 0
+  }
+
+  const unconfirmedIndex = argv.indexOf('--mark-unconfirmed')
+  if (unconfirmedIndex >= 0) {
+    const next = markUnconfirmed(state, argv[unconfirmedIndex + 1])
+    if (!next) { console.error('没有与该回执匹配的待确认私信'); return 2 }
+    save(next)
+    console.log('私信结果未确认，已转入待核查')
+    return 0
+  }
+
+  if (argv.includes('--list-unconfirmed')) {
+    const list = (state.unconfirmed ?? []).filter(x => x && x.key)
+    console.log(JSON.stringify({ count: list.length, items: list }))
+    return 0
+  }
+
+  if (state.pending && !argv.includes('--baseline')) {
+    emit(state.pending)
+    return 0
+  }
+
+  if (!state.queue?.length || argv.includes('--baseline')) {
+    const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
+    const headers = {
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      referer: 'https://www.bilibili.com/',
+      cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`,
+    }
+
+    const combined = []
+    if (dmOwnerOn && owner) {
+      const result = await readHistory(owner, headers, state, { baseline: argv.includes('--baseline') })
+      if (argv.includes('--baseline')) {
+        const latest = result.all.at(-1)
+        const ts = latest?.ts ?? 0
+        save({
+          ...state,
+          owner,
+          lastSeen: ts,
+          lastKey: latest?.key,
+          lastKeys: result.all.filter(r => r.ts === ts).map(r => r.key),
+          queue: [],
+        })
+        console.log('已把当前私信状态标记为已读')
+        return 0
+      }
+      for (const m of result.messages) {
+        combined.push({ ...m, mid: owner, name: ownerName, isFan: false })
+      }
+      state = { ...state, owner, lastIncoming: Math.max(Number(state.lastIncoming ?? 0), ...result.messages.map(r => r.ts)) }
+    }
+
+    if (dmFanOn && !argv.includes('--baseline')) {
+      const fanRes = await pollFanSessions(headers, state)
+      state = { ...state, fanCursors: fanRes.fanCursors }
+      combined.push(...fanRes.messages)
+    }
+
+    combined.sort((a, b) => a.ts - b.ts)
+    state = { ...state, queue: combined }
     save(state)
   }
-  if(!state.queue.length){console.log(json?JSON.stringify({hit:false}):'无新私信');return 1}
-  const [row,...rest]=state.queue
-  const message={hit:true,mid:owner,name,text:row.text,image:row.image??null,share:row.share??null,contentKind:row.type===7?'share':'message',ts:row.ts,key:row.key,receipt:crypto.randomUUID()}
-  state={...state,owner,queue:rest}
-  if(peek)save({...state,pending:message})
-  else save(acknowledge(state,message))
-  emit(message);return 0
+
+  if (!state.queue.length) {
+    console.log(json ? JSON.stringify({ hit: false }) : '无新私信')
+    return 1
+  }
+
+  const [row, ...rest] = state.queue
+  const receipt = crypto.randomUUID()
+  const message = {
+    hit: true,
+    isFan: !!row.isFan,
+    mid: row.mid || owner,
+    name: row.name || ownerName,
+    text: row.text,
+    image: row.image ?? null,
+    share: row.share ?? null,
+    contentKind: row.type === 7 ? 'share' : 'message',
+    ts: row.ts,
+    key: row.key,
+    receipt,
+  }
+  if (message.isFan) recordFanReceipt(receipt, message.mid)
+  state = { ...state, queue: rest }
+  if (peek) save({ ...state, pending: message })
+  else save(acknowledge(state, message))
+  emit(message)
+  return 0
 }
+
 let release
-try{
-  fs.mkdirSync(path.dirname(file),{recursive:true})
-  release=await acquireProcessLock(file)
-  process.exitCode=await main()
-}catch(e){console.error(e.message);process.exitCode=3}
-finally{if(release)await release()}
+try {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  release = await acquireProcessLock(file)
+  process.exitCode = await main()
+} catch (e) {
+  console.error(e.message)
+  process.exitCode = 3
+} finally {
+  if (release) await release()
+}

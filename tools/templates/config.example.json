@@ -1,5 +1,8 @@
 {
   "_readme": "可选参考模板：实际运行配置由左侧栏「哔哩哔哩大鲸鱼」控制台自动生成并保存在 %USERPROFILE%\\.antigravity-bili-whale\\config.json。",
+  "browse": {
+    "enabled": false
+  },
   "models": {
     "main": "flash",
     "worker": "flash_lite"
@@ -14,18 +17,30 @@
       "maxFrames": 16,
       "frameGrid": "3x3"
     },
-    "mention": {
+    "ownerMention": {
       "autoMaxMin": 5,
       "confirmMaxMin": 10,
-      "frameMode": "auto",
-      "replyStyle": "comment"
+      "replyStyle": "comment",
+      "mode": "auto",
+      "frameStrategy": "interval",
+      "frameEverySec": 15,
+      "maxFrames": 16,
+      "frameGrid": "3x3"
+    },
+    "fanMention": {
+      "autoMaxMin": 3,
+      "confirmMaxMin": 5,
+      "mode": "text_only",
+      "frameStrategy": "interval",
+      "frameEverySec": 15,
+      "maxFrames": 12,
+      "frameGrid": "3x3"
     }
   },
   "persona": {
     "name": "大鲸鱼",
     "ownerTitle": "主人",
-    "selfClaim": "我",
-    "diaryTitle": "今日摘要"
+    "selfClaim": "我"
   },
   "preferences": {
     "like": [
@@ -52,10 +67,6 @@
   "quota": {
     "shareDaily": 3
   },
-  "diary": {
-    "enabled": false,
-    "push": false
-  },
   "share": {
     "enabled": false,
     "via": "dm",
@@ -64,24 +75,36 @@
     "minScore": 13,
     "silentAfterDays": 3
   },
+  "chat": {
+    "followup": false,
+    "dynamic": false
+  },
   "listen": {
-    "dm": false,
+    "dmOwner": false,
+    "dmFan": false,
     "dmIntervalSec": 60,
-    "comment": false,
+    "commentOwner": false,
+    "commentFan": false,
     "commentIntervalSec": 60,
-    "scope": "both",
-    "onlyOwner": false,
-    "oncePerPerson": false,
-    "allDay": false,
-    "mentionSummary": false
+    "mentionSummaryOwner": false,
+    "mentionSummaryFan": false,
+    "allDay": false
   },
-  "notify": {
-    "type": "none",
-    "url": "",
-    "template": "text",
-    "cmd": "",
-    "args": []
+  "fanLimits": {
+    "dmPerUserDaily": 2,
+    "dmTotalDaily": 10,
+    "commentPerUserDaily": 1,
+    "commentTotalDaily": 10,
+    "mentionPerUserDaily": 1,
+    "mentionTotalDaily": 5
   },
+  "safety": {
+    "enabled": true,
+    "mode": "dual",
+    "scope": "all",
+    "customWords": []
+  },
+  "sessionRotateDays": 0,
   "night": {
     "windows": [
       {

@@ -7,7 +7,7 @@ import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextp
  * - 内置并发队列（上限 3，严格低于 Antigravity 4 并发限制）。
  */
 export function createMcpBridge({ onInitialResult } = {}) {
-  const app = new App({ name: 'antigravity-bili-whale', version: '1.0.1' }, {})
+  const app = new App({ name: 'antigravity-bili-whale', version: '1.1.0' }, {})
 
   const applyContext = (ctx) => {
     if (!ctx) return

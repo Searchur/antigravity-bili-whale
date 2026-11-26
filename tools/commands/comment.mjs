@@ -27,6 +27,9 @@ import { fileURLToPath } from 'node:url'
 import { config } from '../lib/config.mjs'
 import { validateShare } from '../lib/share-policy.mjs'
 import { NODE_EXE } from '../lib/nodebin.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
+import { enforceOutboundSafety } from '../lib/content-safety.mjs'
+import { isFollowerOfWhale } from '../lib/relation.mjs'
+import { checkFanQuota, recordFanReply } from '../lib/fan-quota.mjs'
 
 // ── 限额闸（B 档「限额自主」的代码强制部分，2026-10-14 主人选 B 档）────────────────
 // 语义：闸门**只管自主发言**（带 --auto，即"她自己决定说的"）；主人当场授权的发言不拦 ✓
@@ -225,12 +228,6 @@ if (SHARE && !parent && type === '1' && config().share?.via === 'comment' && con
   const result = decision(String(bvid??''), String(oid))
   console.log('[评论检查] '+JSON.stringify(result))
   if (!result.allow) {
-    if (go) try {
-      await notifyOnce(String(bvid), result, async text => {
-        if (['none','stdout',''].includes(String(config().notify?.type??'none'))) throw Error('未配置有效推送渠道')
-        execFileSync(NODE_EXE,[path.join(path.dirname(fileURLToPath(import.meta.url)),'notify.mjs'),text,'--title','分享前评论检查'],{encoding:'utf8',timeout:30000})
-      })
-    } catch(e) { console.error('推送失败：'+e.message) }
     console.error('暂缓分享。先运行 ai-share sample <BV>，由当前模型提交评估；expand 时用 --more 补样。')
     process.exit(3)
   }
@@ -238,23 +235,62 @@ if (SHARE && !parent && type === '1' && config().share?.via === 'comment' && con
 const credPath = dataPath('credentials.json')
 if (!fs.existsSync(credPath)) {
   console.error(`credentials file missing: ${credPath}`)
-  console.error('create it with {"sessdata":"...","bili_jct":"...","buvid3":"..."}')
   process.exit(3)
 }
 const cred = JSON.parse(fs.readFileSync(credPath, 'utf8'))
-// 2026-10-21 修：buvid3 不该是必填 ✗ —— 没有它的用户会被这里直接 exit 3，评论永远发不出去
-//   （B站 大部分写接口不需要 buvid3；缺了只影响个别接口）
 const missing = ['sessdata', 'bili_jct'].filter((k) => !cred[k] || String(cred[k]).trim() === '')
 if (missing.length) {
   console.error(`credentials file is missing values for: ${missing.join(', ')}`)
   process.exit(3)
 }
-if (!cred.buvid3 || String(cred.buvid3).trim() === '') {
-  console.error('⚠️ 没有 buvid3（不影响评论；个别接口可能被风控）—— 想补就在 F12 → Cookies 里复制 buvid3')
-}
-const cookieHeader = `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`
+const cookieHeader = `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const referer = refererArg !== '' ? refererArg : `https://www.bilibili.com/video/${bvid}/`
+
+// ── 统一外发内容安全审核 + 粉丝资格与每日限额硬闸门 ──
+const cfgNow = config()
+let replyTargetAuthor = null
+let isOwnerReplyTarget = false
+if (parent && root) {
+  replyTargetAuthor = await parentAuthor(oid, root, parent, type)
+  const ownerMidNow = String(cfgNow.owner?.mid ?? '').trim()
+  isOwnerReplyTarget = Boolean(replyTargetAuthor?.mid && ownerMidNow && String(replyTargetAuthor.mid) === ownerMidNow)
+  if (!isOwnerReplyTarget) {
+    if (!replyTargetAuthor?.mid) {
+      console.error('✗ 无法确认被回复者 UID，按安全规则不回复陌生人。')
+      process.exit(4)
+    }
+    const isFan = await isFollowerOfWhale(replyTargetAuthor.mid, { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader })
+    if (!isFan) {
+      console.error(`✗ 对方（UID ${replyTargetAuthor.mid}）未关注大鲸鱼，仅回复主人或已关注粉丝的评论。`)
+      process.exit(4)
+    }
+    const fq = checkFanQuota({
+      channel: 'comment',
+      uid: replyTargetAuthor.mid,
+      perUserDaily: cfgNow.fanLimits?.commentPerUserDaily ?? 1,
+      totalDaily: cfgNow.fanLimits?.commentTotalDaily ?? 10,
+    })
+    if (!fq.allowed) {
+      console.error(`✗ [粉丝评论限额] ${fq.reason}`)
+      process.exit(4)
+    }
+  }
+} else if (!SHARE) {
+  console.error('✗ 已禁止主动向他人视频发顶层评论（仅允许主动分享给主人，或回复主人/粉丝的评论）。')
+  process.exit(4)
+}
+
+const safetyCheck = await enforceOutboundSafety({
+  text: message,
+  channel: 'comment',
+  isOwnerTarget: isOwnerReplyTarget || SHARE,
+  cfg: cfgNow,
+})
+if (safetyCheck.blocked) {
+  console.error(`✗ [安全审核拦截] ${safetyCheck.reason}（类别：${safetyCheck.category}）`)
+  process.exit(4)
+}
 
 // ---- WBI signing (harmless if the endpoint does not ask for it) -------------
 const MIXIN_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
@@ -399,6 +435,10 @@ if (out.code === 0) {
       }
     } catch (e) { console.log(`  [once] 记账失败（不影响已发出的评论）：${String(e.message).slice(0, 80)}`) }
   }
+  // 记录粉丝评论回复次数（仅在回复非主人粉丝成功时记账）
+  if (parent && replyTargetAuthor?.mid && !isOwnerReplyTarget) {
+    try { recordFanReply({ channel: 'comment', uid: replyTargetAuthor.mid }) } catch {}
+  }
   // 记账（发出去才算数）
   const rec = quota(['record', '--type', 'comment', '--target', bvid ? `BV:${bvid}` : `oid:${oid}`,
     '--note', message.replace(/\s+/g, ' ').slice(0, 40), ...(SHARE ? ['--share'] : AUTO ? ['--auto'] : [])])
@@ -406,17 +446,6 @@ if (out.code === 0) {
   const visibility=await verifyCommentVisibility({oid:String(oid),type,root:root||'',rpid:String(rpid),referer,headers:{'user-agent':UA,referer,cookie:cookieHeader},seconds:lifeConfig(config().life).commentVerifySeconds})
   console.log('[回读] '+visibility.message)
   try{await lifeGuard.store.recordVisibility(String(rpid),visibility)}catch(e){console.log('[回读记录] '+e.message+'；发送成功状态保留，不要重发')}
-  // 自主 / 分享型 → **自动报备**（把 AGENTS 里的"约定"落到代码里；后端由 config.notify 决定）
-  if (AUTO || SHARE) {
-    try {
-      const msg = `[${SHARE ? `分享型·@${String(config().persona?.ownerTitle ?? '').trim() || '主人'}` : '自主发言'}] 评论已发出 rpid=${rpid}\n目标：${bvid ? 'BV:' + bvid : 'oid:' + oid}\n内容：${message.slice(0, 80)}\n可见性：${visibility.message}`
-      execFileSync(NODE_EXE,
-        [path.join(path.dirname(fileURLToPath(import.meta.url)), 'notify.mjs'), msg, '--title', SHARE ? '分享评论报备' : '自主发言报备'],
-        { stdio: 'inherit', timeout: 330000 })
-    } catch (e) {
-      console.log(`  [通知] 发出去了但报备失败：${String(e.message).slice(0, 120)}——请手动告诉使用者`)
-    }
-  }
   console.log(bvid
     ? `  https://www.bilibili.com/video/${bvid}/#reply${rpid}`
     : `  ${referer.replace(/\/$/, '')}#reply${rpid}`)

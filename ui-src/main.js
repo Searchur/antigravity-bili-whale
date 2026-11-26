@@ -5,8 +5,7 @@ import {
   renderAccountTab,
   renderPersonaTab,
   renderInteractTab,
-  renderPendingTab,
-  renderRuntimeTab,
+  renderEnvTab,
 } from './render-sections.js'
 import { renderModelsTab } from './render-models.js'
 import { renderWatchTab } from './render-watch.js'
@@ -26,21 +25,22 @@ const state = {
   personaMsg: '',
   likeTagDraft: '',
   dislikeTagDraft: '',
+  safetyWordDraft: '',
   ownerCheck: null,
   ownerCheckErr: '',
+  confirmLogout: false,
+  logoutMsg: '',
   qr: null,
   qrError: '',
   modelCatalog: null,
   modelRole: 'main',
   modelsError: '',
   status: null,
-  pending: [],
-  pendingMsg: '',
   depsData: null,
   depsLoaded: false,
   depsError: '',
   ffmpegMsg: null,
-  notifyOut: '',
+  diagMsg: null,
   about: null,
   updateCheck: null,
   updateResult: null,
@@ -50,23 +50,11 @@ const state = {
   lifeLoaded: false,
   lifeQuery: '',
   lifeNote: '',
-  lifeProposal: '{"type":"memory","text":"","sourceIds":[],"visibility":"private"}',
-  lifeEventId: '',
   lifeReceipt: '',
   lifeVerified: false,
-  lifeResult: '',
+  lifeSearchItems: null,
+  lifeMsg: '',
   lifeError: '',
-  corpusStatus: null,
-  corpusItems: [],
-  corpusTotal: 0,
-  corpusFilter: 'pending',
-  corpusOffset: 0,
-  corpusChosen: null,
-  corpusTopic: 'general',
-  corpusIntent: 'reaction',
-  corpusNote: '',
-  corpusAck: false,
-  corpusError: '',
 }
 
 const qrFlow = { gen: 0, id: null, timer: null }
@@ -96,7 +84,6 @@ const bridge = createMcpBridge({
       state.cfg = payload.settings.config
       state.savedJson = JSON.stringify(payload.settings.config)
       state.status = payload.status ?? state.status
-      state.pending = payload.pending?.items ?? state.pending
       if (payload.models) state.modelCatalog = payload.models
       if (payload.about) state.about = payload.about
       state.ready = true
@@ -117,17 +104,12 @@ function switchTab(id) {
   state.tab = id
   render()
   if (id === 'models' && state.modelCatalog?.source !== 'live') void actions.refreshModels()
-  if (id === 'pending') void actions.refreshPending()
-  if (id === 'runtime') {
+  if (id === 'memory') {
     void actions.refreshStatus()
-    if (!state.depsLoaded) void actions.runDeps()
+    if (!state.lifeLoaded) void actions.runLife('status')
   }
-  if (id === 'memory' && !state.lifeLoaded) {
-    void actions.runLife('status').then(() => actions.runCorpus('list'))
-  }
-  if (id === 'about' && !state.about) {
-    void actions.refreshAbout()
-  }
+  if (id === 'env' && !state.depsLoaded) void actions.runDeps()
+  if (id === 'about' && !state.about) void actions.refreshAbout()
 }
 
 const actions = {
@@ -177,6 +159,30 @@ const actions = {
     render()
   },
 
+  async logout() {
+    cancelQrInternal()
+    state.busy = 'logout'
+    state.logoutMsg = ''
+    render()
+    try {
+      const res = await bridge.callTool('whale_app_auth', { action: 'logout' })
+      state.confirmLogout = false
+      state.qr = null
+      state.qrError = ''
+      if (state.cfg) {
+        state.cfg.self = { mid: '', name: '' }
+        state.savedJson = JSON.stringify(state.cfg)
+      }
+      state.depsLoaded = false
+      state.logoutMsg = res.detail || '✓ 已退出登录并清除本地凭据'
+    } catch (e) {
+      state.logoutMsg = '✗ 退出登录失败：' + e.message
+    } finally {
+      state.busy = ''
+      render()
+    }
+  },
+
   async verifyOwner() {
     const mid = String(state.cfg?.owner?.mid ?? '').trim()
     const name = String(state.cfg?.owner?.name ?? '').trim()
@@ -219,11 +225,11 @@ const actions = {
       state.personaBytes = res.persona?.bytes ?? 0
       state.personaPath = res.persona?.path ?? ''
       state.status = res.status ?? null
-      state.pending = res.pending?.items ?? []
       if (res.models) state.modelCatalog = res.models
       if (res.about) state.about = res.about
       state.ownerCheck = null
       state.ownerCheckErr = ''
+      state.confirmLogout = false
       state.ready = true
       state.banner = null
     } catch (e) {
@@ -328,6 +334,8 @@ const actions = {
 
   async qrStart() {
     cancelQrInternal()
+    state.confirmLogout = false
+    state.logoutMsg = ''
     state.qrError = ''
     state.qr = { status: 'starting' }
     const gen = qrFlow.gen
@@ -395,7 +403,23 @@ const actions = {
         state.savedJson = JSON.stringify(state.cfg)
       }
     } catch (e) {
-      state.depsError = '依赖体检失败：' + e.message
+      state.depsError = '环境检测失败：' + e.message
+    } finally {
+      state.busy = ''
+      render()
+    }
+  },
+
+  async exportDiagnostics() {
+    state.busy = 'export_diag'
+    state.diagMsg = null
+    render()
+    try {
+      const res = await bridge.callTool('whale_app_ops', { action: 'export_diag' })
+      downloadJson(res.filename || `antigravity-bili-whale-diag-${Date.now()}.json`, res.payload)
+      state.diagMsg = { kind: 'ok', text: `✓ 已导出带时间戳的脱敏诊断日志：${res.filename}` }
+    } catch (e) {
+      state.diagMsg = { kind: 'err', text: '导出诊断日志失败：' + e.message }
     } finally {
       state.busy = ''
       render()
@@ -428,78 +452,63 @@ const actions = {
     if (installedOk) void actions.runDeps()
   },
 
-  async notifyTest() {
-    state.busy = 'notify'
-    state.notifyOut = '先保存当前设置，再发送测试消息…'
-    render()
-    try {
-      const saved = await actions.saveSettings()
-      if (!saved) { state.notifyOut = '✗ 设置保存失败，未发送测试'; return }
-      state.busy = 'notify'
-      render()
-      const res = await bridge.callTool('whale_app_ops', { action: 'notify_test' })
-      state.notifyOut = (res.ok ? '✓ 测试通知已发送\n' : '✗ 测试发送失败\n') + (res.out || '') + (res.err ? '\n' + res.err : '')
-    } catch (e) {
-      state.notifyOut = '✗ ' + e.message
-    } finally {
-      state.busy = ''
-      render()
-    }
-  },
-
   async refreshStatus() {
-    state.busy = 'status'
-    render()
     try {
       state.status = await bridge.callTool('whale_app_ops', { action: 'status' })
+      render()
+    } catch {}
+  },
+
+  async refreshMemoryOverview() {
+    state.busy = 'memory'
+    render()
+    try {
+      const [st, lf] = await Promise.all([
+        bridge.callTool('whale_app_ops', { action: 'status' }),
+        bridge.callTool('whale_app_life', { action: 'status', params: {} }),
+      ])
+      state.status = st
+      if (lf.state) state.lifeState = lf.state
+      state.lifeLoaded = true
     } catch (e) {
-      setBanner('err', '刷新运行状态失败：' + e.message)
+      state.lifeError = e.message
     } finally {
       state.busy = ''
       render()
     }
   },
 
-  async refreshPending() {
-    state.busy = 'pending'
+  async saveOwnerNote() {
+    const text = String(state.lifeNote || '').trim()
+    if (!text) return
+    state.busy = 'life'
+    state.lifeError = ''
+    state.lifeMsg = ''
     render()
     try {
-      const res = await bridge.callTool('whale_app_pending', { action: 'list' })
-      state.pending = res.items ?? []
+      const res = await bridge.callTool('whale_app_life', { action: 'owner-note', params: { text } })
+      if (res.state) state.lifeState = res.state
+      state.lifeNote = ''
+      state.lifeMsg = '✓ 已记录你的偏好说明，大鲸鱼会在后台记忆归纳时吸收'
     } catch (e) {
-      state.pendingMsg = '✗ 刷新队列失败：' + e.message
+      state.lifeError = e.message
     } finally {
       state.busy = ''
       render()
     }
   },
 
-  async approvePending(id) {
-    state.busy = 'approve:' + id
-    state.pendingMsg = ''
+  async searchExperiences() {
+    state.busy = 'life'
+    state.lifeError = ''
     render()
     try {
-      const res = await bridge.callTool('whale_app_pending', { action: 'approve', id })
-      state.pendingMsg = res.ok ? `✓ 已发出${res.rpid ? ' · rpid=' + res.rpid : ''}` : `✗ 发送失败：${res.err || res.out || '请查看日志'}`
-      await actions.refreshPending()
+      const res = await bridge.callTool('whale_app_life', { action: 'search', params: { query: state.lifeQuery } })
+      if (res.state) state.lifeState = res.state
+      const raw = res.result
+      state.lifeSearchItems = Array.isArray(raw) ? raw : (Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw?.events) ? raw.events : []))
     } catch (e) {
-      state.pendingMsg = '✗ ' + e.message
-    } finally {
-      state.busy = ''
-      render()
-    }
-  },
-
-  async rejectPending(id) {
-    state.busy = 'reject:' + id
-    state.pendingMsg = ''
-    render()
-    try {
-      await bridge.callTool('whale_app_pending', { action: 'reject', id })
-      state.pendingMsg = '✓ 已删除并记录否决反馈'
-      await actions.refreshPending()
-    } catch (e) {
-      state.pendingMsg = '✗ ' + e.message
+      state.lifeError = e.message
     } finally {
       state.busy = ''
       render()
@@ -509,53 +518,20 @@ const actions = {
   async runLife(action, params = {}) {
     state.busy = 'life'
     state.lifeError = ''
+    state.lifeMsg = ''
     render()
     try {
       const res = await bridge.callTool('whale_app_life', { action, params })
       if (res.state) state.lifeState = res.state
       state.lifeLoaded = true
-      if (action === 'export') downloadJson('antigravity-whale-life-export.json', res.result)
-      else if (res.result !== undefined) state.lifeResult = JSON.stringify(res.result, null, 2)
-    } catch (e) {
-      state.lifeError = e.message
-    } finally {
-      state.busy = ''
-      render()
-    }
-  },
-
-  submitProposal() {
-    try {
-      const parsed = JSON.parse(state.lifeProposal)
-      void actions.runLife('propose', { proposal: parsed })
-    } catch (e) {
-      state.lifeError = 'JSON 格式错误：' + e.message
-      render()
-    }
-  },
-
-  async runCorpus(action = 'list', extra = {}) {
-    state.busy = 'corpus'
-    state.corpusError = ''
-    render()
-    try {
-      const res = await bridge.callTool('whale_app_corpus', {
-        action,
-        params: { status: state.corpusFilter, offset: state.corpusOffset, limit: 10, ...extra },
-      })
-      if (res.state) state.corpusStatus = res.state
-      if (action === 'list') {
-        state.corpusItems = res.result?.items ?? []
-        state.corpusTotal = res.result?.total ?? 0
-      } else if (action === 'export') {
-        downloadJson('antigravity-whale-corpus-export.json', res.result)
-      } else {
-        state.corpusChosen = null
-        await actions.runCorpus('list')
-        return
+      if (action === 'export') {
+        const d = new Date()
+        const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
+        downloadJson(`antigravity-whale-memory-${stamp}.json`, res.result)
+        state.lifeMsg = '✓ 已导出长期记忆备份文件'
       }
     } catch (e) {
-      state.corpusError = e.message
+      state.lifeError = e.message
     } finally {
       state.busy = ''
       render()
@@ -590,9 +566,8 @@ function render() {
     ['models', '模型选择'],
     ['watch', '视频观看设置'],
     ['interact', '分享与监听'],
-    ['pending', '待审回复', state.pending.length],
-    ['runtime', '运行与体检'],
-    ['memory', '记忆与语料'],
+    ['memory', '动态与记忆'],
+    ['env', '环境与依赖'],
     ['about', '关于与更新'],
   ]
 
@@ -608,11 +583,11 @@ function render() {
       el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.bootstrap }, '重新读取')))
 
   const nav = el('nav', { className: 'tabs', role: 'tablist' },
-    ...tabs.map(([id, label, count]) => el('button', {
+    ...tabs.map(([id, label]) => el('button', {
       type: 'button',
       className: 'tab-btn' + (state.tab === id ? ' active' : ''),
       onClick: () => switchTab(id),
-    }, label, count > 0 ? el('span', { className: 'badge-count' }, count) : null)))
+    }, label)))
 
   let body
   if (state.tab === 'account') body = renderAccountTab(state, actions)
@@ -620,9 +595,8 @@ function render() {
   else if (state.tab === 'models') body = renderModelsTab(state, actions)
   else if (state.tab === 'watch') body = renderWatchTab(state, actions)
   else if (state.tab === 'interact') body = renderInteractTab(state, actions)
-  else if (state.tab === 'pending') body = renderPendingTab(state, actions)
-  else if (state.tab === 'runtime') body = renderRuntimeTab(state, actions)
   else if (state.tab === 'memory') body = renderMemoryTab(state, actions)
+  else if (state.tab === 'env') body = renderEnvTab(state, actions)
   else body = renderAboutTab(state, actions)
 
   mount(

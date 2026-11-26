@@ -1,5 +1,6 @@
-import { HOME } from '../lib/paths.mjs'
+import { HOME, dataPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
+import { enforceOutboundSafety } from '../lib/content-safety.mjs'
 // One-shot dynamic (动态) test: post -> list -> remove. Same boundary as the
 // comment tool: credentials come from the local drop box, nothing is echoed.
 //
@@ -95,6 +96,11 @@ if (mode === 'list') {
 if (mode === 'post') {
   if (!text) { console.error('post 需要 --text'); process.exit(2) }
   if (!isDry && !isGo) { console.error('必须显式 --dry 或 --go'); process.exit(2) }
+  const safetyRes = await enforceOutboundSafety({ text, channel: 'dynamic', isOwnerTarget: false, cfg: config() })
+  if (safetyRes.blocked) {
+    console.error(`✗ [安全审核拦截] ${safetyRes.reason}（类别：${safetyRes.category}）`)
+    process.exit(4)
+  }
   console.log('=== 登录态 ===')
   const mid = await whoami()
   if(draft&&String(mid)!==draft.target){console.error('登录账号与动态草稿不一致');process.exit(2)}

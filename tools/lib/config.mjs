@@ -5,16 +5,36 @@ import { configPath } from './paths.mjs'
 
 export { configPath } from './paths.mjs'
 
+export const BROWSE_DEFAULTS = Object.freeze({
+  enabled: false,
+})
+
 export const LISTEN_DEFAULTS = Object.freeze({
-  onlyOwner: false,
-  comment: false,
-  commentIntervalSec: 60,
-  scope: 'both',
-  oncePerPerson: false,
-  allDay: false,
-  dm: false,
+  dmOwner: false,
+  dmFan: false,
   dmIntervalSec: 60,
-  mentionSummary: false,
+  commentOwner: false,
+  commentFan: false,
+  commentIntervalSec: 60,
+  mentionSummaryOwner: false,
+  mentionSummaryFan: false,
+  allDay: false,
+})
+
+export const FAN_LIMITS_DEFAULTS = Object.freeze({
+  dmPerUserDaily: 2,
+  dmTotalDaily: 10,
+  commentPerUserDaily: 1,
+  commentTotalDaily: 10,
+  mentionPerUserDaily: 1,
+  mentionTotalDaily: 5,
+})
+
+export const SAFETY_DEFAULTS = Object.freeze({
+  enabled: true,
+  mode: 'dual',
+  scope: 'all',
+  customWords: [],
 })
 
 export const MODEL_DEFAULTS = Object.freeze({
@@ -22,37 +42,52 @@ export const MODEL_DEFAULTS = Object.freeze({
   worker: 'flash_lite',
 })
 
+const WATCH_MODE_BASE = Object.freeze({
+  mode: 'auto',
+  frameStrategy: 'interval',
+  frameEverySec: 15,
+  maxFrames: 16,
+  frameGrid: '3x3',
+})
+
 export const WATCH_DEFAULTS = Object.freeze({
   auto: Object.freeze({
     maxDurationMin: 15,
     minDurationSec: 30,
-    mode: 'auto',
-    frameStrategy: 'interval',
-    frameEverySec: 15,
-    maxFrames: 16,
-    frameGrid: '3x3',
+    ...WATCH_MODE_BASE,
   }),
-  mention: Object.freeze({
+  ownerMention: Object.freeze({
     autoMaxMin: 5,
     confirmMaxMin: 10,
-    frameMode: 'auto',
     replyStyle: 'comment',
+    ...WATCH_MODE_BASE,
+  }),
+  fanMention: Object.freeze({
+    autoMaxMin: 3,
+    confirmMaxMin: 5,
+    ...WATCH_MODE_BASE,
+    mode: 'text_only',
   }),
 })
 
 export const MAX_LIKE_TAGS = 6
 export const MAX_DISLIKE_TAGS = 12
 export const MAX_PERSONA_CHARS = 4000
+export const MAX_CUSTOM_SAFETY_WORDS = 50
 
-/** 中性默认值：全部基于 Antigravity 内置模型，不依赖外部 API；分享与监听项默认均不勾选。 */
+/** 中性默认值：仅使用 Antigravity 内置模型；所有对外分享/监听开关默认不勾选；安全审核默认开启。 */
 export const DEFAULTS = {
-  chat: CHAT_DEFAULTS,
-  life: LIFE_DEFAULTS,
+  browse: { ...BROWSE_DEFAULTS },
+  chat: { ...CHAT_DEFAULTS },
+  life: { ...LIFE_DEFAULTS, autonomy: false },
   models: { ...MODEL_DEFAULTS },
   watch: {
     auto: { ...WATCH_DEFAULTS.auto },
-    mention: { ...WATCH_DEFAULTS.mention },
+    ownerMention: { ...WATCH_DEFAULTS.ownerMention },
+    fanMention: { ...WATCH_DEFAULTS.fanMention },
   },
+  fanLimits: { ...FAN_LIMITS_DEFAULTS },
+  safety: { ...SAFETY_DEFAULTS, customWords: [] },
   sessionRotateDays: 0,
   personaOncePerSession: true,
   risk: { minGapMs: 1500, readHourly: 600, readDaily: 3000, writeHourly: 12, writeDaily: 30, writeGapSec: 120, dmGapSec: 60 },
@@ -80,7 +115,7 @@ export const DEFAULTS = {
 
 export function withoutRetiredListening(cfg) {
   const listen = { ...cfg.listen }
-  for (const key of ['live', 'liveRoom', 'liveScope']) delete listen[key]
+  for (const key of ['live', 'liveRoom', 'liveScope', 'oncePerPerson', 'scope']) delete listen[key]
   return { ...cfg, listen }
 }
 
@@ -97,34 +132,109 @@ export function normalizeModels(raw) {
   }
 }
 
+const clampInt = (v, min, max, fallback) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback
+}
+
+function normalizeWatchView(src, defaults) {
+  const s = src && typeof src === 'object' ? src : {}
+  const rawMode = s.mode ?? s.frameMode
+  return {
+    mode: ['text_only', 'auto', 'always_frames'].includes(rawMode) ? rawMode : defaults.mode,
+    frameStrategy: ['interval', 'grid'].includes(s.frameStrategy) ? s.frameStrategy : defaults.frameStrategy,
+    frameEverySec: clampInt(s.frameEverySec, 3, 120, defaults.frameEverySec),
+    maxFrames: clampInt(s.maxFrames, 4, 36, defaults.maxFrames),
+    frameGrid: ['2x2', '3x3', '4x4'].includes(s.frameGrid) ? s.frameGrid : defaults.frameGrid,
+  }
+}
+
 export function normalizeWatch(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
   const a = src.auto && typeof src.auto === 'object' ? src.auto : {}
-  const m = src.mention && typeof src.mention === 'object' ? src.mention : {}
-  const clampInt = (v, min, max, fallback) => {
-    const n = Number(v)
-    return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback
-  }
+  // 兼容旧版 watch.mention -> watch.ownerMention
+  const om = (src.ownerMention && typeof src.ownerMention === 'object')
+    ? src.ownerMention
+    : (src.mention && typeof src.mention === 'object' ? src.mention : {})
+  const fm = src.fanMention && typeof src.fanMention === 'object' ? src.fanMention : {}
+
   const maxDurationMin = clampInt(a.maxDurationMin, 1, 120, WATCH_DEFAULTS.auto.maxDurationMin)
-  const minDurationSec = Math.min(maxDurationMin * 60 - 1, clampInt(a.minDurationSec, 0, 600, WATCH_DEFAULTS.auto.minDurationSec))
-  const autoMaxMin = clampInt(m.autoMaxMin, 1, 60, WATCH_DEFAULTS.mention.autoMaxMin)
-  const confirmMaxMin = Math.max(autoMaxMin, clampInt(m.confirmMaxMin, 1, 120, WATCH_DEFAULTS.mention.confirmMaxMin))
+  const minDurationSec = Math.max(0, Math.min(maxDurationMin * 60 - 1, clampInt(a.minDurationSec, 0, 600, WATCH_DEFAULTS.auto.minDurationSec)))
+
+  const ownerAutoMax = clampInt(om.autoMaxMin, 1, 60, WATCH_DEFAULTS.ownerMention.autoMaxMin)
+  const ownerConfirmMax = Math.max(ownerAutoMax, clampInt(om.confirmMaxMin, 1, 120, WATCH_DEFAULTS.ownerMention.confirmMaxMin))
+
+  const fanAutoMax = clampInt(fm.autoMaxMin, 1, 30, WATCH_DEFAULTS.fanMention.autoMaxMin)
+  const fanConfirmMax = Math.max(fanAutoMax, clampInt(fm.confirmMaxMin, 1, 60, WATCH_DEFAULTS.fanMention.confirmMaxMin))
+
   return {
     auto: {
       maxDurationMin,
-      minDurationSec: Math.max(0, minDurationSec),
-      mode: ['text_only', 'auto', 'always_frames'].includes(a.mode) ? a.mode : WATCH_DEFAULTS.auto.mode,
-      frameStrategy: ['interval', 'grid'].includes(a.frameStrategy) ? a.frameStrategy : WATCH_DEFAULTS.auto.frameStrategy,
-      frameEverySec: clampInt(a.frameEverySec, 3, 120, WATCH_DEFAULTS.auto.frameEverySec),
-      maxFrames: clampInt(a.maxFrames, 4, 36, WATCH_DEFAULTS.auto.maxFrames),
-      frameGrid: ['2x2', '3x3', '4x4'].includes(a.frameGrid) ? a.frameGrid : WATCH_DEFAULTS.auto.frameGrid,
+      minDurationSec,
+      ...normalizeWatchView(a, WATCH_DEFAULTS.auto),
     },
-    mention: {
-      autoMaxMin,
-      confirmMaxMin,
-      frameMode: ['text_only', 'auto', 'always_frames'].includes(m.frameMode) ? m.frameMode : WATCH_DEFAULTS.mention.frameMode,
-      replyStyle: ['comment', 'notify', 'both'].includes(m.replyStyle) ? m.replyStyle : WATCH_DEFAULTS.mention.replyStyle,
+    ownerMention: {
+      autoMaxMin: ownerAutoMax,
+      confirmMaxMin: ownerConfirmMax,
+      replyStyle: ['comment', 'dm', 'both'].includes(om.replyStyle) ? om.replyStyle : WATCH_DEFAULTS.ownerMention.replyStyle,
+      ...normalizeWatchView(om, WATCH_DEFAULTS.ownerMention),
     },
+    fanMention: {
+      autoMaxMin: fanAutoMax,
+      confirmMaxMin: fanConfirmMax,
+      ...normalizeWatchView(fm, WATCH_DEFAULTS.fanMention),
+    },
+  }
+}
+
+export function normalizeListen(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  // 兼容旧版 dm / comment / mentionSummary 字段平滑升级
+  const dmOwner = typeof src.dmOwner === 'boolean' ? src.dmOwner : (src.dm === true)
+  const dmFan = src.dmFan === true
+  const commentOwner = typeof src.commentOwner === 'boolean' ? src.commentOwner : (src.comment === true)
+  const commentFan = typeof src.commentFan === 'boolean' ? src.commentFan : (src.comment === true && src.onlyOwner !== true)
+  const mentionSummaryOwner = typeof src.mentionSummaryOwner === 'boolean' ? src.mentionSummaryOwner : (src.mentionSummary === true)
+  const mentionSummaryFan = src.mentionSummaryFan === true
+  return {
+    dmOwner,
+    dmFan,
+    dmIntervalSec: clampInt(src.dmIntervalSec, 20, 600, LISTEN_DEFAULTS.dmIntervalSec),
+    commentOwner,
+    commentFan,
+    commentIntervalSec: clampInt(src.commentIntervalSec, 20, 600, LISTEN_DEFAULTS.commentIntervalSec),
+    mentionSummaryOwner,
+    mentionSummaryFan,
+    allDay: src.allDay === true,
+  }
+}
+
+export function normalizeFanLimits(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const dmPerUserDaily = clampInt(src.dmPerUserDaily, 1, 10, FAN_LIMITS_DEFAULTS.dmPerUserDaily)
+  const dmTotalDaily = Math.max(dmPerUserDaily, clampInt(src.dmTotalDaily, 1, 100, FAN_LIMITS_DEFAULTS.dmTotalDaily))
+  const commentPerUserDaily = clampInt(src.commentPerUserDaily, 1, 10, FAN_LIMITS_DEFAULTS.commentPerUserDaily)
+  const commentTotalDaily = Math.max(commentPerUserDaily, clampInt(src.commentTotalDaily, 1, 100, FAN_LIMITS_DEFAULTS.commentTotalDaily))
+  const mentionPerUserDaily = clampInt(src.mentionPerUserDaily, 1, 5, FAN_LIMITS_DEFAULTS.mentionPerUserDaily)
+  const mentionTotalDaily = Math.max(mentionPerUserDaily, clampInt(src.mentionTotalDaily, 1, 50, FAN_LIMITS_DEFAULTS.mentionTotalDaily))
+  return {
+    dmPerUserDaily,
+    dmTotalDaily,
+    commentPerUserDaily,
+    commentTotalDaily,
+    mentionPerUserDaily,
+    mentionTotalDaily,
+  }
+}
+
+export function normalizeSafety(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}
+  const words = [...new Set((Array.isArray(src.customWords) ? src.customWords : []).map(s => String(s ?? '').trim()).filter(Boolean))].slice(0, MAX_CUSTOM_SAFETY_WORDS)
+  return {
+    enabled: src.enabled !== false,
+    mode: ['dual', 'local_only'].includes(src.mode) ? src.mode : SAFETY_DEFAULTS.mode,
+    scope: ['all', 'external_only'].includes(src.scope) ? src.scope : SAFETY_DEFAULTS.scope,
+    customWords: words,
   }
 }
 
@@ -143,8 +253,16 @@ export function config({ fresh = false } = {}) {
   let user = {}
   try { user = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch { /* 首次运行用默认值 */ }
   const merged = withoutRetiredListening(merge(DEFAULTS, user))
+  merged.browse = { enabled: user.browse?.enabled === true }
   merged.models = normalizeModels(merged.models)
   merged.watch = normalizeWatch(merged.watch)
+  merged.listen = normalizeListen(user.listen ?? merged.listen)
+  merged.fanLimits = normalizeFanLimits(merged.fanLimits)
+  merged.safety = normalizeSafety(merged.safety)
+  merged.diary = { enabled: false, push: false }
+  merged.notify = { type: 'none', url: '', template: 'text', cmd: '', args: [] }
+  merged.life = { ...(merged.life ?? {}), autonomy: false }
+  merged.personaOncePerSession = true
   if (!String(merged.persona?.name ?? '').trim()) merged.persona = { ...(merged.persona ?? {}), name: '大鲸鱼' }
   merged.__hasUserFile = Object.keys(user).length > 0
   cache = merged

@@ -1,15 +1,16 @@
 /**
- * Antigravity B 站鲸鱼无头后台守护进程（Sidecar 入口）。
+ * Antigravity 哔哩哔哩大鲸鱼无头后台守护进程（Sidecar 入口）。
  *
  * - 打开 Antigravity App 时由插件系统自动拉起，关闭时收到 SIGTERM/SIGINT 优雅退出。
- * - 运行生物钟调度器、私信/评论监听与 4 个内置模型后台 Worker（完成后自动归档临时会话）。
- * - 暴露仅本机回环鉴权 IPC 供左侧栏 MCP App 实时查询状态与热重载配置。
+ * - 运行生物钟调度器、主人与粉丝私信/评论监听、记忆归纳与外发内容安全审核（均用内置模型且自动归档）。
+ * - 暴露仅本机回环鉴权 IPC 供左侧栏控制台实时查询状态、读取模型列表、执行安全复审与热重载配置。
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { PLUGIN_ROOT, WHALE_HOME, workDirPath, configPath } from '../../tools/lib/paths.mjs'
 import { createAntigravityRpc } from '../../lib/antigravity-rpc.js'
 import { createAntigravitySessionController } from '../../lib/antigravity-session.js'
+import { createSafetyReviewer } from '../../lib/safety-worker.js'
 import { startScheduler } from '../../lib/scheduler.js'
 import { startSidecarIpc } from '../../lib/sidecar-ipc.js'
 import { resolveWorkDir } from '../../lib/work-dir.js'
@@ -19,16 +20,12 @@ const log = (msg) => {
 }
 
 fs.mkdirSync(WHALE_HOME, { recursive: true })
-const readMainModel = () => {
-  try { return JSON.parse(fs.readFileSync(configPath, 'utf8'))?.models?.main || 'flash' }
-  catch { return 'flash' }
+const readCfgSafe = () => {
+  try { return JSON.parse(fs.readFileSync(configPath, 'utf8')) ?? {} }
+  catch { return {} }
 }
-
-const workDir = (() => {
-  let homeOverride = ''
-  try { homeOverride = JSON.parse(fs.readFileSync(configPath, 'utf8'))?.home ?? '' } catch {}
-  return resolveWorkDir(homeOverride, workDirPath, log)
-})()
+const readMainModel = () => readCfgSafe()?.models?.main || 'flash'
+const workDir = resolveWorkDir('', workDirPath, log)
 
 const rpc = createAntigravityRpc()
 const sessionController = createAntigravitySessionController({
@@ -36,6 +33,7 @@ const sessionController = createAntigravitySessionController({
   workDir,
   defaultModel: readMainModel,
 })
+const safetyReviewer = createSafetyReviewer({ rpc, config: readCfgSafe })
 
 const biliMjs = path.join(PLUGIN_ROOT, 'tools', 'bili.mjs')
 let sched = null
@@ -65,11 +63,12 @@ const ipc = await startSidecarIpc({
   getStatus: () => ({
     schedulerStatus: { ...schedStatus, rpcAvailable: rpc.available() },
     affectWorker: sched?.affectStatus?.() ?? { status: 'unavailable' },
-    diaryWorker: sched?.diaryStatus?.() ?? { status: 'unavailable' },
     socialWorker: sched?.socialStatus?.() ?? { status: 'unavailable' },
     formationWorker: sched?.formationStatus?.() ?? { status: 'unavailable' },
+    safetyWorker: safetyReviewer.status(),
   }),
   getModels: () => rpc.getModelCatalog(),
+  onSafetyCheck: (payload) => safetyReviewer.review(payload),
   onInvalidate: (resetPlan) => { sched?.invalidate(resetPlan) },
   onTriggerTick: () => { sched?.tick?.() },
 })

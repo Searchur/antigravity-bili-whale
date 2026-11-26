@@ -23,7 +23,10 @@ import crypto from 'node:crypto'
 import { config } from '../lib/config.mjs'
 import { validateShare } from '../lib/share-policy.mjs'
 import { gate, record } from '../lib/quota-gate.mjs'
-import {exactJson} from '../lib/json-exact.mjs'
+import { exactJson } from '../lib/json-exact.mjs'
+import { enforceOutboundSafety } from '../lib/content-safety.mjs'
+import { isFollowerOfWhale } from '../lib/relation.mjs'
+import { checkFanQuota, recordFanReply } from '../lib/fan-quota.mjs'
 
 // 稳定的设备 ID：只生成一次，之后永远复用 ✓
 //   · 存在 ~/.bili-ai/dev_id（0600）
@@ -109,14 +112,25 @@ const loadQ = () => { try { return JSON.parse(fs.readFileSync(QUOTA, 'utf8')) } 
 const saveQ = (o) => { fs.mkdirSync(path.dirname(QUOTA), { recursive: true }); fs.writeFileSync(QUOTA, JSON.stringify(o, null, 2) + '\n') }
 const today = () => new Date().toLocaleDateString('sv-SE')
 
-// ── 写死的三条 ───────────────────────────────────────────────────────
-const ONE_TARGET_PER_DAY = true  // ① 一天只锁定 1 个收信人（条数不限 ✓）
-const ONLY_TO = OWNER            // ② 只发给主人
-const REQUIRE_MUTUAL = true      // ③ 必须互关
-// 分享型的 target：优先正文里的 BV（"同一视频 7 天一次"才判得准 ✓），否则退回 dm:<mid>
-const targetBV = BV || (String(opt.target ?? "").match(/^(?:BV:)?(BV[0-9A-Za-z]{10})$/) ?? [])[1]
-if (SHARE && !STATUS && !targetBV) { console.error("分享需要正文或 --target 中的有效 BV 号"); process.exit(2) }
-const SHARE_TARGET = AFFECT_PLAN ? 'affect:'+AFFECT_PLAN : targetBV ? "BV:" + targetBV : "dm:" + ONLY_TO
+// ── 目标解析与硬闸门：绝不主动给非主人发私信 ───────────────────────────────
+const REPLY_FAN = !!opt['reply-fan']
+const RECEIPT = String(opt.receipt ?? '').trim()
+const EXPLICIT_TO = String(opt.to ?? '').trim()
+const IS_FAN_REPLY = REPLY_FAN && EXPLICIT_TO && EXPLICIT_TO !== OWNER
+const ONLY_TO = IS_FAN_REPLY ? EXPLICIT_TO : OWNER
+const REQUIRE_MUTUAL = !IS_FAN_REPLY
+const targetBV = BV || (String(opt.target ?? '').match(/^(?:BV:)?(BV[0-9A-Za-z]{10})$/) ?? [])[1]
+if (SHARE && !STATUS && !targetBV) { console.error('分享需要正文或 --target 中的有效 BV 号'); process.exit(2) }
+const SHARE_TARGET = AFFECT_PLAN ? 'affect:' + AFFECT_PLAN : targetBV ? 'BV:' + targetBV : 'dm:' + ONLY_TO
+
+function verifyFanReceipt(mid, receipt) {
+  if (!receipt) return false
+  try {
+    const map = JSON.parse(fs.readFileSync(dataPath('dm-fan-receipts.json'), 'utf8'))
+    const entry = map?.[receipt]
+    return Boolean(entry && String(entry.mid) === String(mid) && Date.now() - Number(entry.at ?? 0) < 24 * 3600_000)
+  } catch { return false }
+}
 
 async function me() {
   const nav = await jget('https://api.bilibili.com/x/web-interface/nav')
@@ -189,38 +203,63 @@ if (STATUS) {
 
 if (!MSG && !PIC) { console.error('用法: node dm.mjs --msg "…" [--pic 图片路径] --dry|--go；仅发图片可用 --pic 图片路径'); process.exit(2) }
 
-// ── 闸门（写死，不接受参数覆盖）──────────────────────────────────────
-if (!OWNER) { console.error('✗ 配置里 owner.mid 为空 —— 私信只发给主人，没配就不发'); process.exit(2) }
+// ── 闸门（代码硬限制）──────────────────────────────────────────────────
+if (EXPLICIT_TO && EXPLICIT_TO !== OWNER && !REPLY_FAN) {
+  console.error('✗ 禁止主动向非主人发送私信（仅允许回复已关注粉丝的来信，需带 --reply-fan --receipt <回执>）。')
+  process.exit(4)
+}
+if (!ONLY_TO) { console.error('✗ 缺少收信人 UID（请先配置 owner.mid）'); process.exit(2) }
 if (MSG.length > 300) { console.error(`✗ 私信太长（${MSG.length} > 300 字），退化成刷屏了 ✗`); process.exit(2) }
+
+const safetyRes = await enforceOutboundSafety({ text: MSG, channel: 'dm', isOwnerTarget: !IS_FAN_REPLY, cfg })
+if (safetyRes.blocked) {
+  console.error(`✗ [安全审核拦截] ${safetyRes.reason}（类别：${safetyRes.category}）`)
+  process.exit(4)
+}
 
 const meInfo = await me()
 if (String(meInfo.mid) === ONLY_TO) {
-  // 2026-10-23 修（issue #22）：只报「不能给自己发私信」没有出路 ✗
-  console.error('✗ 不能给自己发私信（owner.mid 就是 cookie 这个号）');
-  console.error('  私信通道需要【第二个 B 站号】：设 owner.mid 为另一个号，且双方手动互关');
-  console.error('  只有一个号时：分享方式选「评论区 @」，推送选桌面通知 / Webhook / 自定义命令 ✓');
+  console.error('✗ 不能给自己发私信（目标 UID 与当前登录账号相同）')
   process.exit(2)
 }
 
-const rel = await relation(ONLY_TO)
-if (!rel.ok) { console.error(`✗ ${rel.why}`); process.exit(3) }
-if (REQUIRE_MUTUAL && rel.attribute !== 6) {
-  console.error(`✗ 未互关（attribute=${rel.attribute}）—— 私信通道要求双方互相关注 ✓`)
-  for (const line of relationLines(rel, meInfo)) console.error(line)
-  process.exit(4)
+if (IS_FAN_REPLY) {
+  if (SHARE) { console.error('✗ 禁止向粉丝主动分享视频，仅允许被动回复来信'); process.exit(4) }
+  if (!cfg.listen?.dmFan) { console.error('✗ 当前未开启「回复粉丝私信」开关'); process.exit(4) }
+  if (!verifyFanReceipt(ONLY_TO, RECEIPT)) {
+    console.error('✗ 缺少有效的粉丝来信回执（--receipt），严禁无来信主动向粉丝发起私信。')
+    process.exit(4)
+  }
+  const fanOk = await isFollowerOfWhale(ONLY_TO, H)
+  if (!fanOk) {
+    console.error(`✗ 对方（UID ${ONLY_TO}）未关注大鲸鱼，仅回复已关注粉丝的私信。`)
+    process.exit(4)
+  }
+  const fq = checkFanQuota({
+    channel: 'dm',
+    uid: ONLY_TO,
+    perUserDaily: cfg.fanLimits?.dmPerUserDaily ?? 2,
+    totalDaily: cfg.fanLimits?.dmTotalDaily ?? 10,
+  })
+  if (!fq.allowed) {
+    console.error(`✗ [粉丝私信限额] ${fq.reason}`)
+    process.exit(4)
+  }
+  console.log(`[dm:fan-reply] ${meInfo.uname} → 粉丝 UID ${ONLY_TO}（今日 ${fq.userUsed + 1}/${cfg.fanLimits?.dmPerUserDaily ?? 2}）`)
+} else {
+  const rel = await relation(ONLY_TO)
+  if (!rel.ok) { console.error(`✗ ${rel.why}`); process.exit(3) }
+  if (REQUIRE_MUTUAL && rel.attribute !== 6) {
+    console.error(`✗ 未互关（attribute=${rel.attribute}）—— 主人私信通道要求双方互相关注 ✓`)
+    for (const line of relationLines(rel, meInfo)) console.error(line)
+    process.exit(4)
+  }
+  const q = loadQ()
+  const used = q.date === today() ? Number(q.count ?? 0) : 0
+  console.log(`[dm] ${meInfo.uname} → ${OWNER_NAME}（mid ${ONLY_TO}）`)
+  console.log(`  正文 ${MSG.length} 字：${MSG.slice(0, 80)}${MSG.length > 80 ? '…' : ''}`)
+  console.log(`  互关 ✓  ·  今天第 ${used + 1} 条（主人专属通道）`)
 }
-
-const q = loadQ()
-const used = q.date === today() ? Number(q.count ?? 0) : 0
-// ① 一天只锁定 1 个收信人（条数不限 ✓）：如果今天已经发给过别人 → 拒
-if (ONE_TARGET_PER_DAY && q.date === today() && q.mid && String(q.mid) !== ONLY_TO) {
-  console.error(`✗ 今天已经锁定给 mid ${q.mid} 了 —— 一天只能锁定 1 个收信人（防刷量 ✗）`)
-  process.exit(4)
-}
-
-console.log(`[dm] ${meInfo.uname} → ${OWNER_NAME}（mid ${ONLY_TO}）`)
-console.log(`  正文 ${MSG.length} 字：${MSG.slice(0, 80)}${MSG.length > 80 ? '…' : ''}`)
-console.log(`  互关 ✓  ·  今天第 ${used + 1} 条（条数不限 ✓ 锁定给 ${OWNER_NAME} ✓）`)
 
 if (!GO && !DRY) { console.error('✗ 必须给 --dry 或 --go'); process.exit(2) }
 
@@ -266,8 +305,12 @@ async function deliver(guard, text, pic) {
     const receipt = result.data?.msg_key ?? result.data?.msg_seqno
     if (receipt == null || !String(receipt)) throw Error('平台接受但未返回消息回执，保留未知发送占位')
     await guard.store.settle(guard.token,{status:'sent',receipt:String(receipt)})
-    const quota = loadQ()
-    saveQ({date:today(),count:(quota.date===today()?Number(quota.count??0):0)+1,mid:ONLY_TO,at:new Date().toISOString()})
+    if (IS_FAN_REPLY) {
+      recordFanReply({ channel: 'dm', uid: ONLY_TO })
+    } else {
+      const quota = loadQ()
+      saveQ({ date: today(), count: (quota.date === today() ? Number(quota.count ?? 0) : 0) + 1, mid: ONLY_TO, at: new Date().toISOString() })
+    }
     return String(receipt)
   }
   if (Number.isFinite(result.code) && result.code !== 0) await guard.store.settle(guard.token,{status:'rejected'})
