@@ -12,6 +12,7 @@ const jsResult = await build({
   bundle: true,
   format: 'iife',
   target: ['es2022'],
+  charset: 'utf8',
   minify: true,
   write: false,
   legalComments: 'none',

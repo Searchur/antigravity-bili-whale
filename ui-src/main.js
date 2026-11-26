@@ -22,14 +22,14 @@ const state = {
   personaText: '',
   personaBytes: 0,
   personaPath: '',
-  personaMsg: '',
+  personaMsg: null,
   likeTagDraft: '',
   dislikeTagDraft: '',
   safetyWordDraft: '',
   ownerCheck: null,
   ownerCheckErr: '',
   confirmLogout: false,
-  logoutMsg: '',
+  logoutMsg: null,
   qr: null,
   qrError: '',
   modelCatalog: null,
@@ -40,8 +40,10 @@ const state = {
   depsLoaded: false,
   depsError: '',
   ffmpegMsg: null,
-  diagMsg: null,
+  diagExport: null,
+  diagErr: '',
   about: null,
+  pathMsg: null,
   updateCheck: null,
   updateResult: null,
   updateError: '',
@@ -49,11 +51,10 @@ const state = {
   lifeState: null,
   lifeLoaded: false,
   lifeQuery: '',
-  lifeNote: '',
   lifeReceipt: '',
   lifeVerified: false,
   lifeSearchItems: null,
-  lifeMsg: '',
+  memoryExport: null,
   lifeError: '',
 }
 
@@ -67,15 +68,6 @@ function mount(...nodes) {
 function setBanner(kind, text) {
   state.banner = text ? { kind, text } : null
   render()
-}
-
-function downloadJson(filename, obj) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 const bridge = createMcpBridge({
@@ -120,6 +112,34 @@ const actions = {
     void bridge.openLink(url)
   },
 
+  async openPath(key, filename = '') {
+    state.pathMsg = null
+    try {
+      const res = await bridge.callTool('whale_app_ops', {
+        action: 'open_path',
+        key,
+        ...(filename ? { filename } : {}),
+      })
+      if (res?.detail && state.tab === 'about') {
+        state.pathMsg = { kind: 'warn', text: res.detail }
+        render()
+      }
+    } catch (e) {
+      if (state.tab === 'about') {
+        state.pathMsg = { kind: 'err', text: '打开目录失败：' + e.message }
+        render()
+      } else if (state.tab === 'env') {
+        state.diagErr = '打开目录失败：' + e.message
+        render()
+      } else if (state.tab === 'memory') {
+        state.lifeError = '打开目录失败：' + e.message
+        render()
+      } else {
+        setBanner('err', '打开目录失败：' + e.message)
+      }
+    }
+  },
+
   async copyText(text, key) {
     try {
       await navigator.clipboard.writeText(text)
@@ -162,7 +182,7 @@ const actions = {
   async logout() {
     cancelQrInternal()
     state.busy = 'logout'
-    state.logoutMsg = ''
+    state.logoutMsg = null
     render()
     try {
       const res = await bridge.callTool('whale_app_auth', { action: 'logout' })
@@ -174,9 +194,9 @@ const actions = {
         state.savedJson = JSON.stringify(state.cfg)
       }
       state.depsLoaded = false
-      state.logoutMsg = res.detail || '✓ 已退出登录并清除本地凭据'
+      state.logoutMsg = { kind: 'ok', text: res.detail || '已退出登录并清除本地凭据' }
     } catch (e) {
-      state.logoutMsg = '✗ 退出登录失败：' + e.message
+      state.logoutMsg = { kind: 'err', text: '退出登录失败：' + e.message }
     } finally {
       state.busy = ''
       render()
@@ -208,7 +228,7 @@ const actions = {
         ...state.ownerCheck,
         matched: true,
         expectedName: actualName,
-        detail: `✓ 已同步为 B 站实际昵称「${actualName}」（记得点击右上角「保存配置」）`,
+        detail: `已同步为 B 站实际昵称「${actualName}」（记得点击右上角「保存配置」）`,
       }
     }
     render()
@@ -254,7 +274,7 @@ const actions = {
     try {
       const res = await bridge.callTool('whale_app_ops', { action: 'update_check' })
       state.updateCheck = res
-      if (res.local) state.about = { ok: true, local: res.local }
+      if (res.local) state.about = { ...(state.about ?? { ok: true }), local: res.local }
     } catch (e) {
       state.updateError = '检查更新失败：' + e.message
     } finally {
@@ -270,7 +290,7 @@ const actions = {
     render()
     try {
       const res = await bridge.callTool('whale_app_ops', { action: 'update_apply', ref })
-      state.updateResult = { kind: 'ok', text: `✓ ${res.message}` }
+      state.updateResult = { kind: 'ok', text: res.message }
       await actions.refreshAbout()
     } catch (e) {
       state.updateResult = null
@@ -305,7 +325,8 @@ const actions = {
         state.cfg = res.config
         state.savedJson = JSON.stringify(res.config)
       }
-      setBanner(res.warn ? 'warn' : 'ok', `✓ 配置已保存（${res.configPath || ''}）${res.warn ? '\n⚠ ' + res.warn : ''}`)
+      if (res.warn) setBanner('warn', res.warn)
+      else state.banner = null
       return true
     } catch (e) {
       setBanner('err', '保存失败：' + e.message)
@@ -318,14 +339,14 @@ const actions = {
 
   async savePersona() {
     state.busy = 'persona'
-    state.personaMsg = ''
+    state.personaMsg = null
     render()
     try {
       const res = await bridge.callTool('whale_app_persona', { action: 'save', text: state.personaText })
       state.personaBytes = res.bytes ?? 0
-      state.personaMsg = res.detail || '✓ 已保存'
+      state.personaMsg = { kind: 'ok', text: res.detail || '已保存' }
     } catch (e) {
-      state.personaMsg = '✗ ' + e.message
+      state.personaMsg = { kind: 'err', text: e.message }
     } finally {
       state.busy = ''
       render()
@@ -335,7 +356,7 @@ const actions = {
   async qrStart() {
     cancelQrInternal()
     state.confirmLogout = false
-    state.logoutMsg = ''
+    state.logoutMsg = null
     state.qrError = ''
     state.qr = { status: 'starting' }
     const gen = qrFlow.gen
@@ -412,33 +433,44 @@ const actions = {
 
   async exportDiagnostics() {
     state.busy = 'export_diag'
-    state.diagMsg = null
+    state.diagExport = null
+    state.diagErr = ''
     render()
     try {
       const res = await bridge.callTool('whale_app_ops', { action: 'export_diag' })
-      downloadJson(res.filename || `antigravity-bili-whale-diag-${Date.now()}.json`, res.payload)
-      state.diagMsg = { kind: 'ok', text: `✓ 已导出带时间戳的脱敏诊断日志：${res.filename}` }
+      state.diagExport = {
+        label: '脱敏诊断日志',
+        filename: res.filename,
+        filePath: res.filePath,
+        dirPath: res.dirPath,
+        bytes: res.bytes,
+      }
     } catch (e) {
-      state.diagMsg = { kind: 'err', text: '导出诊断日志失败：' + e.message }
+      state.diagErr = '导出诊断日志失败：' + e.message
     } finally {
       state.busy = ''
       render()
     }
   },
 
-  async installFfmpeg() {
+  async installFfmpeg(force = false) {
     state.busy = 'ffmpeg'
-    state.ffmpegMsg = { kind: 'warn', text: '正在下载 Windows 便携版 ffmpeg 并校验（约 30–90 秒，请勿关闭页面）…' }
+    state.ffmpegMsg = {
+      kind: 'warn',
+      text: force
+        ? '正在重新下载 Windows 便携版 ffmpeg 并校验更新（约 30–90 秒，请勿关闭页面）…'
+        : '正在下载 Windows 便携版 ffmpeg 并校验（约 30–90 秒，请勿关闭页面）…',
+    }
     render()
     let installedOk = false
     try {
-      const res = await bridge.callTool('whale_app_ops', { action: 'install_ffmpeg' })
+      const res = await bridge.callTool('whale_app_ops', { action: 'install_ffmpeg', force: force === true })
       installedOk = true
       state.ffmpegMsg = {
         kind: 'ok',
         text: res.alreadyInstalled
-          ? `✓ 本机已可用 ffmpeg（${res.version || '已就绪'}），路径：${res.path}`
-          : `✓ ffmpeg 安装完成（${res.version || '已就绪'}），已安装至：${res.path}`,
+          ? `本机已可用 ffmpeg（${res.version || '已就绪'}），路径：${res.path}`
+          : `ffmpeg 安装/更新完成（${res.version || '已就绪'}），路径：${res.path}`,
       }
     } catch (e) {
       state.ffmpegMsg = {
@@ -478,26 +510,6 @@ const actions = {
     }
   },
 
-  async saveOwnerNote() {
-    const text = String(state.lifeNote || '').trim()
-    if (!text) return
-    state.busy = 'life'
-    state.lifeError = ''
-    state.lifeMsg = ''
-    render()
-    try {
-      const res = await bridge.callTool('whale_app_life', { action: 'owner-note', params: { text } })
-      if (res.state) state.lifeState = res.state
-      state.lifeNote = ''
-      state.lifeMsg = '✓ 已记录你的偏好说明，大鲸鱼会在后台记忆归纳时吸收'
-    } catch (e) {
-      state.lifeError = e.message
-    } finally {
-      state.busy = ''
-      render()
-    }
-  },
-
   async searchExperiences() {
     state.busy = 'life'
     state.lifeError = ''
@@ -518,17 +530,20 @@ const actions = {
   async runLife(action, params = {}) {
     state.busy = 'life'
     state.lifeError = ''
-    state.lifeMsg = ''
+    if (action === 'export') state.memoryExport = null
     render()
     try {
       const res = await bridge.callTool('whale_app_life', { action, params })
       if (res.state) state.lifeState = res.state
       state.lifeLoaded = true
       if (action === 'export') {
-        const d = new Date()
-        const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
-        downloadJson(`antigravity-whale-memory-${stamp}.json`, res.result)
-        state.lifeMsg = '✓ 已导出长期记忆备份文件'
+        state.memoryExport = {
+          label: '长期记忆备份',
+          filename: res.filename,
+          filePath: res.filePath,
+          dirPath: res.dirPath,
+          bytes: res.bytes,
+        }
       }
     } catch (e) {
       state.lifeError = e.message

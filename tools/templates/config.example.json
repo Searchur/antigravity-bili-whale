@@ -70,14 +70,13 @@
   "share": {
     "enabled": false,
     "via": "dm",
-    "aiCommentGuard": false,
-    "aiThreshold": 30,
     "minScore": 13,
     "silentAfterDays": 3
   },
   "chat": {
     "followup": false,
-    "dynamic": false
+    "dynamic": false,
+    "dynamicDailyMax": 1
   },
   "listen": {
     "dmOwner": false,

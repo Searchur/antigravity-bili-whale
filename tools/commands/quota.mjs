@@ -1,6 +1,7 @@
-import { HOME } from '../lib/paths.mjs'
+import { HOME, dataPath } from '../lib/paths.mjs'
 import { latestFeedback } from '../lib/dm-feedback.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
+import { chatConfig } from '../lib/chat-config.mjs'
 // 对外发言的「限额闸」—— B 档"限额自主"的代码强制部分（2026-10-14 主人选 B 档）。
 //
 // 为什么不靠自觉：主人明确要求"限频写进代码，不是写进你的自觉里"。
@@ -156,6 +157,20 @@ if (cmd === 'check') {
   //   现在的缰绳只有这些：分享型 ≤shareDaily/天（上面那条分支 ✓）· 评分卡 · 同一视频 7 天一次 · 事后报备。
   //   **非分享**的自主发言**不再设每日条数额度** —— 但仍必须 dry→go→署名复核→报备主人 ✓
   //   （`--auto` 依旧要带：它标记"这是她自己决定说的"，影响的是**报备与审计**，不是额度 ✓）
+  if (opt.type === 'dynamic' && auto) {
+    if (config().chat?.dynamic !== true) {
+      console.error('公开动态已关闭')
+      process.exit(2)
+    }
+    const dynamicMax = chatConfig(config().chat).dynamicDailyMax
+    const usedDynamic = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'dynamic').length
+    if (usedDynamic >= dynamicMax) {
+      console.log(`今日公开动态额度已用完（${usedDynamic}/${dynamicMax}）—— 留到明天再发。`)
+      process.exit(2)
+    }
+    console.log(`通过：公开动态额度内（${usedDynamic}/${dynamicMax}）`)
+    process.exit(0)
+  }
   if (!auto) {
     console.log('（非自主发言：不拦截）主人授权的发言不受限，但照旧 dry→go→复核')
     process.exit(0)

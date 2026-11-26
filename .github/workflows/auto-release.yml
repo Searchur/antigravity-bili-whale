@@ -1,0 +1,102 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]') && github.actor != 'github-actions[bot]'"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Resolve version and auto-bump patch if tag exists
+        id: ver
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs'
+          import { execFileSync } from 'node:child_process'
+
+          const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim()
+          const tagExists = (t) => Boolean(run('git', ['tag', '-l', t]))
+
+          const manifest = JSON.parse(fs.readFileSync('plugin.json', 'utf8'))
+          const current = String(manifest.version || '1.0.0').replace(/^v/i, '')
+          let target = current
+          let bumped = false
+
+          if (tagExists(`v${target}`)) {
+            const parts = target.split('.').map(n => Number.parseInt(n, 10) || 0)
+            let [maj, min, pat] = [parts[0] || 0, parts[1] || 0, parts[2] || 0]
+            do {
+              pat += 1
+              target = `${maj}.${min}.${pat}`
+            } while (tagExists(`v${target}`))
+            bumped = true
+
+            manifest.version = target
+            fs.writeFileSync('plugin.json', JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+            pkg.version = target
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n', 'utf8')
+
+            for (const file of ['mcp/server.mjs', 'ui-src/bridge.js']) {
+              if (!fs.existsSync(file)) continue
+              const src = fs.readFileSync(file, 'utf8')
+              const updated = src.replace(/version:\s*['"][0-9]+\.[0-9]+\.[0-9]+['"]/, `version: '${target}'`)
+              if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
+            }
+
+            if (fs.existsSync('mcp/app-tools.mjs')) {
+              const src = fs.readFileSync('mcp/app-tools.mjs', 'utf8')
+              const updated = src.replace(/\?\?\s*'[0-9]+\.[0-9]+\.[0-9]+'/, `?? '${target}'`)
+              if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
+            }
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${target}\ntag=v${target}\nbumped=${bumped}\n`)
+          console.log(`Resolved release version: v${target} (bumped=${bumped})`)
+          EOF
+
+      - name: Rebuild UI bundle and push auto-bumped version commit
+        if: steps.ver.outputs.bumped == 'true'
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --no-audit --no-fund
+          else
+            npm install --no-audit --no-fund
+          fi
+          npm run build:ui
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugin.json package.json mcp/server.mjs ui-src/bridge.js mcp/app-tools.mjs mcp/dist/app.html
+          git commit -m "chore(release): ${{ steps.ver.outputs.tag }} [skip ci]"
+          git push origin HEAD:main
+
+      - name: Create Git tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TAG" --generate-notes

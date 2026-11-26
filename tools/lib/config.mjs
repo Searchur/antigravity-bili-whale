@@ -108,7 +108,7 @@ export const DEFAULTS = {
   self: { mid: '', name: '' },
   quota: { shareDaily: 3 },
   diary: { push: false, enabled: false },
-  share: { aiCommentGuard: false, aiThreshold: 30, enabled: false, via: 'dm', minScore: 13, silentAfterDays: 3 },
+  share: { enabled: false, via: 'dm', minScore: 13, silentAfterDays: 3 },
   listen: { ...LISTEN_DEFAULTS },
   night: { windows: [{ start: '20:00', end: '24:00', wakes: 1 }], skipChance: 0.2, minGapMin: 10, maxVideos: 5, deepWatchMax: 3 },
 }

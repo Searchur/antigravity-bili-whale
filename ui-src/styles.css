@@ -627,13 +627,6 @@ html, body {
   margin-top: 2px;
 }
 
-.worker-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 10px;
-}
-
 /* Tag Chips Editor */
 .tag-editor {
   display: flex;
@@ -844,6 +837,54 @@ details.fold > summary {
   border-radius: 8px;
   padding: 10px 12px;
   margin-top: 8px;
+}
+
+.export-result {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 10px 0 12px;
+  background: color-mix(in srgb, var(--ok) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 32%, transparent);
+}
+.export-result-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 240px;
+}
+.export-result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ok);
+}
+.export-result-path {
+  font-size: 11.5px;
+  color: var(--fg-2);
+  word-break: break-all;
+}
+
+.path-row-ctrl {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 560px;
+}
+.path-chip {
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--fg-2);
+  word-break: break-all;
+  max-width: 440px;
 }
 
 .mono { font-family: Consolas, ui-monospace, monospace; font-size: 12px; }

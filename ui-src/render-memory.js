@@ -1,16 +1,9 @@
-import { el, row } from './render-sections.js'
-
-function workerPill(label, st) {
-  const s = st?.status || 'idle'
-  const cls = s === 'running' ? 'info' : s === 'error' ? 'err' : s === 'unavailable' ? 'warn' : 'ok'
-  const txt = { idle: '待命', running: '运行中', error: '异常', unavailable: '未连接', disabled: '已关闭' }[s] || s
-  return el('span', { className: `pill ${cls}` }, el('span', { className: 'dot' }), `${label}：${txt}`)
-}
+import { el, row, renderExportResult } from './render-sections.js'
 
 /**
  * Tab 6：动态与记忆（精简实用版）
- * - 整合今日活动概览（分享/评论/粉丝回复/作息计划/后台 Worker/暂停开关）与大鲸鱼长期记忆管理。
- * - 移除底层开发 JSON 调试按钮、手写 JSON 提案与外部 CSV 语料审核界面（内置表达参考在后台静默生效）。
+ * - 整合今日活动概览（分享/评论/粉丝回复/作息计划/暂停开关）与大鲸鱼长期记忆管理。
+ * - 支持检索过往经历、固定/暂停/删除记忆，以及一键导出带时间戳的备份文件到 exports 目录并直接打开定位。
  */
 export function renderMemoryTab(state, actions) {
   const st = state.status ?? {}
@@ -49,11 +42,6 @@ export function renderMemoryTab(state, actions) {
       el('div', { className: 'stat-tile' },
         el('div', { className: 'stat-k' }, '内容安全审核拦截'),
         el('div', { className: 'stat-v' }, `近期拦截 ${st.safetyBlockedCount ?? 0} 次`))),
-    el('div', { className: 'worker-pills' },
-      workerPill('记忆归纳', st.formation),
-      workerPill('安全复审', st.safetyWorker),
-      workerPill('心情分析', st.affectWorker),
-      workerPill('社交判断', st.socialWorker)),
     st.scheduler?.lastError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, '最近调度异常：' + st.scheduler.lastError.message) : null)
 
   const memoryCard = el('div', { className: 'card' },
@@ -63,22 +51,8 @@ export function renderMemoryTab(state, actions) {
         life ? el('span', { className: 'pill' }, `活跃记忆 ${activeMemories.length} 条 · 近期经历 ${life.events ?? 0} 条`) : null),
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('status') }, '刷新记忆'),
-        el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('export') }, '导出记忆备份'))),
-    el('p', { className: 'card-sub' }, '所有长期记忆均由 Antigravity 内置模型根据大鲸鱼的真实观看与互动经历自动归纳。你可以补充偏好、检索经历，或固定/删除某条记忆。'),
-    row('告诉她一条明确偏好', '例如「以后多看 AI 工具评测，少推荐手游」，保存后会写入经历并纳入记忆归纳。',
-      el('div', { className: 'inline' },
-        el('input', {
-          className: 'input wide',
-          value: state.lifeNote,
-          placeholder: '输入你想让她记住的偏好或说明',
-          onInput: e => { state.lifeNote = e.target.value },
-        }),
-        el('button', {
-          type: 'button',
-          className: 'btn primary',
-          disabled: !!state.busy || !String(state.lifeNote || '').trim(),
-          onClick: () => actions.saveOwnerNote(),
-        }, '保存偏好'))),
+        el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('export') }, state.busy === 'life' ? '导出中…' : '导出记忆备份'))),
+    el('p', { className: 'card-sub' }, '所有长期记忆均由 Antigravity 内置模型根据大鲸鱼的真实观看与互动经历自动归纳。你可以检索过往经历、固定保护或删除记忆，或导出带时间戳的备份文件。'),
     row('搜索她的过往经历', '输入关键词检索她看过哪些视频、聊过哪些话题。',
       el('div', { className: 'inline' },
         el('input', {
@@ -89,7 +63,7 @@ export function renderMemoryTab(state, actions) {
           onKeydown: e => { if (e.key === 'Enter') { e.preventDefault(); void actions.searchExperiences() } },
         }),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.searchExperiences }, '搜索'))),
-    state.lifeMsg ? el('div', { className: 'banner ok', style: { marginTop: '10px', marginBottom: 0 } }, state.lifeMsg) : null,
+    renderExportResult(state.memoryExport, actions),
     state.lifeError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.lifeError) : null,
     searchResults
       ? el('div', { style: { marginTop: '12px' } },

@@ -63,7 +63,6 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
           title: `${v.label}（${v.id}）`,
           onClick: () => onPick(activeRole, v.id),
         },
-        isCurrent ? '✓ ' : null,
         v.thinkingLabel || v.label,
         isOther ? el('span', { className: 'effort-badge' }, otherLabel) : null)
       })))

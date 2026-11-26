@@ -178,10 +178,12 @@ test('follower relation check, fan daily quotas, and dual-layer outbound safety 
   }
 })
 
-test('v1.1.0 defaults (safety ON, interactions OFF), 3-class watch rules, logout, and sanitized timestamped diagnostic export work end-to-end', async () => {
-  const dir = mkTmp('ag-whale-v11-')
+test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verified 302 logout, local timestamped exports, open_path allowlist, and zero checkmarks work end-to-end', async () => {
+  const dir = mkTmp('ag-whale-v12-')
   let exitCalled = false
+  let navVerified = false
   let invalidated = 0
+  const openedCalls = []
   const credFile = path.join(dir, 'credentials.json')
   fs.writeFileSync(credFile, JSON.stringify({ sessdata: 'secret-sess-value-1234567890123456', bili_jct: '0123456789abcdef0123456789abcdef', buvid3: 'b3' }))
 
@@ -191,6 +193,7 @@ test('v1.1.0 defaults (safety ON, interactions OFF), 3-class watch rules, logout
     credFile,
     personaFile: path.join(dir, 'persona.md'),
     pendingFile: path.join(dir, 'pending-replies.json'),
+    openPathImpl: (target, opts) => { openedCalls.push({ target, ...opts }) },
     ipcClient: async (ep) => {
       if (ep === '/invalidate') { invalidated++; return { running: true } }
       return { running: true, pid: 4321, formationWorker: { status: 'idle' }, safetyWorker: { status: 'idle', checkedCount: 0, blockedCount: 0 } }
@@ -199,7 +202,11 @@ test('v1.1.0 defaults (safety ON, interactions OFF), 3-class watch rules, logout
     qrFetch: async (url) => {
       if (String(url).includes('/login/exit/v2')) {
         exitCalled = true
-        return new Response(JSON.stringify({ code: 0 }), { status: 200 })
+        return new Response('', { status: 302, headers: { location: 'https://www.bilibili.com/' } })
+      }
+      if (String(url).includes('/x/web-interface/nav')) {
+        navVerified = true
+        return new Response(JSON.stringify({ code: -101, data: { isLogin: false } }), { status: 200 })
       }
       if (String(url).includes('/x/web-interface/card?mid=12345')) {
         return new Response(JSON.stringify({ code: 0, data: { card: { name: '测试主人', sign: 'hi' } } }), { status: 200 })
@@ -208,16 +215,20 @@ test('v1.1.0 defaults (safety ON, interactions OFF), 3-class watch rules, logout
     },
   })
   try {
-    // 1. Defaults: interactions ALL false, safety ON, diary/notify/autonomy permanently disabled, 3 watch classes present
+    // 1. Defaults: interactions ALL false, safety ON, dynamicDailyMax=1, aiCommentGuard removed, 3 watch classes present
     const init = await api.getSettings()
     assert.equal(init.config.persona.name, '大鲸鱼')
     assert.equal(init.config.browse.enabled, false)
     assert.equal(init.config.share.enabled, false)
+    assert.equal('aiCommentGuard' in init.config.share, false)
     assert.equal(init.config.chat.dynamic, false)
+    assert.equal(init.config.chat.dynamicDailyMax, 1)
     assert.equal(init.config.listen.dmOwner, false)
     assert.equal(init.config.listen.dmFan, false)
+    assert.equal(init.config.listen.dmIntervalSec, 60)
     assert.equal(init.config.listen.commentOwner, false)
     assert.equal(init.config.listen.commentFan, false)
+    assert.equal(init.config.listen.commentIntervalSec, 60)
     assert.equal(init.config.listen.mentionSummaryOwner, false)
     assert.equal(init.config.listen.mentionSummaryFan, false)
     assert.equal(init.config.safety.enabled, true)
@@ -231,42 +242,121 @@ test('v1.1.0 defaults (safety ON, interactions OFF), 3-class watch rules, logout
     assert.equal(init.config.watch.fanMention.confirmMaxMin, 5)
     assert.equal(init.config.watch.fanMention.mode, 'text_only')
 
-    // 2. Owner check
-    assert.equal((await api.verifyOwner('12345', '测试主人')).matched, true)
+    // 2. Owner check (no checkmark symbol)
+    const ownerOk = await api.verifyOwner('12345', '测试主人')
+    assert.equal(ownerOk.matched, true)
+    assert.ok(!ownerOk.detail.includes('✓'))
     assert.equal((await api.verifyOwner('12345', '旧名字')).matched, false)
 
-    // 3. Logout revokes remote, deletes credentials.json, clears self, notifies sidecar
+    // 3. True logout handles 302 redirect + nav verification, deletes credentials.json, clears self, notifies sidecar
     await api.saveSettings({ self: { mid: '999', name: '大鲸鱼号' } })
     const out = await api.logout()
     assert.equal(out.ok, true)
     assert.equal(exitCalled, true)
+    assert.equal(navVerified, true)
+    assert.equal(out.remoteRevoked, true)
+    assert.equal(out.remoteStatus, 'verified_revoked')
+    assert.ok(!out.detail.includes('✓'))
     assert.equal(fs.existsSync(credFile), false)
     assert.equal((await api.getSettings()).config.self.mid, '')
     assert.ok(invalidated >= 1)
 
-    // 4. Timestamped diagnostic export contains NO credentials
+    // 4. Timestamped diagnostic & memory exports write directly into exports/ without credentials
     const diag = await api.exportDiagnostics()
     assert.equal(diag.ok, true)
     assert.match(diag.filename, /^antigravity-bili-whale-diag-\d{8}-\d{6}\.json$/)
+    assert.equal(fs.existsSync(diag.filePath), true)
+    assert.equal(path.dirname(diag.filePath), path.join(dir, 'exports'))
+    assert.ok(diag.bytes > 100)
     assert.ok(!JSON.stringify(diag.payload).includes('secret-sess-value'))
 
-    // 5. 3-class watch config & mentionSummaryLines (owner + verified follower only; stranger ignored)
+    const memExp = await api.lifeAction('export')
+    assert.equal(memExp.ok, true)
+    assert.match(memExp.filename, /^antigravity-whale-memory-\d{8}-\d{6}\.json$/)
+    assert.equal(fs.existsSync(memExp.filePath), true)
+    assert.equal(path.dirname(memExp.filePath), path.join(dir, 'exports'))
+
+    // 5. About returns all 8 paths & openLocalPath enforces strict allowlist
+    const about = await api.getAbout()
+    for (const k of ['pluginRoot', 'dataDir', 'configFile', 'personaFile', 'memoryDir', 'safetyLog', 'safetyRules', 'exportsDir']) {
+      assert.ok(about.paths[k], `missing about.paths.${k}`)
+    }
+    const openCfg = await api.openLocalPath('config_file')
+    assert.equal(openCfg.ok, true)
+    assert.equal(openCfg.mode, 'select')
+    const openMissingLog = await api.openLocalPath('safety_log')
+    assert.equal(openMissingLog.ok, true)
+    assert.equal(openMissingLog.mode, 'parent_dir')
+    assert.equal(openMissingLog.exists, false)
+    const openExported = await api.openLocalPath('exported_file', diag.filename)
+    assert.equal(openExported.ok, true)
+    assert.equal(openExported.mode, 'select')
+    assert.equal(openedCalls.length, 3)
+
+    await assert.rejects(() => api.openLocalPath('unknown_key'), /不支持打开/)
+    await assert.rejects(() => api.openLocalPath('exported_file', '../config.json'), /不合法/)
+    await assert.rejects(() => api.openLocalPath('exported_file', 'evil.exe'), /不合法/)
+    await assert.rejects(() => api.openLocalPath('exported_file', 'sub/file.json'), /不合法/)
+
+    // 6. dynamicDailyMax clamped to 1..2, polling intervals persisted, aiCommentGuard stripped, 3-class watch config
     const saved = await api.saveSettings({
       owner: { mid: '12345', name: '测试主人' },
-      listen: { commentOwner: true, commentFan: true, mentionSummaryOwner: true, mentionSummaryFan: true },
+      share: { enabled: true, via: 'comment', aiCommentGuard: true },
+      chat: { dynamic: true, dynamicDailyMax: 9 },
+      listen: { commentOwner: true, commentFan: true, mentionSummaryOwner: true, mentionSummaryFan: true, dmIntervalSec: 120, commentIntervalSec: 300 },
       watch: {
         auto: { maxDurationMin: 20, minDurationSec: 45, mode: 'always_frames', frameStrategy: 'interval', frameEverySec: 10, maxFrames: 12 },
         ownerMention: { autoMaxMin: 5, confirmMaxMin: 10, replyStyle: 'comment', mode: 'auto', frameStrategy: 'grid', frameGrid: '3x3' },
         fanMention: { autoMaxMin: 3, confirmMaxMin: 5, mode: 'text_only', frameStrategy: 'interval', frameEverySec: 20, maxFrames: 9 },
       },
     })
+    assert.equal(saved.config.chat.dynamicDailyMax, 2)
+    assert.equal('aiCommentGuard' in saved.config.share, false)
+    assert.equal(saved.config.listen.dmIntervalSec, 120)
+    assert.equal(saved.config.listen.commentIntervalSec, 300)
     assert.equal(pipelineConfig(saved.config).maxDuration, 1200)
     assert.deepEqual(gridForFrameCount(12), { cols: 4, rows: 3, count: 12 })
     assert.equal(watchOptions(['BV1xx411c7mD', '--every', '10', '--max-frames', '12'], dir).everySec, 10)
 
     const wPrompt = wakePrompt({ atText: '2026-11-26 21:00', window: '20:00–24:00' }, '', 8, 'dm', 'direct', {}, saved.config, 2)
     assert.ok(wPrompt.includes('每 10 秒抽 1 帧'))
+    assert.ok(wPrompt.includes('每日最多发 2 条'))
     assert.ok(wPrompt.includes('无需写日记'))
+
+    // 7. Environment cards omit datadir and keep ffmpeg action inline
+    const deps = await api.checkDeps()
+    assert.ok(Array.isArray(deps.cards))
+    assert.equal(deps.cards.some(c => c.key === 'datadir'), false)
+    const ffCard = deps.cards.find(c => c.key === 'ffmpeg')
+    assert.ok(ffCard)
+    assert.ok(ffCard.action === 'install_ffmpeg' || ffCard.action === 'update_ffmpeg')
+
+    // 8. Global zero-checkmark invariant across UI sources, backend handlers, and built bundle
+    const scanFiles = [
+      'lib/api-handlers.js',
+      'lib/plugin-updater.js',
+      'ui-src/main.js',
+      'ui-src/render-sections.js',
+      'ui-src/render-models.js',
+      'ui-src/render-watch.js',
+      'ui-src/render-memory.js',
+      'ui-src/render-about.js',
+      'mcp/dist/app.html',
+    ]
+    for (const rel of scanFiles) {
+      const text = fs.readFileSync(path.resolve(rel), 'utf8')
+      assert.equal(text.includes('✓'), false, `${rel} must not contain ✓`)
+      assert.equal(text.toLowerCase().includes('\\u2713'), false, `${rel} must not contain \\u2713`)
+    }
+    const bundle = fs.readFileSync(path.resolve('mcp/dist/app.html'), 'utf8')
+    assert.equal(bundle.includes('疑似 AI 评论'), false)
+    assert.equal(bundle.includes('告诉她一条明确偏好'), false)
+    assert.equal(bundle.includes('worker-pills'), false)
+    assert.ok(bundle.includes('每日最多发公开动态条数'))
+    assert.ok(bundle.includes('私信轮询时间间隔'))
+    assert.ok(bundle.includes('评论与 @ 轮询时间间隔'))
+    assert.ok(bundle.includes('打开所在目录'))
+    assert.ok(bundle.includes('定位文件'))
 
     const mLines = mentionSummaryLines(saved.config, [
       { kind: 'at', mid: '12345', isFollower: true, source: '@大鲸鱼 帮我总结这个视频', oid: '1', root: '0', parent: '2' },

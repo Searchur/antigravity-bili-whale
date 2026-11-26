@@ -70,6 +70,20 @@ export function selectCtrl(value, options, onChange) {
   }, options.map(([val, text]) => el('option', { value: String(val), selected: String(value ?? '') === String(val) }, text)))
 }
 
+export function renderExportResult(info, actions) {
+  if (!info || !info.filePath) return null
+  const sizeKb = Number.isFinite(info.bytes) ? `（${(info.bytes / 1024).toFixed(1)} KB）` : ''
+  return el('div', { className: 'export-result' },
+    el('div', { className: 'export-result-meta' },
+      el('div', { className: 'export-result-title' }, `已导出${info.label || '文件'}：${info.filename}${sizeKb}`),
+      el('div', { className: 'export-result-path mono' }, `保存路径：${info.filePath}`)),
+    el('button', {
+      type: 'button',
+      className: 'btn sm',
+      onClick: () => actions.openPath('exported_file', info.filename),
+    }, '打开所在目录'))
+}
+
 const MAX_PERSONA_CHARS = 4000
 const MAX_LIKE_TAGS = 6
 const MAX_DISLIKE_TAGS = 12
@@ -151,7 +165,7 @@ export function tagEditorCtrl({
               className: 'tag-suggest-btn',
               disabled: exists || atMax,
               onClick: () => addTags(sug),
-            }, exists ? `✓ ${sug}` : `+ ${sug}`)
+            }, exists ? `${sug}（已添加）` : `+ ${sug}`)
           }))
       : null)
 }
@@ -171,7 +185,7 @@ export function renderAccountTab(state, actions) {
     scanned: '已扫码，请在手机上点击确认。',
     expired: '二维码已过期，请重新生成。',
     cancelled: '已取消，原登录态未改变。',
-    success: qr?.account ? `✓ 已登录：${qr.account.name}（UID ${qr.account.mid}）` : '✓ 登录成功',
+    success: qr?.account ? `已登录：${qr.account.name}（UID ${qr.account.mid}）` : '登录成功',
   }[qr?.status]
 
   const whaleCard = el('div', { className: 'card' },
@@ -180,17 +194,17 @@ export function renderAccountTab(state, actions) {
       loggedIn
         ? el('span', { className: 'pill ok' }, el('span', { className: 'dot' }), '已连接 B 站账号')
         : el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '尚未登录')),
-    el('p', { className: 'card-sub' }, '建议为大鲸鱼准备独立的 B 站小号。凭据仅保存在 Windows 独立目录 %USERPROFILE%\\.antigravity-bili-whale\\credentials.json（受当前用户 ACL 保护，永不回显）。遇到异常或停用时可随时点「退出登录」注销凭据并立即停止轮询以防风控。'),
+    el('p', { className: 'card-sub' }, '建议为大鲸鱼准备独立的 B 站小号。凭据仅保存在 Windows 独立目录 %USERPROFILE%\\.antigravity-bili-whale\\credentials.json（受当前用户 ACL 保护，永不回显）。点击「退出登录」会调用 B 站官方注销接口撤销远程会话并复核失效、删除本地凭据且立即暂停轮询以防风控。'),
     el('div', { className: 'account-hero' },
       el('div', { className: 'account-meta' },
         el('div', { className: 'account-name-row' },
           el('span', { className: 'account-name' }, loggedIn ? (cfg.self.name || '已登录大鲸鱼账号') : '尚未连接大鲸鱼 B 站账号'),
           loggedIn ? el('span', { className: 'pill mono' }, `UID ${cfg.self.mid}`) : null),
         el('div', { className: 'row-hint' }, loggedIn
-          ? '扫码登录可刷新凭据；若需临时停用防风控，可点右侧「退出登录」清除凭据并暂停所有 B 站请求。'
+          ? '扫码登录可刷新凭据；若需临时停用防风控，可点右侧「退出登录」注销远程会话、清除凭据并暂停所有 B 站请求。'
           : '点击右侧「扫码登录」，使用手机哔哩哔哩 App 扫描二维码即可自动校验并写入账号信息。'),
         qrLabel ? el('div', { className: qr?.status === 'success' ? 'banner ok' : 'row-hint', style: { marginTop: '4px', marginBottom: 0 } }, qrLabel) : null,
-        state.logoutMsg ? el('div', { className: state.logoutMsg.startsWith('✓') ? 'banner ok' : 'banner err', style: { marginTop: '4px', marginBottom: 0 } }, state.logoutMsg) : null,
+        state.logoutMsg ? el('div', { className: `banner ${state.logoutMsg.kind || 'ok'}`, style: { marginTop: '4px', marginBottom: 0 } }, state.logoutMsg.text) : null,
         state.qrError || qr?.error ? el('div', { className: 'banner err', style: { marginTop: '4px', marginBottom: 0 } }, state.qrError || qr.error) : null),
       el('div', { className: 'qr-wrap' },
         qr?.image ? el('img', { className: 'qr-img', src: qr.image, alt: 'B站登录二维码' }) : null,
@@ -301,7 +315,7 @@ export function renderPersonaTab(state, actions) {
         disabled: !!state.busy || personaOver,
         onClick: actions.savePersona,
       }, state.busy === 'persona' ? '保存中…' : '保存并注入人设')),
-    state.personaMsg ? el('div', { className: state.personaMsg.startsWith('✓') ? 'banner ok' : 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.personaMsg) : null)
+    state.personaMsg ? el('div', { className: `banner ${state.personaMsg.kind || 'ok'}`, style: { marginTop: '10px', marginBottom: 0 } }, state.personaMsg.text) : null)
 
   const tasteCard = el('div', { className: 'card' },
     el('h2', {}, '她的口味偏好'),
@@ -427,17 +441,33 @@ export function renderPersonaTab(state, actions) {
   return el('div', {}, namingCard, personaCard, tasteCard, nightCard)
 }
 
+function pollIntervalOptions(cur) {
+  const base = [
+    ['30', '每 30 秒检查一次（响应较快）'],
+    ['60', '每 60 秒检查一次（默认推荐）'],
+    ['120', '每 120 秒（2 分钟）检查一次'],
+    ['300', '每 300 秒（5 分钟）检查一次（更省请求）'],
+  ]
+  const s = String(cur ?? 60)
+  if (!base.some(([v]) => v === s)) base.unshift([s, `每 ${s} 秒检查一次（当前）`])
+  return base
+}
+
 /**
  * Tab 5：分享与监听（五大清晰模块；模块 1–4 默认全不勾选，模块 5 合规安全审核默认开启）
  */
 export function renderInteractTab(state, actions) {
   const cfg = state.cfg
   const browseEnabled = getPath(cfg, ['browse', 'enabled']) === true
+  const dynamicEnabled = getPath(cfg, ['chat', 'dynamic']) === true
+  const dynamicDailyMax = Math.min(2, Math.max(1, Number(getPath(cfg, ['chat', 'dynamicDailyMax']) ?? 1) || 1))
   const shareEnabled = getPath(cfg, ['share', 'enabled']) === true
   const dmOwner = getPath(cfg, ['listen', 'dmOwner']) === true
   const dmFan = getPath(cfg, ['listen', 'dmFan']) === true
+  const dmIntervalSec = Number(getPath(cfg, ['listen', 'dmIntervalSec']) ?? 60)
   const commentOwner = getPath(cfg, ['listen', 'commentOwner']) === true
   const commentFan = getPath(cfg, ['listen', 'commentFan']) === true
+  const commentIntervalSec = Number(getPath(cfg, ['listen', 'commentIntervalSec']) ?? 60)
   const safetyEnabled = getPath(cfg, ['safety', 'enabled']) !== false
   const limits = getPath(cfg, ['fanLimits']) ?? {}
 
@@ -446,8 +476,16 @@ export function renderInteractTab(state, actions) {
     el('p', { className: 'card-sub' }, '控制大鲸鱼是否按「人设与作息」的时间窗自主刷 B 站，以及看完后是否允许发公开动态（默认不勾选）。'),
     row('允许按作息主动看视频', '勾选后大鲸鱼会在你设定的作息时间窗内自己醒来逛 B 站；不勾选则只被动响应你开启的私信/评论互动。',
       switchCtrl('允许主动看视频', browseEnabled, v => actions.setCfg(['browse', 'enabled'], v, true))),
-    row('允许看完视频后发 B 站公开动态', '本轮看过视频且确有公开感想时，每日最多发 1 条公开动态（须通过外发安全审核）。',
-      switchCtrl('允许发公开动态', getPath(cfg, ['chat', 'dynamic']) === true, v => actions.setCfg(['chat', 'dynamic'], v, true))))
+    row('允许看完视频后发 B 站公开动态', '本轮看过视频且确有公开感想时允许发公开动态（须通过外发安全审核）。',
+      switchCtrl('允许发公开动态', dynamicEnabled, v => actions.setCfg(['chat', 'dynamic'], v, true))),
+    dynamicEnabled
+      ? el('div', { className: 'sub-block' },
+          row('每日最多发公开动态条数', '限制大鲸鱼每天自主发布公开动态的上限（最多 2 条，防刷屏与风控）。',
+            selectCtrl(String(dynamicDailyMax), [
+              ['1', '每天最多 1 条（默认）'],
+              ['2', '每天最多 2 条（上限）'],
+            ], v => actions.setCfg(['chat', 'dynamicDailyMax'], Number(v), true))))
+      : null)
 
   const mod2Card = el('div', { className: 'card' },
     el('h2', {}, '二、主动分享视频给主人'),
@@ -467,9 +505,7 @@ export function renderInteractTab(state, actions) {
               ['2', '每天最多 2 条'],
               ['3', '每天最多 3 条（推荐）'],
               ['5', '每天最多 5 条'],
-            ], v => actions.setCfg(['quota', 'shareDaily'], Number(v), true))),
-          row('公开 @ 分享前检查疑似 AI 评论（试用）', '仅在评论区 @ 主人前抽查热评，避免在疑似 AI 刷屏区留言。',
-            switchCtrl('疑似 AI 评论检查', getPath(cfg, ['share', 'aiCommentGuard']) === true, v => actions.setCfg(['share', 'aiCommentGuard'], v, true))))
+            ], v => actions.setCfg(['quota', 'shareDaily'], Number(v), true))))
       : null)
 
   const mod3Card = el('div', { className: 'card' },
@@ -500,6 +536,10 @@ export function renderInteractTab(state, actions) {
               ['20', '每天总计最多 20 条'],
               ['30', '每天总计最多 30 条'],
             ], v => actions.setCfg(['fanLimits', 'dmTotalDaily'], Number(v), true))))
+      : null,
+    (dmOwner || dmFan)
+      ? row('私信轮询时间间隔', '后台守护每隔多久检查一次新私信；无新私信时零模型消耗，建议 60 秒以上以减少接口请求。',
+          selectCtrl(String(dmIntervalSec), pollIntervalOptions(dmIntervalSec), v => actions.setCfg(['listen', 'dmIntervalSec'], Number(v), true)))
       : null)
 
   const mod4Card = el('div', { className: 'card' },
@@ -536,6 +576,10 @@ export function renderInteractTab(state, actions) {
               ['20', '每天总计最多 20 条'],
               ['30', '每天总计最多 30 条'],
             ], v => actions.setCfg(['fanLimits', 'commentTotalDaily'], Number(v), true))))
+      : null,
+    (commentOwner || commentFan)
+      ? row('评论与 @ 轮询时间间隔', '后台守护每隔多久检查一次「回复我的」与「@ 我的」收件箱；无新消息时零模型消耗。',
+          selectCtrl(String(commentIntervalSec), pollIntervalOptions(commentIntervalSec), v => actions.setCfg(['listen', 'commentIntervalSec'], Number(v), true)))
       : null,
     (commentOwner || commentFan)
       ? row('作息时间窗外也持续监听评论', '不勾选则仅在你设定的作息窗口内轮询评论收件箱。',
@@ -591,8 +635,15 @@ function renderDepCard(card, state, actions) {
       type: 'button',
       className: 'btn primary sm',
       disabled: !!state.busy,
-      onClick: actions.installFfmpeg,
+      onClick: () => actions.installFfmpeg(false),
     }, installingFfmpeg ? '下载校验 ffmpeg 中（约 1 分钟）…' : '一键安装 ffmpeg')
+  } else if (card.action === 'update_ffmpeg') {
+    actionBtn = el('button', {
+      type: 'button',
+      className: 'btn sm',
+      disabled: !!state.busy,
+      onClick: () => actions.installFfmpeg(true),
+    }, installingFfmpeg ? '正在重新下载更新 ffmpeg…' : '安装 / 更新 ffmpeg')
   } else if (card.action === 'goto_login') {
     actionBtn = el('button', {
       type: 'button',
@@ -614,7 +665,7 @@ function renderDepCard(card, state, actions) {
 }
 
 /**
- * Tab 7：环境与依赖（纯模块化健康卡片 + 带时间戳脱敏诊断日志导出，绝不直接堆裸日志）
+ * Tab 7：环境与依赖（纯模块化健康卡片 + 带时间戳脱敏诊断日志本地导出，绝不直接堆裸日志）
  */
 export function renderEnvTab(state, actions) {
   const deps = state.depsData
@@ -634,11 +685,11 @@ export function renderEnvTab(state, actions) {
         summaryPill),
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: actions.runDeps }, state.busy === 'deps' ? '检测中…' : '重新检测'),
-        el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.installFfmpeg }, state.busy === 'ffmpeg' ? '下载安装 ffmpeg 中…' : '安装 / 更新 ffmpeg'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.exportDiagnostics }, state.busy === 'export_diag' ? '生成中…' : '导出诊断日志'))),
-    el('p', { className: 'card-sub' }, '模块化展示后台守护进程、Node.js、ffmpeg、B 站登录态、独立数据目录及接口保护状态。排查问题时可点击右上角「导出诊断日志」下载带时间戳的脱敏文件（不含任何 Cookie/凭据）。'),
+    el('p', { className: 'card-sub' }, '模块化展示后台守护进程、Node.js、ffmpeg、B 站登录态及接口保护状态。排查问题时可点击右上角「导出诊断日志」生成带时间戳的脱敏文件（不含任何 Cookie/凭据）。'),
     state.ffmpegMsg ? el('div', { className: `banner ${state.ffmpegMsg.kind}` }, state.ffmpegMsg.text) : null,
-    state.diagMsg ? el('div', { className: `banner ${state.diagMsg.kind}` }, state.diagMsg.text) : null,
+    renderExportResult(state.diagExport, actions),
+    state.diagErr ? el('div', { className: 'banner err' }, state.diagErr) : null,
     state.depsError ? el('div', { className: 'banner err' }, state.depsError) : null,
     cards.length > 0
       ? el('div', { className: 'deps-grid' }, ...cards.map(c => renderDepCard(c, state, actions)))

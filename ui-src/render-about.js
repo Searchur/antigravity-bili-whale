@@ -45,7 +45,7 @@ export function renderAboutTab(state, actions) {
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn primary', onClick: () => actions.openUrl(repoUrl) }, '打开 GitHub'),
         el('button', { type: 'button', className: 'btn', onClick: () => actions.copyText(repoUrl, 'repo') },
-          state.copiedKey === 'repo' ? '✓ 已复制地址' : '复制仓库地址'))))
+          state.copiedKey === 'repo' ? '已复制地址' : '复制仓库地址'))))
 
   const updateCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
@@ -61,7 +61,7 @@ export function renderAboutTab(state, actions) {
           disabled: !!state.busy || Boolean(local.isGitCheckout),
           onClick: () => actions.applyUpdate(remote?.targetRef || 'main'),
         }, updating ? '正在下载并校验更新…' : (check?.hasUpdate ? `一键更新（${remote?.targetRef === 'main' ? '最新 main' : remote?.targetRef}）` : '本地一键更新 / 覆盖最新')))),
-    el('p', { className: 'card-sub' }, '本地一键更新直接从 GitHub 下载最新插件压缩包，通过完整性校验后仅原地更新插件程序文件；你的 B 站登录态、人设、记忆、日记和设置全部保存在独立数据目录中，不会丢失。'),
+    el('p', { className: 'card-sub' }, '本地一键更新直接从 GitHub 下载最新插件压缩包，通过完整性校验后仅原地更新插件程序文件；你的 B 站登录态、人设、记忆和设置全部保存在独立数据目录中，不会丢失。'),
     local.isGitCheckout
       ? el('div', { className: 'banner warn' }, '当前插件目录检测到 .git（源码开发仓库），已禁用覆盖更新；请直接在仓库中运行 git pull 与部署脚本。')
       : null,
@@ -90,10 +90,34 @@ export function renderAboutTab(state, actions) {
           el('pre', { className: 'console-out' }, remote.release.notes))
       : null)
 
+  const paths = state.about?.paths ?? {}
+  const dataRoot = paths.dataDir || local.dataDir || '%USERPROFILE%\\.antigravity-bili-whale'
+  const pluginRootPath = paths.pluginRoot || local.pluginRoot || '-'
+  const pathRow = (label, hint, fullPath, key, isFile = false) => row(
+    label,
+    hint,
+    el('div', { className: 'path-row-ctrl' },
+      el('span', { className: 'path-chip mono', title: fullPath }, fullPath),
+      el('button', {
+        type: 'button',
+        className: 'btn sm',
+        disabled: !!state.busy,
+        onClick: () => actions.openPath(key),
+      }, isFile ? '定位文件' : '打开目录')),
+  )
+
   const infoCard = el('div', { className: 'card' },
     el('h2', {}, '安装路径与移植说明'),
-    row('插件安装目录', '本地一键更新只会覆盖此目录下的插件程序文件。', el('span', { className: 'mono' }, local.pluginRoot || '-')),
-    row('独立数据目录', '保存 config.json、credentials.json、persona.md、记忆与日记；更新与重装插件均不会覆盖。', el('span', { className: 'mono' }, local.dataDir || '%USERPROFILE%\\.antigravity-bili-whale')),
+    el('p', { className: 'card-sub' }, '列出插件核心目录、配置文件与安全审核模块位置，点击右侧按钮可直接通过 Windows 资源管理器打开或定位。'),
+    state.pathMsg ? el('div', { className: `banner ${state.pathMsg.kind}` }, state.pathMsg.text) : null,
+    pathRow('插件安装目录', '本地一键更新只会覆盖此目录下的插件程序文件。', pluginRootPath, 'plugin_root', false),
+    pathRow('独立数据目录', '保存配置、凭据、人设、记忆与导出文件；更新与重装插件均不会覆盖。', dataRoot, 'data_dir', false),
+    pathRow('主配置文件（config.json）', '保存账号信息、基础称呼、模型选择、观看规则、分享监听与安全审核配置。', paths.configFile || `${dataRoot}\\config.json`, 'config_file', true),
+    pathRow('人设正文（persona.md）', '大鲸鱼的专属人设正文（硬上限 4000 字，不影响日常编程对话）。', paths.personaFile || `${dataRoot}\\persona.md`, 'persona_file', true),
+    pathRow('长期记忆目录（whale-life）', '保存长期记忆账本、过往观看经历与心情状态。', paths.memoryDir || `${dataRoot}\\whale-life`, 'memory_dir', false),
+    pathRow('安全审核拦截日志（safety-blocked.jsonl）', '记录被外发内容安全审核拦截的敏感或违规文本审计记录。', paths.safetyLog || `${dataRoot}\\safety-blocked.jsonl`, 'safety_log', true),
+    pathRow('外发内容安全审核规则（content-safety.mjs）', '插件内置的中国法律法规红线规则与双层外发安全审核核心模块。', paths.safetyRules || `${pluginRootPath}\\tools\\lib\\content-safety.mjs`, 'safety_rules', true),
+    pathRow('导出文件目录（exports）', '存放带时间戳的脱敏诊断日志与长期记忆备份文件。', paths.exportsDir || `${dataRoot}\\exports`, 'exports_dir', false),
     row('上游原项目致谢', '移植自 Alterssss/dsh-bili-whale（MIT License），专为 Windows 版 Antigravity App 原生重构。',
       el('button', { type: 'button', className: 'btn sm', onClick: () => actions.openUrl('https://github.com/Alterssss/dsh-bili-whale') }, '查看上游仓库')))
 

@@ -224,14 +224,6 @@ if (ONCE) {
 }
 
 // Only active video shares are subject to this policy, never ordinary replies.
-if (SHARE && !parent && type === '1' && config().share?.via === 'comment' && config().share?.aiCommentGuard === true) {
-  const result = decision(String(bvid??''), String(oid))
-  console.log('[评论检查] '+JSON.stringify(result))
-  if (!result.allow) {
-    console.error('暂缓分享。先运行 ai-share sample <BV>，由当前模型提交评估；expand 时用 --more 补样。')
-    process.exit(3)
-  }
-}
 const credPath = dataPath('credentials.json')
 if (!fs.existsSync(credPath)) {
   console.error(`credentials file missing: ${credPath}`)
