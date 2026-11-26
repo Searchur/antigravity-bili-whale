@@ -345,7 +345,10 @@ console.log('  content-type: application/x-www-form-urlencoded')
 console.log('  headers: UA(Chrome 131) + referer=' + referer)
 console.log('  cookie : SESSDATA=***; bili_jct=***; buvid3=***   (已脱敏)')
 console.log('  body   : ' + body.replace(encodeURIComponent(String(cred.bili_jct)), '***csrf***'))
-console.log(`  正文长度 ${message.length} 字符（上限 1000）；oid=${oid}；emoji/表情需转义符，本脚本只发纯文本`)
+console.log(`  正文长度 ${Array.from(String(message)).length} 字符（B 站单条上限 1000 字符）；oid=${oid}；emoji/表情需转义符，本脚本只发纯文本`)
+if (Array.from(String(message)).length > 1000) {
+  console.log('  注意：正文超过 B 站单条 1000 字符限制，提交可能被平台拒绝（错误码 12025），如需发表长评论请精简至 1000 字符以内。')
+}
 
 // 闸门：自主发言（--auto）或分享型（--share）才拦；主人授权的发言只显示额度
 {
@@ -459,6 +462,7 @@ if (out.code === 0) {
     '-509': '请求过于频繁',
     12015: '需要评论验证码（说明被风控盯上了，停手）',
     12016: '内容含敏感信息',
+    12025: '评论字数过多（超过 B 站单条 1000 字符上限）',
     12035: '被 UP 主列入评论黑名单',
     12051: '重复评论被判刷屏',
     12002: '评论区已关闭',

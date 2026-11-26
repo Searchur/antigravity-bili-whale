@@ -9,7 +9,7 @@ export const LIFE_DEFAULTS = {
   autonomy: false, autonomyDaily: 1, autonomyMinutes: 5, autonomyReads: 4, autonomyDelayMinutes: 10,
   learnFromLikes: false,
   learningEnabled:true, formationWakeIntervalSec:21600, learningIntervalSec:300, learningLeaseSec:600, learningDailyJobs:24, learningMaxMemories:1000,
-  hardMode: 'warn', hardScenes: ['public-comment'], hardMaxChars: 60, hardWarnAt: 40,
+  hardMode: 'off', hardScenes: ['public-comment'], hardMaxChars: 1000, hardWarnAt: 0,
   hardEmojiWarn: false, hardAtWarn: false, hardDisabledRules: [], commentVerifySeconds: 30,
   corpusEnabled:true, corpusChars:1000, corpusExamples:3,
 }

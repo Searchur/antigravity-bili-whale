@@ -124,15 +124,16 @@ test('Windows directory handle lock on root rename falls back safely to in-place
 
 test('packageRelease creates clean runtime ZIP with Beijing date and fixed antigravity-bili-whale root folder', t => {
   assert.equal(formatBeijingDate(new Date('2026-11-26T17:00:00Z')), '20261127')
+  const expectedVersion = JSON.parse(fs.readFileSync(path.resolve('plugin.json'), 'utf8')).version
   const tmpOut = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-pkg-test-'))
   t.after(() => fs.rmSync(tmpOut, { recursive: true, force: true }))
   const pkg = packageRelease({
     outDir: tmpOut,
     now: new Date('2026-11-26T15:00:00Z'), // 2026-11-26 23:00 CST
-    tag: 'v1.6.1',
+    tag: `v${expectedVersion}`,
     commitSha: 'a'.repeat(40),
   })
-  assert.equal(pkg.zipName, 'antigravity-bili-whale-v1.6.1-20261126.zip')
+  assert.equal(pkg.zipName, `antigravity-bili-whale-v${expectedVersion}-20261126.zip`)
   assert.equal(pkg.folderName, 'antigravity-bili-whale')
   assert.equal(fs.existsSync(pkg.zipPath), true)
   assert.ok(pkg.size > 10_000)
@@ -150,7 +151,7 @@ test('packageRelease creates clean runtime ZIP with Beijing date and fixed antig
   assert.deepEqual(fs.readdirSync(unzipDir), ['antigravity-bili-whale'])
   const inner = path.join(unzipDir, 'antigravity-bili-whale')
   const manifest = validatePluginPayload(inner)
-  assert.equal(manifest.version, '1.6.1')
+  assert.equal(manifest.version, expectedVersion)
   for (const excluded of ['.git', 'node_modules', 'test', 'ui-src', 'scripts']) {
     assert.equal(fs.existsSync(path.join(inner, excluded)), false, `${excluded} must not be in release zip`)
   }

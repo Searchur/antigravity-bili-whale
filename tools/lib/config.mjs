@@ -257,7 +257,7 @@ export function config({ fresh = false } = {}) {
   merged.safety = normalizeSafety(merged.safety)
   delete merged.diary
   delete merged.notify
-  merged.life = { ...(merged.life ?? {}), autonomy: false }
+  merged.life = { ...(merged.life ?? {}), autonomy: false, hardMode: 'off', hardMaxChars: 1000, hardWarnAt: 0 }
   merged.personaOncePerSession = true
   if (!String(merged.persona?.name ?? '').trim()) merged.persona = { ...(merged.persona ?? {}), name: '大鲸鱼' }
   merged.__hasUserFile = Object.keys(user).length > 0

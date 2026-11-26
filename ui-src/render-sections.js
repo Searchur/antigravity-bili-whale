@@ -376,7 +376,7 @@ export function renderPersonaTab(state, actions) {
         disabled: !!state.busy,
         onClick: actions.wakeNow,
       }, state.busy === 'wake_now' ? '正在唤醒她…' : '马上唤醒她')),
-    el('p', { className: 'card-sub' }, '每个时间窗内按剩余次数分段随机挑时刻醒来（不卡整点），时间格式为 HH:MM（也自动兼容 0000–2400）；全天所有窗口合计最多 12 次。点击右上角「马上唤醒她」可不受排期限制立即叫醒一次。'),
+    el('p', { className: 'card-sub' }, '每个时间窗内按剩余次数分段随机挑时刻醒来（不卡整点），时间格式为 HH:MM（00:00–24:00）；全天所有窗口合计最多 12 次。点击右上角「马上唤醒她」可不受排期限制立即叫醒一次。'),
     state.wakeMsg ? el('div', { className: `banner ${state.wakeMsg.kind}` }, state.wakeMsg.text) : null,
     wins.length === 0
       ? el('div', { className: 'row-hint' }, '还没有时间窗，请至少添加一个。')

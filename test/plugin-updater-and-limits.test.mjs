@@ -817,6 +817,85 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     const releaseWf = fs.readFileSync(path.resolve('.github/workflows/auto-release.yml'), 'utf8')
     assert.ok(releaseWf.includes('scripts/package-release.mjs'))
     assert.ok(releaseWf.includes('gh release create "$TAG" "$ZIP_PATH"'))
+    // Schedule UI hint uses HH:MM（00:00–24:00） without legacy 0000–2400 wording
+    assert.ok(bundle.includes('时间格式为 HH:MM（00:00–24:00）'))
+    assert.equal(bundle.includes('也自动兼容 0000–2400'), false)
+  } finally {
+    api.dispose()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('v1.6.2 removes artificial short-comment limits so whale freely chooses short or long comments within Bilibili 1000-char limit', async () => {
+  const { lifeConfig } = await import('../tools/lib/life-config.mjs')
+  const { checkHard, hardPolicyPrompt } = await import('../tools/lib/expression-hard.mjs')
+  const { expressionPrompt } = await import('../tools/lib/expression.mjs')
+  const { lifeStore } = await import('../tools/lib/life-runtime.mjs')
+
+  const defaults = lifeConfig()
+  assert.equal(defaults.hardMode, 'off')
+  assert.equal(defaults.hardMaxChars, 1000)
+  assert.equal(defaults.hardWarnAt, 0)
+
+  const longComment = '这是一条认真看完视频后写下的长评论分析，涵盖技术细节与实际体验。'.repeat(28) // ~896 chars
+  assert.ok(longComment.length > 800 && longComment.length <= 1000)
+  const hardRes = checkHard(longComment, 'public-comment', defaults)
+  assert.equal(hardRes.ok, true)
+  assert.equal(hardRes.applied, false)
+  assert.deepEqual(hardRes.errors, [])
+  assert.deepEqual(hardRes.warnings, [])
+  assert.equal(hardPolicyPrompt('public-comment', defaults), '')
+
+  const pubPrompt = expressionPrompt('public-comment', 'cat-draft', defaults)
+  assert.equal(pubPrompt.includes('中位数约 10 字'), false)
+  assert.equal(pubPrompt.includes('超过 40 字提醒'), false)
+  assert.ok(pubPrompt.includes('1000 字符'))
+
+  // Legacy config.json containing old hardMode='enforce' / hardMaxChars=60 is normalized to unrestricted
+  const dir = mkTmp('ag-whale-v162-')
+  const cfgPath = path.join(dir, 'config.json')
+  fs.writeFileSync(cfgPath, JSON.stringify({
+    self: { mid: '999', name: '大鲸鱼' },
+    owner: { mid: '12345', name: '主人' },
+    life: { hardMode: 'enforce', hardMaxChars: 60, hardWarnAt: 40 },
+  }))
+  const api = createApiHandlers({
+    whaleHome: dir,
+    cfgFile: cfgPath,
+    credFile: path.join(dir, 'credentials.json'),
+    personaFile: path.join(dir, 'persona.md'),
+    ipcClient: async () => ({ running: false }),
+    rpc: { available: () => false },
+  })
+  try {
+    const loaded = await api.getSettings()
+    assert.equal(loaded.config.life.hardMode, 'off')
+    assert.equal(loaded.config.life.hardMaxChars, 1000)
+    assert.equal(loaded.config.life.hardWarnAt, 0)
+
+    const store = lifeStore(loaded.config, { dshHome: dir, fullConfig: () => loaded.config })
+    const check = store.check({
+      channel: 'comment',
+      scene: 'public-comment',
+      target: 'BV1xx411c7mD',
+      thread: '1:123456:top',
+      text: longComment,
+      auto: true,
+    })
+    assert.equal(check.allow, true, check.reason)
+
+    const wp = wakePrompt(
+      { atText: '2026-11-26 20:00', window: '00:00–24:00' },
+      '',
+      5,
+      'comment',
+      'direct',
+      loaded.config.life,
+      { share: { enabled: false }, chat: { autoComment: true, autoCommentDailyMax: 3 } },
+      2,
+    )
+    assert.ok(wp.includes('短评或长评均可'))
+    assert.ok(wp.includes('1000 字符'))
   } finally {
     api.dispose()
     fs.rmSync(dir, { recursive: true, force: true })
