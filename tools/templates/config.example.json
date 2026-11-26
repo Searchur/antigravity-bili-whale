@@ -15,26 +15,26 @@
       "mode": "always_frames",
       "frameStrategy": "interval",
       "frameEverySec": 15,
-      "maxFrames": 16,
+      "maxFrames": 36,
       "frameGrid": "3x3"
     },
     "ownerMention": {
       "autoMaxMin": 10,
       "confirmMaxMin": 20,
       "replyStyle": "comment",
-      "mode": "auto",
+      "mode": "always_frames",
       "frameStrategy": "interval",
       "frameEverySec": 15,
-      "maxFrames": 16,
+      "maxFrames": 36,
       "frameGrid": "3x3"
     },
     "fanMention": {
-      "autoMaxMin": 5,
-      "confirmMaxMin": 5,
-      "mode": "auto",
+      "autoMaxMin": 10,
+      "confirmMaxMin": 10,
+      "mode": "always_frames",
       "frameStrategy": "interval",
       "frameEverySec": 15,
-      "maxFrames": 16,
+      "maxFrames": 36,
       "frameGrid": "3x3"
     }
   },

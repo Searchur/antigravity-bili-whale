@@ -578,9 +578,16 @@ export function renderInteractTab(state, actions) {
 
   const mod4Card = el('div', { className: 'card' },
     el('h2', {}, '四、评论区互动（被动回复评论与 @）'),
-    el('p', { className: 'card-sub' }, '仅回复来找大鲸鱼的评论与 @；主人 @ 她时是否根据提问自主决定看视频，可在「视频观看设置 -> 一、大鲸鱼自主看视频设置」中开关。所有回复经安全审核通过后直接发出。'),
+    el('p', { className: 'card-sub' }, '仅回复来找大鲸鱼的评论与 @；开启下方对应开关后可按「视频观看设置」的时长与抽帧规则看片回复。所有回复经安全审核通过后直接发出。'),
     row('回复主人的评论与 @', '自动回复你在评论区里对大鲸鱼的回复和 @。',
       switchCtrl('回复主人评论', commentOwner, v => actions.setCfg(['listen', 'commentOwner'], v, true))),
+    commentOwner
+      ? el('div', { className: 'sub-block' },
+          row('主人 @ 她时，根据提问自主判断是否看视频后回复', '开启后，主人在评论区 @ 大鲸鱼时，她会根据主人的提问自行判断是否需要先看视频再回复（能直接回答就不看，需看片则按「视频观看设置 -> 主人 @ 规则」执行；默认关闭）。',
+            el('div', { className: 'inline' },
+              switchCtrl('主人 @ 自主判断是否看视频', getPath(cfg, ['listen', 'mentionSummaryOwner']) === true, v => actions.setCfg(['listen', 'mentionSummaryOwner'], v, true)),
+              el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('watch') }, '设置观看规则'))))
+      : null,
     row('回复粉丝的评论与 @（仅限已关注大鲸鱼的粉丝）', '实时校验对方是否已关注大鲸鱼，未关注路人评论一律忽略；经安全审核通过后直接回复。',
       switchCtrl('回复粉丝评论', commentFan, v => actions.setCfg(['listen', 'commentFan'], v, true))),
     commentFan

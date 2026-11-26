@@ -61,7 +61,7 @@ const BUCKET = Number(opt.bucket ?? 30)
 const TOP = Number(opt.top ?? 5)
 const GRID = String(opt.grid ?? watchProfile.frameGrid ?? '3x3')
 const NCOM = Number(opt.comments ?? 8)
-const SKIP_FRAMES = Boolean(opt['no-frames']) || (!opt.grid && !opt.every && watchProfile.mode === 'text_only')
+const SKIP_FRAMES = Boolean(opt['no-frames'])
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
 // ── profile 预检（取数之前，静态检查，不发任何请求）────────────────────
@@ -227,7 +227,7 @@ if (!SKIP_FRAMES) {
     //   改成按时长算：120s + 每秒视频 1.5s（25 分钟 → 约 40 分钟余量 ✓）
     const framesTimeout = 120_000 + Math.round((Number(dur ?? 0) || 0) * 1.5) * 1000
     const everySec = opt.every !== undefined ? Number(opt.every) : Number(watchProfile.frameEverySec ?? 15)
-    const maxFrames = opt['max-frames'] !== undefined ? Number(opt['max-frames']) : Number(watchProfile.maxFrames ?? 16)
+    const maxFrames = opt['max-frames'] !== undefined ? Number(opt['max-frames']) : Number(watchProfile.maxFrames ?? 36)
     const watchArgs = [watch, bvid, GRID, '--profile', watchResolved.profile]
     if (opt.confirmed) watchArgs.push('--confirmed')
     if (Number.isFinite(everySec) && everySec >= 3) watchArgs.push('--every', String(Math.floor(everySec)))

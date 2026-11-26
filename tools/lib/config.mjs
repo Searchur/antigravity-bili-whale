@@ -44,10 +44,10 @@ export const MODEL_DEFAULTS = Object.freeze({
 })
 
 const WATCH_MODE_BASE = Object.freeze({
-  mode: 'auto',
+  mode: 'always_frames',
   frameStrategy: 'interval',
   frameEverySec: 15,
-  maxFrames: 16,
+  maxFrames: 36,
   frameGrid: '3x3',
 })
 
@@ -56,7 +56,6 @@ export const WATCH_DEFAULTS = Object.freeze({
     maxDurationMin: 10,
     minDurationSec: 60,
     ...WATCH_MODE_BASE,
-    mode: 'always_frames',
   }),
   ownerMention: Object.freeze({
     autoMaxMin: 10,
@@ -65,10 +64,9 @@ export const WATCH_DEFAULTS = Object.freeze({
     ...WATCH_MODE_BASE,
   }),
   fanMention: Object.freeze({
-    autoMaxMin: 5,
-    confirmMaxMin: 5,
+    autoMaxMin: 10,
+    confirmMaxMin: 10,
     ...WATCH_MODE_BASE,
-    mode: 'auto',
   }),
 })
 
@@ -139,9 +137,8 @@ export function normalizeModels(raw) {
 
 function normalizeWatchView(src, defaults) {
   const s = src && typeof src === 'object' ? src : {}
-  const rawMode = s.mode ?? s.frameMode
   return {
-    mode: ['text_only', 'auto', 'always_frames'].includes(rawMode) ? rawMode : defaults.mode,
+    mode: 'always_frames',
     frameStrategy: 'interval',
     frameEverySec: clampInt(s.frameEverySec, 3, 120, defaults.frameEverySec),
     maxFrames: clampInt(s.maxFrames, 4, 60, defaults.maxFrames),

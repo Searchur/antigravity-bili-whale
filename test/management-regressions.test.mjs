@@ -116,7 +116,7 @@ test('management config round-trips legacy owner watch rules and preserves verif
   const { config } = await api.getSettings()
   const { autoMaxMin, confirmMaxMin, replyStyle, mode } = config.watch.ownerMention
   assert.deepEqual({ autoMaxMin, confirmMaxMin, replyStyle, mode }, {
-    autoMaxMin: 17, confirmMaxMin: 27, replyStyle: 'dm', mode: 'text_only',
+    autoMaxMin: 17, confirmMaxMin: 27, replyStyle: 'dm', mode: 'always_frames',
   })
   await api.saveSettings({ persona: { name: 'Updated role' }, self: { mid: '99', name: 'Stale UI' } })
   const saved = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))

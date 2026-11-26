@@ -26,7 +26,7 @@ if (!bvid) { console.error('用法: node bili-watch.mjs <BV号> [列x行] [outDi
 
 const watchResolved = resolveWatchProfile(config(), parsed.profile ?? 'auto')
 const everySec = parsed.everySec ?? Number(watchResolved.settings.frameEverySec ?? 15)
-const maxFrames = parsed.maxFrames ?? Number(watchResolved.settings.maxFrames ?? 16)
+const maxFrames = parsed.maxFrames ?? Number(watchResolved.settings.maxFrames ?? 36)
 const grid = parsed.grid ?? String(watchResolved.settings.frameGrid ?? '3x3')
 
 const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))

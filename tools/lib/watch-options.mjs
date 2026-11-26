@@ -50,7 +50,7 @@ export function checkWatchDuration(durationSec, { profile = 'auto', settings = {
     return { ok: true }
   }
   if (profile === 'fan') {
-    const autoMaxMin = Math.max(1, Number(settings.autoMaxMin ?? 5))
+    const autoMaxMin = Math.max(1, Number(settings.autoMaxMin ?? 10))
     if (dur > autoMaxMin * 60) {
       return {
         ok: false,
@@ -86,11 +86,11 @@ export function checkWatchDuration(durationSec, { profile = 'auto', settings = {
  * - 若超过最多抽帧上限，则封顶并按整片等间隔重采样；
  * - 每张拼图严格按固定 cols×rows 排版，最后一张不足格数时由 ffmpeg 补黑留白。
  */
-export function planIntervalFrames({ durationSec, everySec = 15, maxFrames = 16, grid = '3x3' }) {
+export function planIntervalFrames({ durationSec, everySec = 15, maxFrames = 36, grid = '3x3' }) {
   const dur = Number(durationSec)
   if (!Number.isFinite(dur) || dur <= 0) throw Error('视频时长无效')
   const every = Math.max(1, Number(everySec) || 15)
-  const cap = Math.min(60, Math.max(1, Math.floor(Number(maxFrames) || 16)))
+  const cap = Math.min(60, Math.max(1, Math.floor(Number(maxFrames) || 36)))
   const { cols, rows, perSheet, grid: normGrid } = parseGrid(grid)
 
   const rawFrames = Math.max(1, Math.ceil(dur / every))

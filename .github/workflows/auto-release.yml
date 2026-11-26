@@ -94,11 +94,15 @@ jobs:
             test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$(git rev-parse HEAD)"
           fi
 
-      - name: Create Git tag and GitHub Release
+      - name: Build clean release archive and publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
+          COMMIT_SHA="$(git rev-parse HEAD)"
+          ZIP_PATH="$(node scripts/package-release.mjs --out-dir "${{ runner.temp }}/release-assets" --tag "$TAG" --commit "$COMMIT_SHA" --print-path)"
+          test -f "$ZIP_PATH"
+          echo "Packaged release asset: $ZIP_PATH"
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
-          gh release create "$TAG" --title "$TAG" --generate-notes
+          gh release create "$TAG" "$ZIP_PATH" --title "$TAG" --generate-notes

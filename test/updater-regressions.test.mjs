@@ -5,6 +5,8 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { applyPluginUpdate, checkForUpdate, readLocalPluginMeta } from '../lib/plugin-updater.js'
+import { validatePluginPayload } from '../lib/plugin-install.js'
+import { formatBeijingDate, packageRelease } from '../scripts/package-release.mjs'
 import { copyRuntimeFixture } from './fixtures/plugin-package.mjs'
 
 function fixture(t) {
@@ -93,5 +95,63 @@ test('clean deployment only installs the selected plugin and leaves a sibling pl
   assert.equal(fs.existsSync(path.join(installed, 'mcp', 'dist', 'app.html')), true)
   for (const relative of ['.git', 'node_modules', 'test', 'ui-src']) {
     assert.equal(fs.existsSync(path.join(installed, relative)), false, relative)
+  }
+})
+
+test('Windows directory handle lock on root rename falls back safely to in-place sync', async t => {
+  const { pluginRoot, whaleHome } = fixture(t)
+  const rename = fs.renameSync
+  t.mock.method(fs, 'renameSync', (from, to) => {
+    if (path.resolve(from) === path.resolve(pluginRoot) && path.basename(to) === 'previous') {
+      throw Object.assign(new Error('simulated Windows directory watcher lock'), { code: 'EPERM' })
+    }
+    rename(from, to)
+  })
+  const updated = await applyPluginUpdate({
+    pluginRoot,
+    whaleHome,
+    fetchImpl: mockFetch,
+    extractZip: async (_zip, dir) => copyRuntimeFixture(dir, '1.6.1'),
+    ref: 'main',
+  })
+  assert.equal(updated.ok, true)
+  assert.equal(updated.newVersion, '1.6.1')
+  assert.equal(readLocalPluginMeta({ pluginRoot, whaleHome }).version, '1.6.1')
+  assert.equal(fs.existsSync(path.join(pluginRoot, 'lib', 'old.js')), false)
+  assert.equal(fs.readFileSync(path.join(pluginRoot, 'local-note.txt'), 'utf8'), 'keep local files')
+  assert.equal(fs.readFileSync(path.join(whaleHome, 'persona.md'), 'utf8'), 'keep data')
+})
+
+test('packageRelease creates clean runtime ZIP with Beijing date and fixed antigravity-bili-whale root folder', t => {
+  assert.equal(formatBeijingDate(new Date('2026-11-26T17:00:00Z')), '20261127')
+  const tmpOut = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-pkg-test-'))
+  t.after(() => fs.rmSync(tmpOut, { recursive: true, force: true }))
+  const pkg = packageRelease({
+    outDir: tmpOut,
+    now: new Date('2026-11-26T15:00:00Z'), // 2026-11-26 23:00 CST
+    tag: 'v1.6.1',
+    commitSha: 'a'.repeat(40),
+  })
+  assert.equal(pkg.zipName, 'antigravity-bili-whale-v1.6.1-20261126.zip')
+  assert.equal(pkg.folderName, 'antigravity-bili-whale')
+  assert.equal(fs.existsSync(pkg.zipPath), true)
+  assert.ok(pkg.size > 10_000)
+
+  const unzipDir = path.join(tmpOut, 'unzipped')
+  fs.mkdirSync(unzipDir)
+  if (process.platform === 'win32') {
+    const tarExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+    const r = spawnSync(fs.existsSync(tarExe) ? tarExe : 'tar.exe', ['-x', '-f', pkg.zipPath, '-C', unzipDir], { windowsHide: true, encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+  } else {
+    const r = spawnSync('unzip', ['-q', pkg.zipPath, '-d', unzipDir], { encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+  }
+  assert.deepEqual(fs.readdirSync(unzipDir), ['antigravity-bili-whale'])
+  const inner = path.join(unzipDir, 'antigravity-bili-whale')
+  const manifest = validatePluginPayload(inner)
+  assert.equal(manifest.version, '1.6.1')
+  for (const excluded of ['.git', 'node_modules', 'test', 'ui-src', 'scripts']) {
+    assert.equal(fs.existsSync(path.join(inner, excluded)), false, `${excluded} must not be in release zip`)
   }
 })

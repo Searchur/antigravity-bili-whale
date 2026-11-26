@@ -29,22 +29,12 @@ export function renderAboutTab(state, actions) {
   const heroCard = el('div', { className: 'card about-hero-card' },
     el('div', { className: 'stack', style: { gap: '6px', flex: 1, minWidth: '240px' } },
       el('div', { className: 'inline' },
-        el('span', { className: 'about-title' }, local.displayName || '哔哩哔哩大鲸鱼'),
-        el('span', { className: 'pill info mono' }, `v${local.version || '1.0.0'}`),
-        el('span', { className: 'pill' }, 'Windows Antigravity App 专属')),
+        el('span', { className: 'about-title' }, local.displayName || '哔哩哔哩大鲸鱼')),
       el('div', { className: 'row-hint' }, `插件标识：${local.name || 'antigravity-bili-whale'} · 作者：${local.author || 'Searchur'} · 开源协议：MIT`),
       el('div', { className: 'inline', style: { marginTop: '2px' } },
-        el('a', {
-          className: 'link-btn',
-          href: repoUrl,
-          target: '_blank',
-          rel: 'noopener noreferrer',
-          onClick: (e) => { e.preventDefault(); actions.openUrl(repoUrl) },
-        }, repoUrl))),
+        el('span', { className: 'row-hint mono', style: { wordBreak: 'break-all' } }, repoUrl))),
     el('div', { className: 'inline' },
-      el('button', { type: 'button', className: 'btn primary', onClick: () => actions.openUrl(repoUrl) }, '打开 GitHub'),
-      el('button', { type: 'button', className: 'btn', onClick: () => actions.copyText(repoUrl, 'repo') },
-        state.copiedKey === 'repo' ? '已复制地址' : '复制仓库地址')))
+      el('button', { type: 'button', className: 'btn primary', onClick: () => actions.openUrl(repoUrl) }, '打开 GitHub')))
 
   const updateCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },

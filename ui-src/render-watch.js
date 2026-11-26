@@ -1,4 +1,4 @@
-import { el, getPath, row, selectCtrl, switchCtrl } from './render-sections.js'
+import { el, getPath, row, selectCtrl } from './render-sections.js'
 
 const MAX_FRAMES_OPTIONS = [16, 24, 36, 48, 60]
 
@@ -30,59 +30,47 @@ function formatFrameCalcLine(label, durationMin, frameEverySec, maxFrames, frame
 }
 
 /**
- * 公共的「每条视频观看方式 + 固定间隔抽帧与固定拼图」子区块：
- * 三类视频观看场景（自主 / 主人 @ / 粉丝 @）各自独立配置，互不影响。
+ * 公共的「固定间隔抽帧与固定拼图」子区块：
+ * 仅保留「每条视频都抽帧看画面（文字 + 抽帧）」一种方式，三类场景独立配置，互不影响。
  */
-function renderWatchMethodBlock(pathPrefix, viewCfg, actions, { defaultMode = 'auto', durationSamples = [] } = {}) {
-  const mode = viewCfg.mode || defaultMode
+function renderWatchMethodBlock(pathPrefix, viewCfg, actions, { durationSamples = [] } = {}) {
   const frameEverySec = Number(viewCfg.frameEverySec ?? 15)
-  const maxFrames = Number(viewCfg.maxFrames ?? 16)
+  const maxFrames = Number(viewCfg.maxFrames ?? 36)
   const frameGrid = viewCfg.frameGrid || '3x3'
 
-  const maxFrameOpts = MAX_FRAMES_OPTIONS.map(n => [String(n), n === 16 ? `最多 ${n} 帧（默认）` : `最多 ${n} 帧`])
+  const maxFrameOpts = MAX_FRAMES_OPTIONS.map(n => [String(n), n === 36 ? `最多 ${n} 帧（默认）` : `最多 ${n} 帧`])
   if (!MAX_FRAMES_OPTIONS.includes(maxFrames)) {
     maxFrameOpts.unshift([String(maxFrames), `最多 ${maxFrames} 帧（当前）`])
   }
 
   return el('div', {},
     row(
-      '每条视频的观看方式',
-      '控制读字幕/弹幕/热评的同时，是否按固定间隔抽帧查看视频画面。',
-      selectCtrl(mode, [
-        ['auto', defaultMode === 'auto' ? '文字为主 + 无字幕或关键画面时抽帧（默认）' : '文字为主 + 无字幕或关键画面时抽帧'],
-        ['always_frames', defaultMode === 'always_frames' ? '每条视频都抽帧看画面（文字 + 抽帧，默认）' : '每条视频都抽帧看画面（文字 + 抽帧）'],
-        ['text_only', defaultMode === 'text_only' ? '仅读文字不抽帧（最省配额，默认）' : '仅读文字不抽帧（最省配额）'],
-      ], v => actions.setCfg([...pathPrefix, 'mode'], v, true))),
-    mode !== 'text_only'
-      ? el('div', { className: 'sub-block' },
-          row(
-            '每隔多少秒抽一帧',
-            '仅按固定间隔抽帧：首帧即为间隔时刻（0 秒不抽），时长不能整除时尾帧向上取整。',
-            selectCtrl(frameEverySec, [
-              ['5', '每 5 秒抽 1 帧（超精细）'],
-              ['10', '每 10 秒抽 1 帧（较细）'],
-              ['15', '每 15 秒抽 1 帧（默认）'],
-              ['20', '每 20 秒抽 1 帧'],
-              ['30', '每 30 秒抽 1 帧（省配额）'],
-              ['60', '每 60 秒抽 1 帧（长片概览）'],
-            ], v => actions.setCfg([...pathPrefix, 'frameEverySec'], Number(v), true))),
-          row(
-            '单条视频最多抽帧上限',
-            '限制单条视频最多抽取的总帧数；超过上限时自动按整片等间隔采样。',
-            selectCtrl(maxFrames, maxFrameOpts, v => actions.setCfg([...pathPrefix, 'maxFrames'], Number(v), true))),
-          row(
-            '固定拼图格数',
-            '抽到的帧按固定格数分片拼成多张图；最后一张不满格时保持画幅、空位自动补黑留白。',
-            selectCtrl(frameGrid, [
-              ['2x2', '2×2（每张 4 帧）'],
-              ['3x3', '3×3（每张 9 帧，默认）'],
-              ['4x4', '4×4（每张 16 帧）'],
-            ], v => actions.setCfg([...pathPrefix, 'frameGrid'], v, true))),
-          durationSamples.length > 0
-            ? el('div', { className: 'frame-calc-box' },
-                ...durationSamples.map(sample => el('div', { className: 'frame-calc-line' },
-                  formatFrameCalcLine(sample.label, sample.min, frameEverySec, maxFrames, frameGrid))))
-            : null)
+      '每隔多少秒抽一帧',
+      '每条观看视频均读取文字并按固定间隔抽帧看画面：首帧即为间隔时刻（0 秒不抽），时长不能整除时尾帧向上取整。',
+      selectCtrl(frameEverySec, [
+        ['5', '每 5 秒抽 1 帧（超精细）'],
+        ['10', '每 10 秒抽 1 帧（较细）'],
+        ['15', '每 15 秒抽 1 帧（默认）'],
+        ['20', '每 20 秒抽 1 帧'],
+        ['30', '每 30 秒抽 1 帧（省配额）'],
+        ['60', '每 60 秒抽 1 帧（长片概览）'],
+      ], v => actions.setCfg([...pathPrefix, 'frameEverySec'], Number(v), true))),
+    row(
+      '单条视频最多抽帧上限',
+      '限制单条视频最多抽取的总帧数；超过上限时自动按整片等间隔采样。',
+      selectCtrl(maxFrames, maxFrameOpts, v => actions.setCfg([...pathPrefix, 'maxFrames'], Number(v), true))),
+    row(
+      '固定拼图格数',
+      '抽到的帧按固定格数分片拼成多张图；最后一张不满格时保持画幅、空位自动补黑留白。',
+      selectCtrl(frameGrid, [
+        ['2x2', '2×2（每张 4 帧）'],
+        ['3x3', '3×3（每张 9 帧，默认）'],
+        ['4x4', '4×4（每张 16 帧）'],
+      ], v => actions.setCfg([...pathPrefix, 'frameGrid'], v, true))),
+    durationSamples.length > 0
+      ? el('div', { className: 'frame-calc-box' },
+          ...durationSamples.map(sample => el('div', { className: 'frame-calc-line' },
+            formatFrameCalcLine(sample.label, sample.min, frameEverySec, maxFrames, frameGrid))))
       : null)
 }
 
@@ -102,7 +90,7 @@ function renderDurationStrip(autoMaxMin, confirmMaxMin, roleLabel) {
 }
 
 /**
- * Tab 4：视频观看设置（三类完全独立配置，每类均含独立观看方式与固定间隔抽帧拼图设置）
+ * Tab 4：视频观看设置（三类完全独立配置，每条观看视频均读文字并按固定间隔抽帧拼图）
  */
 export function renderWatchTab(state, actions) {
   const cfg = state.cfg
@@ -119,7 +107,7 @@ export function renderWatchTab(state, actions) {
   const minDurSec = Number(auto.minDurationSec ?? 60)
   const autoCard = el('div', { className: 'card' },
     el('h2', {}, '一、大鲸鱼自主看视频设置'),
-    el('p', { className: 'card-sub' }, '控制按作息自主刷 B 站时挑视频的时长硬限制、主人 @ 自主判断是否看视频，以及每条视频的抽帧拼图方式。'),
+    el('p', { className: 'card-sub' }, '控制按作息自主刷 B 站时挑视频的时长硬限制与抽帧拼图设置（每条观看视频均读取文字并抽帧看画面）。'),
     row(
       '自主观看最长时长',
       '超过该时长的视频在选片与深看阶段都会被代码硬拦截跳过，不纳入本轮观看。',
@@ -146,17 +134,7 @@ export function renderWatchTab(state, actions) {
         ['120', '至少 2 分钟'],
         ['300', '至少 5 分钟'],
       ].filter(([val]) => Number(val) < maxDurMin * 60), v => actions.setCfg(['watch', 'auto', 'minDurationSec'], Number(v), true))),
-    row(
-      '主人 @ 她时，根据提问自主判断是否看视频后回复',
-      '开启后，主人在评论区 @ 大鲸鱼时，她会根据主人的提问自行判断是否需要先看视频再回复（能直接回答就不看，需看片则遵循下方「主人 @ 设置」的时长与抽帧规则；默认关闭）。',
-      switchCtrl('主人 @ 自主判断是否看视频', mentionSummaryOwner, v => actions.setCfg(['listen', 'mentionSummaryOwner'], v, true))),
-    mentionSummaryOwner && !commentOwner
-      ? el('div', { className: 'banner warn', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginTop: '6px' } },
-          el('span', {}, '提示：需同时在「分享与监听 -> 四、评论区互动」开启「回复主人的评论与 @」，才会监听主人的评论区 @。'),
-          el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'))
-      : null,
     renderWatchMethodBlock(['watch', 'auto'], auto, actions, {
-      defaultMode: 'always_frames',
       durationSamples: [{ label: '自主观看最长', min: maxDurMin }],
     }))
 
@@ -171,21 +149,13 @@ export function renderWatchTab(state, actions) {
     ...[8, 10, 15, 20, 30, 45, 60].filter(m => m > ownerAutoMax).map(m => [String(m), m === 20 ? `${m} 分钟（默认）` : `${m} 分钟`]),
   ]
 
-  const ownerBannerText = !commentOwner && !mentionSummaryOwner
-    ? '提示：需在上方开启「主人 @ 自主判断是否看视频」，并在「分享与监听」开启「回复主人的评论与 @」。'
-    : (!mentionSummaryOwner
-      ? '提示：尚未开启上方「主人 @ 自主判断是否看视频」开关，开启后本区规则才会生效。'
-      : '提示：尚未在「分享与监听」开启「回复主人的评论与 @」，开启后才会监听主人的评论区 @。')
-
   const ownerCard = el('div', { className: 'card' },
     el('h2', {}, '二、主人评论区 @ 她看视频与总结设置'),
-    el('p', { className: 'card-sub' }, '当你在 B 站视频评论区 @ 大鲸鱼且她判断需要先看视频再回复你时生效（仅认「主人信息」里配置的 UID）。'),
+    el('p', { className: 'card-sub' }, '当你在 B 站视频评论区 @ 大鲸鱼且她判断需要先看视频再回复你时生效（每条观看视频均读取文字并抽帧看画面，仅认「主人信息」里配置的 UID）。'),
     !ownerMentionReady
       ? el('div', { className: 'banner warn', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
-          el('span', {}, ownerBannerText),
-          !commentOwner
-            ? el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往「分享与监听」')
-            : null)
+          el('span', {}, '提示：尚未开启主人评论区 @ 监听或「主人 @ 自主判断是否看视频」开关，可前往「分享与监听 -> 四、评论区互动」开启。'),
+          el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'))
       : null,
     renderDurationStrip(ownerAutoMax, ownerConfirmMax, '主人'),
     row(
@@ -218,14 +188,13 @@ export function renderWatchTab(state, actions) {
         ['both', '评论区回复 + B 站私信同步发'],
       ], v => actions.setCfg(['watch', 'ownerMention', 'replyStyle'], v, true))),
     renderWatchMethodBlock(['watch', 'ownerMention'], ownerM, actions, {
-      defaultMode: 'auto',
       durationSamples: ownerConfirmMax > ownerAutoMax
         ? [{ label: '直接观看上限', min: ownerAutoMax }, { label: '确认后最长', min: ownerConfirmMax }]
         : [{ label: '主人 @ 最长', min: ownerAutoMax }],
     }))
 
   // 三、粉丝（仅已关注大鲸鱼）评论区 @ 看视频与总结（无确认档）
-  const fanAutoMax = Number(fanM.autoMaxMin ?? 5)
+  const fanAutoMax = Number(fanM.autoMaxMin ?? 10)
   const fanMentionReady = getPath(cfg, ['listen', 'commentFan']) === true && getPath(cfg, ['listen', 'mentionSummaryFan']) === true
   const mentionTotalDaily = Math.min(10, Math.max(1, Number(fanLimits.mentionTotalDaily ?? 5)))
 
@@ -233,7 +202,7 @@ export function renderWatchTab(state, actions) {
     el('div', { className: 'card-head' },
       el('h2', {}, '三、粉丝评论区 @ 她看视频与总结设置'),
       el('span', { className: 'pill info' }, '仅限已关注大鲸鱼的粉丝')),
-    el('p', { className: 'card-sub' }, '系统会通过 B 站关注关系接口实时校验对方是否已关注大鲸鱼；未关注的路人 @ 请求一律忽略。粉丝不设询问确认档，超限直接礼貌拒绝。'),
+    el('p', { className: 'card-sub' }, '系统会通过 B 站关注关系接口实时校验对方是否已关注大鲸鱼；未关注的路人 @ 请求一律忽略。粉丝不设询问确认档，超限直接礼貌拒绝（每条观看视频均读取文字并抽帧看画面）。'),
     !fanMentionReady
       ? el('div', { className: 'banner warn', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
           el('span', {}, '提示：尚未开启粉丝评论区 @ 总结监听，可前往「分享与监听」按需开启。'),
@@ -246,9 +215,9 @@ export function renderWatchTab(state, actions) {
       selectCtrl(fanAutoMax, [
         ['2', '2 分钟以内'],
         ['3', '3 分钟以内'],
-        ['5', '5 分钟以内（默认）'],
+        ['5', '5 分钟以内'],
         ['8', '8 分钟以内'],
-        ['10', '10 分钟以内'],
+        ['10', '10 分钟以内（默认）'],
         ['15', '15 分钟以内'],
       ], v => {
         const nextAuto = Number(v)
@@ -274,7 +243,6 @@ export function renderWatchTab(state, actions) {
         ['10', '每天最多 10 次'],
       ], v => actions.setCfg(['fanLimits', 'mentionTotalDaily'], Number(v), true))),
     renderWatchMethodBlock(['watch', 'fanMention'], fanM, actions, {
-      defaultMode: 'auto',
       durationSamples: [{ label: '粉丝 @ 最长', min: fanAutoMax }],
     }))
 
