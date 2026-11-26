@@ -360,9 +360,24 @@ export function renderPersonaTab(state, actions) {
   const curDeepMax = Math.min(3, curMaxVideos, Math.max(1, Math.floor(Number(getPath(cfg, ['night', 'deepWatchMax']) ?? 3) || 3)))
   const totalConfiguredWakes = wins.reduce((sum, w) => sum + (Number(w?.wakes) || 1), 0)
 
+  const plan = state.status?.plan
+  const planBadge = plan?.action === 'wake' && plan?.atText
+    ? el('span', { className: 'pill info' }, `当前计划：${plan.atText}（今日已醒 ${plan.wakes ?? 0} 次）`)
+    : (plan ? el('span', { className: 'pill' }, `今日已醒 ${plan.wakes ?? 0} 次`) : null)
+
   const nightCard = el('div', { className: 'card' },
-    el('h2', {}, '她的作息与生物钟'),
-    el('p', { className: 'card-sub' }, '每个时间窗内随机挑时刻醒来（不卡整点），每醒来 1 次或按概率跳过 1 次均计 1 次机会。相邻两次醒来强制遵守下方最小间隔（硬下限，窗口内排不下会自动少醒），全天所有窗口合计最多 12 次。保存配置后会立即通知后台守护重算计划。'),
+    el('div', { className: 'card-head' },
+      el('div', { className: 'inline' },
+        el('h2', {}, '她的作息与生物钟'),
+        planBadge),
+      el('button', {
+        type: 'button',
+        className: 'btn primary',
+        disabled: !!state.busy,
+        onClick: actions.wakeNow,
+      }, state.busy === 'wake_now' ? '正在唤醒她…' : '马上唤醒她')),
+    el('p', { className: 'card-sub' }, '每个时间窗内按剩余次数分段随机挑时刻醒来（不卡整点），时间格式为 HH:MM（也自动兼容 0000–2400）；全天所有窗口合计最多 12 次。点击右上角「马上唤醒她」可不受排期限制立即叫醒一次。'),
+    state.wakeMsg ? el('div', { className: `banner ${state.wakeMsg.kind}` }, state.wakeMsg.text) : null,
     wins.length === 0
       ? el('div', { className: 'row-hint' }, '还没有时间窗，请至少添加一个。')
       : el('div', {}, ...wins.map((w, i) =>
@@ -627,16 +642,21 @@ function renderEnvRow(card, state, actions) {
     error: { cls: 'err', label: '需处理' },
   }
   const st = statusMap[card.status] || statusMap.error
-  const desc = card.fix && card.fix !== card.detail
+  const showPath = (card.key === 'node' || card.key === 'ffmpeg') && Boolean(card.location)
+  const detailText = card.fix && card.fix !== card.detail
     ? `${card.detail ? card.detail + ' · ' : ''}${card.fix}`
     : (card.detail || '')
+  const hintText = showPath ? `路径：${card.location}` : (detailText || '运行正常')
+  const hintTitle = showPath
+    ? `${card.location}${detailText ? ' · ' + detailText : ''}`
+    : detailText
   const verText = card.version || '-'
   const verTitle = card.location ? `${verText}（${card.location}）` : verText
 
   return el('div', { className: 'env-row' },
     el('div', { className: 'env-row-main' },
       el('div', { className: 'env-row-title' }, card.name),
-      el('div', { className: 'env-row-hint', title: desc }, desc || '运行正常')),
+      el('div', { className: showPath ? 'env-row-hint mono' : 'env-row-hint', title: hintTitle }, hintText)),
     el('div', { className: 'env-row-right' },
       el('span', { className: 'env-ver-chip mono', title: verTitle }, verText),
       card.action === 'goto_login'

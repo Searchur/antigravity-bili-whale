@@ -15,6 +15,7 @@ import { checkLocalSafety, enforceOutboundSafety } from '../tools/lib/content-sa
 import { createSafetyReviewer } from '../lib/safety-worker.js'
 import { startSidecarIpc, callSidecarIpc } from '../lib/sidecar-ipc.js'
 import { buildActivityCalendar } from '../lib/activity-stats.js'
+import { makePlan, normalizeTimeText } from '../tools/lib/night-plan.mjs'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -358,7 +359,12 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(bundle.includes('一键安装 ffmpeg'), false)
     assert.equal(bundle.includes('她目前记住的事'), false)
     assert.equal(bundle.includes('.about-hero {'), false)
+    assert.equal(bundle.includes('点击任意日期查看分类统计'), false)
     assert.ok(bundle.includes('活动统计与日历查看'))
+    assert.ok(bundle.includes('马上唤醒她'))
+    assert.ok(bundle.includes('路径：'))
+    assert.ok(bundle.includes('cal-nav-group'))
+    assert.ok(bundle.includes('活跃度：'))
     assert.ok(bundle.includes('累计总计'))
     assert.ok(bundle.includes('最多 50 条'))
     assert.ok(bundle.includes('最多 100 条'))
@@ -468,6 +474,76 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
       api.dispose()
     }
   } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake plans, wires wake_now via Sidecar IPC, and configures git ident in auto-release workflow', async () => {
+  assert.equal(normalizeTimeText('0000'), '00:00')
+  assert.equal(normalizeTimeText('2400'), '24:00')
+  assert.equal(normalizeTimeText('930'), '09:30')
+
+  // Segmented slot: 00:00-24:00 with 12 wakes at 19:00 -> remaining 5h / 12 = 25m slot
+  const at19 = new Date('2026-11-26T19:00:00').getTime()
+  const plan = makePlan(
+    { windows: [{ start: '0000', end: '2400', wakes: 12 }], minGapMin: 10, skipChance: 0 },
+    {},
+    at19,
+    () => 0.99,
+  )
+  assert.equal(plan.action, 'wake')
+  assert.ok(plan.atMs - at19 <= 25 * 60_000, `expected first wake within 25m slot, got ${(plan.atMs - at19) / 60_000}m`)
+
+  const dir = mkTmp('ag-whale-v14-')
+  const ipcFile = path.join(dir, 'sidecar-ipc.json')
+  let wakeCalls = 0
+  let shouldFail = false
+  const ipc = await startSidecarIpc({
+    file: ipcFile,
+    protect: () => {},
+    onWakeNow: async () => {
+      wakeCalls++
+      if (shouldFail) throw new Error('大鲸鱼当前正在执行唤醒轮次中')
+      return { ok: true, atText: '2026-11-26 19:30', requestId: 'manual-1', detail: '已立即唤醒大鲸鱼（2026-11-26 19:30）' }
+    },
+  })
+  const api = createApiHandlers({
+    whaleHome: dir,
+    cfgFile: path.join(dir, 'config.json'),
+    credFile: path.join(dir, 'credentials.json'),
+    personaFile: path.join(dir, 'persona.md'),
+    pendingFile: path.join(dir, 'pending-replies.json'),
+    ipcClient: (ep, opts) => callSidecarIpc(ep, { ...opts, file: ipcFile }),
+    rpc: { available: () => false },
+  })
+  try {
+    // 0000-2400 normalized and maxWakesPerDay synced to 12
+    const saved = await api.saveSettings({
+      night: { windows: [{ start: '0000', end: '2400', wakes: 12 }], maxWakesPerDay: 1 },
+    })
+    assert.equal(saved.config.night.windows[0].start, '00:00')
+    assert.equal(saved.config.night.windows[0].end, '24:00')
+    assert.equal(saved.config.night.maxWakesPerDay, 12)
+    await assert.rejects(() => api.saveSettings({ night: { windows: [{ start: '99:99', end: '24:00', wakes: 1 }] } }), /开始时间无效/)
+
+    // wakeNow via Sidecar IPC succeeds & forwards business errors cleanly
+    const woke = await api.wakeNow()
+    assert.equal(woke.ok, true)
+    assert.equal(wakeCalls, 1)
+    assert.ok(woke.detail.includes('已立即唤醒大鲸鱼'))
+
+    shouldFail = true
+    await assert.rejects(() => api.wakeNow(), /正在执行唤醒轮次中/)
+
+    // Auto-release workflow sets git identity unconditionally before tagging
+    const wf = fs.readFileSync(path.resolve('.github/workflows/auto-release.yml'), 'utf8')
+    const cfgIdx = wf.indexOf('git config user.name')
+    const tagIdx = wf.indexOf('git tag -a')
+    assert.ok(cfgIdx > 0 && tagIdx > cfgIdx, 'git config user.name must run unconditionally before git tag -a')
+    assert.ok(!wf.slice(cfgIdx - 80, cfgIdx).includes('bumped =='))
+  } finally {
+    api.dispose()
+    await ipc.close()
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })

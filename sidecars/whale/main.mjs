@@ -71,6 +71,7 @@ const ipc = await startSidecarIpc({
   onSafetyCheck: (payload) => safetyReviewer.review(payload),
   onInvalidate: (resetPlan) => { sched?.invalidate(resetPlan) },
   onTriggerTick: () => { sched?.tick?.() },
+  onWakeNow: () => (sched?.wakeNow ? sched.wakeNow() : Promise.reject(new Error('生物钟调度器未初始化'))),
 })
 
 log(`[bili-whale] Sidecar IPC 已就绪（127.0.0.1:${ipc.port} · rpcAvailable=${rpc.available()}）`)

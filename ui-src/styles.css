@@ -237,6 +237,8 @@ html, body {
   border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   border: 1px solid var(--border-1);
   background: var(--bg-1);
@@ -683,12 +685,12 @@ html, body {
 
 .cal-layout {
   display: grid;
-  grid-template-columns: minmax(270px, 330px) 1fr;
+  grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .cal-layout {
     grid-template-columns: 1fr;
   }
@@ -699,19 +701,37 @@ html, body {
   border: 1px solid var(--border-2);
   border-radius: 9px;
   padding: 12px 14px;
+  min-width: 0;
 }
 
 .cal-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
   margin-bottom: 10px;
+}
+
+.cal-nav-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cal-nav-btn {
+  padding: 0 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .cal-month-title {
   font-size: 13.5px;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .cal-weekdays {
@@ -791,11 +811,23 @@ html, body {
 
 .cal-legend {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--border-2);
+  white-space: nowrap;
+}
+
+.cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-3);
+  white-space: nowrap;
 }
 
 .cal-dot {

@@ -75,9 +75,10 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.ok(boot.result.structuredContent.models.groups.length >= 1)
     assert.equal(boot.result.structuredContent.about.local.name, 'antigravity-bili-whale')
 
-    // Ops about & models actions work cleanly; install_ffmpeg retired
+    // Ops about & models actions work cleanly; install_ffmpeg retired; wake_now exposed
     const opsTool = tools.find(t => t.name === 'whale_app_ops')
     assert.equal(opsTool.inputSchema.properties.action.enum.includes('install_ffmpeg'), false)
+    assert.equal(opsTool.inputSchema.properties.action.enum.includes('wake_now'), true)
     const badOps = await router.handleRequest({ jsonrpc: '2.0', id: 39, method: 'tools/call', params: { name: 'whale_app_ops', arguments: { action: 'install_ffmpeg' } } })
     assert.equal(badOps.result.isError, true)
     const opsAbout = await router.handleRequest({ jsonrpc: '2.0', id: 40, method: 'tools/call', params: { name: 'whale_app_ops', arguments: { action: 'about' } } })

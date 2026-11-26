@@ -6,11 +6,19 @@ const stamp = (day, minutes) => {
   d.setMinutes(minutes)
   return d.getTime()
 }
+export function normalizeTimeText(raw) {
+  const s = String(raw ?? '').trim().replace('：', ':')
+  if (/^\d{4}$/.test(s)) return `${s.slice(0, 2)}:${s.slice(2)}`
+  if (/^\d{3}$/.test(s)) return `0${s.slice(0, 1)}:${s.slice(1)}`
+  return s
+}
+
 const parse = (s) => {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(String(s))
-  if (!match) throw new Error(`无效作息时间：${s}`)
+  const norm = normalizeTimeText(s)
+  const match = /^(\d{1,2}):(\d{2})$/.exec(norm)
+  if (!match) throw new Error(`无效作息时间：${s}（请填写 HH:MM 格式，如 00:00 或 24:00）`)
   const h = Number(match[1]), m = Number(match[2])
-  if (h > 24 || m > 59 || (h === 24 && m !== 0)) throw new Error(`无效作息时间：${s}`)
+  if (h > 24 || m > 59 || (h === 24 && m !== 0)) throw new Error(`无效作息时间：${s}（范围 00:00–24:00）`)
   return h * 60 + m
 }
 // 一个窗口坏掉不该拖停其它窗口：逐条校验，坏的跳过并留下可读的诊断。
@@ -114,7 +122,12 @@ export function makePlan(cfg, state = {}, now = Date.now(), random = Math.random
   if (!picked) return done('今天可用窗口里已经排不下下一次（间隔不够）')
   const w = picked.cand
   const from = picked.earliest
-  const atMs = from + Math.floor(random() * Math.max(1, w.endsAt - from))
+  const remaining = Math.max(1, w.wakes - (history.usedCount[w.key] ?? 0))
+  const availMs = Math.max(1, w.endsAt - from)
+  // 多轮醒来时按剩余次数切分首个时间槽，保持自然随机的同时避免第 1 次被拖到太晚
+  const slotMs = remaining > 1 ? Math.max(minGapMs, Math.floor(availMs / remaining)) : availMs
+  const spanMs = Math.min(availMs, slotMs)
+  const atMs = from + Math.floor(random() * Math.max(1, spanMs))
   const atDate = new Date(atMs), at = atDate.getHours() * 60 + atDate.getMinutes()
   const skip = random() < Math.min(0.8, Math.max(0, Number(cfg.skipChance ?? 0.2)))
   const maxVideos = Math.min(10, Math.max(1, Number(cfg.maxVideos ?? 5) || 5))

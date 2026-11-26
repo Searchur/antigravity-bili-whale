@@ -102,11 +102,11 @@ export function renderMemoryTab(state, actions) {
 
   const calendarPanel = el('div', { className: 'cal-panel' },
     el('div', { className: 'cal-nav' },
-      el('button', { type: 'button', className: 'btn sm', onClick: () => actions.shiftCalMonth(-1) }, '上月'),
-      el('span', { className: 'cal-month-title' }, `${year} 年 ${month} 月`),
-      el('div', { className: 'inline', style: { gap: '6px' } },
-        el('button', { type: 'button', className: 'btn sm', onClick: actions.jumpCalToday }, '今天'),
-        el('button', { type: 'button', className: 'btn sm', onClick: () => actions.shiftCalMonth(1) }, '下月'))),
+      el('button', { type: 'button', className: 'btn sm cal-nav-btn', onClick: () => actions.shiftCalMonth(-1) }, '上月'),
+      el('span', { className: 'cal-month-title' }, `${year}年${month}月`),
+      el('div', { className: 'cal-nav-group' },
+        el('button', { type: 'button', className: 'btn sm cal-nav-btn', onClick: actions.jumpCalToday }, '今天'),
+        el('button', { type: 'button', className: 'btn sm cal-nav-btn', onClick: () => actions.shiftCalMonth(1) }, '下月'))),
     el('div', { className: 'cal-weekdays' }, ...WEEKDAYS.map(w => el('span', {}, w))),
     el('div', { className: 'cal-grid' }, ...cells.map(c => {
       const info = daysMap[c.dayStr]
@@ -132,14 +132,10 @@ export function renderMemoryTab(state, actions) {
       count > 0 ? el('span', { className: 'cal-day-badge' }, count > 99 ? '99+' : String(count)) : null)
     })),
     el('div', { className: 'cal-legend' },
-      el('span', { className: 'row-hint' }, '点击任意日期查看分类统计'),
-      el('div', { className: 'inline', style: { gap: '6px' } },
-        el('span', { className: 'cal-dot lvl-1' }),
-        el('span', { className: 'row-hint' }, '1–2'),
-        el('span', { className: 'cal-dot lvl-2' }),
-        el('span', { className: 'row-hint' }, '3–6'),
-        el('span', { className: 'cal-dot lvl-3' }),
-        el('span', { className: 'row-hint' }, '7+'))))
+      el('span', { className: 'row-hint' }, '活跃度：'),
+      el('span', { className: 'cal-legend-item' }, el('span', { className: 'cal-dot lvl-1' }), '1–2'),
+      el('span', { className: 'cal-legend-item' }, el('span', { className: 'cal-dot lvl-2' }), '3–6'),
+      el('span', { className: 'cal-legend-item' }, el('span', { className: 'cal-dot lvl-3' }), '7+')))
 
   const dayEvents = Array.isArray(dayStat.items) ? dayStat.items : []
   const detailPanel = el('div', { className: 'cal-detail' },

@@ -23,6 +23,7 @@ const state = {
   personaBytes: 0,
   personaPath: '',
   personaMsg: null,
+  wakeMsg: null,
   likeTagDraft: '',
   dislikeTagDraft: '',
   safetyWordDraft: '',
@@ -98,6 +99,7 @@ function cancelQrInternal() {
 function switchTab(id) {
   state.tab = id
   render()
+  if (id === 'persona') void actions.refreshStatus()
   if (id === 'models' && state.modelCatalog?.source !== 'live') void actions.refreshModels()
   if (id === 'memory') {
     void actions.refreshStatus()
@@ -354,6 +356,24 @@ const actions = {
       state.busy = ''
       render()
     }
+  },
+
+  async wakeNow() {
+    state.busy = 'wake_now'
+    state.wakeMsg = null
+    render()
+    let ok = false
+    try {
+      const res = await bridge.callTool('whale_app_ops', { action: 'wake_now' })
+      ok = true
+      state.wakeMsg = { kind: 'ok', text: res.detail || '已立即唤醒大鲸鱼，正在后台逛 B 站并看视频。' }
+    } catch (e) {
+      state.wakeMsg = { kind: 'err', text: '唤醒失败：' + e.message }
+    } finally {
+      state.busy = ''
+      render()
+    }
+    if (ok) void actions.refreshStatus()
   },
 
   async qrStart() {
