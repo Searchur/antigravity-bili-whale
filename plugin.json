@@ -1,7 +1,7 @@
 {
   "name": "antigravity-bili-whale",
   "displayName": "哔哩哔哩大鲸鱼",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "专为 Windows 版 Antigravity App 移植的 B 站大鲸鱼插件：按作息自主看片、动态长期记忆、心情与分享欲、双本日记、全内置模型与左侧栏独立控制台。",
   "logo": "assets/logo.png",
   "author": "Searchur",

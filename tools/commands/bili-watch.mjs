@@ -1,7 +1,7 @@
-import { HOME } from '../lib/paths.mjs'
+import { HOME, dataPath } from '../lib/paths.mjs'
 import { downloadVideo } from '../lib/video-download.mjs'
 import { segmentFrames } from '../lib/video-frames.mjs'
-import { watchOptions } from '../lib/watch-options.mjs'
+import { watchOptions, gridForFrameCount } from '../lib/watch-options.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
 // 让 agent 真"看"视频：取直链 → 下载 → ffmpeg 抽帧拼成一张九宫格 → 输出图片路径（再交给 read_file 看）
@@ -22,11 +22,11 @@ let FFMPEG
 try { FFMPEG = requireFfmpeg() } catch (e) { console.error(String(e.message)); process.exit(2) }
 let parsed
 try { parsed = watchOptions(process.argv.slice(2), dshPath('shots','video')) } catch(e) { console.error(e.message); process.exit(2) }
-const {bvid,grid,outDir,tile:TILE} = parsed
+const { bvid, grid, outDir, tile: TILE, everySec, maxFrames } = parsed
 if (!bvid) { console.error('用法: node bili-watch.mjs <BV号> [列x行] [outDir]'); process.exit(2) }
-const [cols, rows] = grid.split('x').map(Number)
+let [cols, rows] = grid.split('x').map(Number)
 if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols * rows > 64) { console.error('格子格式应是 3x3 这样'); process.exit(2) }
-const N = cols * rows
+let N = cols * rows
 
 const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -38,8 +38,15 @@ const { title, owner } = { ...view.data, owner: view.data.owner?.name }
 const cid = view.data.pages?.[0]?.cid ?? view.data.cid
 const duration = Number(view.data.pages?.[0]?.duration ?? view.data.duration)
 if (!Number.isFinite(duration) || duration <= 0) { console.error('视频时长无效'); process.exit(3) }
+if (everySec) {
+  const cap = maxFrames ?? 16
+  const computed = gridForFrameCount(Math.min(cap, Math.max(4, Math.ceil(duration / everySec))))
+  cols = computed.cols
+  rows = computed.rows
+  N = computed.count
+}
 console.log(`标题: ${title}`)
-console.log(`UP: ${owner}   时长: ${duration}s   cid=${cid}`)
+console.log(`UP: ${owner}   时长: ${duration}s   cid=${cid}${everySec ? `   按每 ${everySec}s 抽帧（共 ${N} 帧，拼图 ${cols}x${rows}）` : ''}`)
 
 // 画质实测（2026-10-14）：html5 + qn=32 会被压到 360p（返回 quality=16，界面小字全糊）；
 // 改 platform=pc + qn=80 可拿到 720p（返回 quality=64），依旧是普通 mp4 直链，不必碰 dash。

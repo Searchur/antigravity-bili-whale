@@ -44,11 +44,11 @@ export function switchCtrl(label, checked, onChange, disabled = false) {
     el('input', {
       type: 'checkbox',
       'aria-label': label,
-      checked,
+      checked: Boolean(checked),
       disabled,
       onChange: (e) => onChange(e.target.checked),
     }),
-    el('span', { className: 'row-hint' }, checked ? '已开启' : '已关闭'))
+    el('span', { className: 'row-hint' }, checked ? '已开启' : '未开启'))
 }
 
 export function textCtrl(value, onChange, { wide = false, readOnly = false, placeholder = '', type = 'text' } = {}) {
@@ -155,8 +155,7 @@ function tagEditorCtrl({
 
 /**
  * Tab 1：大鲸鱼与主人
- * - 清晰拆分为「大鲸鱼（B 站账号与扫码登录）」与「主人（UID 与昵称）」两张卡片。
- * - 已完全移除手打导入 Cookie 方案，统一使用 B 站官方二维码扫码登录。
+ * - 清晰拆分为「大鲸鱼（B 站账号与扫码登录）」与「主人信息（含 UID 与昵称一键核验）」。
  */
 export function renderAccountTab(state, actions) {
   const cfg = state.cfg
@@ -198,18 +197,51 @@ export function renderAccountTab(state, actions) {
     row('大鲸鱼 UID（只读）', '扫码登录或依赖体检后自动写入。', textCtrl(getPath(cfg, ['self', 'mid']), () => {}, { readOnly: true, placeholder: '扫码后自动获取' })),
     row('大鲸鱼 B 站昵称（只读）', '来自 B 站账号信息接口。', textCtrl(getPath(cfg, ['self', 'name']), () => {}, { readOnly: true, placeholder: '扫码后自动获取' })))
 
+  const oc = state.ownerCheck
   const ownerCard = el('div', { className: 'card' },
-    el('h2', {}, '主人信息'),
-    el('p', { className: 'card-sub' }, '填写你自己的 B 站 UID 和昵称，大鲸鱼据此识别「谁是主人」、定向私信与 @ 分享。'),
-    row('主人 UID（mid）', '用来识别「谁是你」、谁回复了她、谁给她点了赞。', textCtrl(getPath(cfg, ['owner', 'mid']), v => actions.setCfg(['owner', 'mid'], v), { placeholder: '例如 12345678' })),
-    row('主人 B 站昵称', '@ 分享或写日记提到你时使用。', textCtrl(getPath(cfg, ['owner', 'name']), v => actions.setCfg(['owner', 'name'], v), { placeholder: '你的 B 站昵称' })))
+    el('div', { className: 'card-head' },
+      el('h2', {}, '主人信息'),
+      el('button', {
+        type: 'button',
+        className: 'btn',
+        disabled: !!state.busy || !String(getPath(cfg, ['owner', 'mid']) ?? '').trim(),
+        onClick: actions.verifyOwner,
+      }, state.busy === 'verify_owner' ? '正在查询 B 站…' : '检查 UID 与昵称是否对应')),
+    el('p', { className: 'card-sub' }, '填写你自己的 B 站 UID 和昵称，大鲸鱼据此识别「谁是主人」、定向私信与 @ 分享。填写 UID 后可点击右上角按钮核验是否与 B 站实际账号一致。'),
+    row('主人 UID（mid）', '用来识别「谁是你」、谁回复了她、谁给她点了赞。', textCtrl(getPath(cfg, ['owner', 'mid']), v => {
+      state.ownerCheck = null
+      state.ownerCheckErr = ''
+      actions.setCfg(['owner', 'mid'], v)
+    }, { placeholder: '例如 12345678' })),
+    row('主人 B 站昵称', '@ 分享或写日记提到你时使用（可只填 UID 再点检查自动填入）。', textCtrl(getPath(cfg, ['owner', 'name']), v => {
+      state.ownerCheck = null
+      state.ownerCheckErr = ''
+      actions.setCfg(['owner', 'name'], v)
+    }, { placeholder: '你的 B 站昵称' })),
+    state.ownerCheckErr
+      ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.ownerCheckErr)
+      : null,
+    oc
+      ? el('div', {
+          className: 'banner ' + (oc.matched === true ? 'ok' : oc.matched === false ? 'warn' : 'ok'),
+          style: { marginTop: '10px', marginBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' },
+        },
+        el('span', {}, oc.detail + (oc.sign ? `\n签名：${oc.sign}` : '')),
+        oc.matched !== true && oc.actualName
+          ? el('button', {
+              type: 'button',
+              className: 'btn primary sm',
+              onClick: () => actions.applyOwnerName(oc.actualName),
+            }, oc.matched === false ? `同步为「${oc.actualName}」` : `一键填入「${oc.actualName}」`)
+          : null)
+      : null)
 
   return el('div', {}, whaleCard, ownerCard)
 }
 
 /**
  * Tab 2：人设与作息
- * - 汇总大鲸鱼的基础称呼、人设正文（硬上限 4000 字）、可视化口味标签（最多 6 个）与作息生物钟。
+ * - 基础称呼（默认角色名「大鲸鱼」）、人设正文（硬上限 4000 字）、可视化口味标签（最多 6 个）与作息生物钟。
  */
 export function renderPersonaTab(state, actions) {
   const cfg = state.cfg
@@ -219,7 +251,7 @@ export function renderPersonaTab(state, actions) {
   const namingCard = el('div', { className: 'card' },
     el('h2', {}, '基础称呼'),
     el('p', { className: 'card-sub' }, '决定大鲸鱼的名字、怎么称呼你以及她怎么自称。'),
-    row('角色名', '她怎么被称呼。', textCtrl(getPath(cfg, ['persona', 'name']), v => actions.setCfg(['persona', 'name'], v), { placeholder: '例如 大鲸鱼 / 小鲸鱼' })),
+    row('角色名', '她怎么被称呼（默认「大鲸鱼」）。', textCtrl(getPath(cfg, ['persona', 'name']) || '大鲸鱼', v => actions.setCfg(['persona', 'name'], v), { placeholder: '大鲸鱼' })),
     row('她怎么称呼你', '例如「主人」或你的专属称呼。', textCtrl(getPath(cfg, ['persona', 'ownerTitle']), v => actions.setCfg(['persona', 'ownerTitle'], v))),
     row('她怎么自称', '例如「我」/「人家」。', textCtrl(getPath(cfg, ['persona', 'selfClaim']), v => actions.setCfg(['persona', 'selfClaim'], v))))
 
@@ -322,14 +354,11 @@ export function renderPersonaTab(state, actions) {
     totalConfiguredWakes > 12
       ? el('div', { className: 'banner warn', style: { marginTop: '8px' } }, `当前所有窗口醒来次数合计 ${totalConfiguredWakes} 次，超过每日上限 12 次；实际每天最多只会执行 12 次。`)
       : null,
-    el('div', { className: 'inline', style: { margin: '10px 0 4px' } },
-      el('button', { type: 'button', className: 'btn', onClick: addWin }, '+ 添加时间窗'),
-      el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.triggerNight(true) }, '预演手工唤醒（--dry）'),
-      el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: () => actions.triggerNight(false) }, '立即唤醒一次（--go）')),
-    el('div', { className: 'row-hint', style: { marginBottom: '6px' } }, '提示：「预演」只检查不真跑；「立即唤醒一次」会将本窗口计划提前到 5 秒后执行（仅在当前时间处于上方作息时间窗内且仍有剩余次数时生效）。'),
+    el('div', { className: 'inline', style: { margin: '10px 0 6px' } },
+      el('button', { type: 'button', className: 'btn', onClick: addWin }, '+ 添加时间窗')),
     row(
       '两次醒来最小间隔',
-      '硬性下限（默认 10 分钟）：就算一个短窗口里设了很多次，也绝不压缩最小间隔；排不下的次数自动放弃，另含每轮结束后 8 分钟冷却。',
+      '硬性下限（默认 10 分钟）：就算短窗口里设了很多次，也绝不压缩最小间隔；排不下的次数自动放弃，另含每轮结束后 8 分钟冷却。',
       selectCtrl(
         [10, 15, 30, 60, 120].includes(curMinGap) ? curMinGap : 10,
         [
@@ -382,48 +411,88 @@ export function renderPersonaTab(state, actions) {
           ['3', '最多 3 条（默认上限）'],
         ].filter(([val]) => Number(val) <= curMaxVideos),
         v => actions.setCfg(['night', 'deepWatchMax'], Number(v), true),
-      )),
-    state.triggerOut ? el('pre', { className: 'console-out' }, state.triggerOut) : null)
+      )))
 
   return el('div', {}, namingCard, personaCard, tasteCard, nightCard)
 }
 
+/**
+ * Tab 5：分享与监听
+ * - 重构为 4 组清晰独立的卡片，所有开关默认均不勾选（false），按需开启。
+ */
 export function renderInteractTab(state, actions) {
   const cfg = state.cfg
-  const shareEnabled = getPath(cfg, ['share', 'enabled']) !== false
-  const commentListen = getPath(cfg, ['listen', 'comment']) !== false
+  const shareEnabled = getPath(cfg, ['share', 'enabled']) === true
+  const dmListen = getPath(cfg, ['listen', 'dm']) === true
+  const commentListen = getPath(cfg, ['listen', 'comment']) === true
+  const diaryEnabled = getPath(cfg, ['diary', 'enabled']) === true
   const notifyType = ['none', 'desktop', 'dm', 'webhook', 'command'].includes(cfg.notify?.type) ? cfg.notify.type : 'none'
 
-  const shareCard = el('div', { className: 'card' },
-    el('h2', {}, '分享与自主活动'),
-    row('允许主动分享', '遇到值得分享的视频时主动发给你。', switchCtrl('允许主动分享', shareEnabled, v => actions.setCfg(['share', 'enabled'], v, true))),
-    shareEnabled ? row('分享给我的方式', '私信需与主人互关；公开评论会在视频下 @ 主人。',
-      selectCtrl(getPath(cfg, ['share', 'via']) ?? 'dm', [['dm', 'B 站私信（需互关）'], ['comment', '公开评论 @ 我']], v => actions.setCfg(['share', 'via'], v, true))) : null,
-    shareEnabled ? row('每日分享上限', '建议 ≤ 3，避免触发平台限流。', textCtrl(getPath(cfg, ['quota', 'shareDaily']) ?? 3, v => actions.setCfg(['quota', 'shareDaily'], v), { type: 'number' })) : null,
-    row('疑似 AI 评论检查（试用）', '仅主动 @ 分享时启用，按视频缓存 6 小时，超阈值暂缓并推送。', switchCtrl('疑似 AI 评论检查', !!getPath(cfg, ['share', 'aiCommentGuard']), v => actions.setCfg(['share', 'aiCommentGuard'], v, true))),
-    row('允许自主浏览与主动聊天', '唤醒后可追加只读浏览，满足条件时主动私信。', switchCtrl('自主浏览与聊天', !!getPath(cfg, ['life', 'autonomy']), v => actions.setCfg(['life', 'autonomy'], v, true))),
-    row('自动写日记', '后台按公开浏览与私人交流分别生成两本日记。', switchCtrl('自动写日记', getPath(cfg, ['diary', 'enabled']) !== false, v => actions.setCfg(['diary', 'enabled'], v, true))),
-    row('聊完后补话', '回复主人后几分钟内若有未说完的内容可补一条私信。', switchCtrl('聊完后补话', !!getPath(cfg, ['chat', 'followup']), v => actions.setCfg(['chat', 'followup'], v, true))),
-    row('久未联系时主动私信', '安静时段不打扰，有具体话题才开口。', switchCtrl('久未联系私信', !!getPath(cfg, ['chat', 'idle']), v => actions.setCfg(['chat', 'idle'], v, true))),
-    row('分享评论收到回复时提醒我', '通过私信提醒（需同时开启评论监听）。', switchCtrl('分享评论提醒', !!getPath(cfg, ['chat', 'shareReply']), v => actions.setCfg(['chat', 'shareReply'], v, true))),
-    row('允许自主发公开动态', '本轮看过视频且有公开感想时每日最多发 1 条。', switchCtrl('允许发动态', !!getPath(cfg, ['chat', 'dynamic']), v => actions.setCfg(['chat', 'dynamic'], v, true))))
+  const proactiveCard = el('div', { className: 'card' },
+    el('h2', {}, '一、主动分享与公开表达'),
+    el('p', { className: 'card-sub' }, '控制大鲸鱼看完视频后，能否主动分享给你、发公开动态或自行扩展浏览（默认均不勾选，按需开启）。'),
+    row('允许主动分享视频给主人', '刷到她觉得特别值得分享的视频时，主动把视频发给你。',
+      switchCtrl('允许主动分享视频给主人', shareEnabled, v => actions.setCfg(['share', 'enabled'], v, true))),
+    shareEnabled
+      ? el('div', { className: 'sub-block' },
+          row('分享方式', '私信需与主人互关；公开评论会在该视频下方 @ 主人。',
+            selectCtrl(getPath(cfg, ['share', 'via']) ?? 'dm', [['dm', 'B 站私信（需互关）'], ['comment', '视频评论区 @ 主人']], v => actions.setCfg(['share', 'via'], v, true))),
+          row('每日分享上限', '建议 ≤ 3 条，避免触发平台限流。',
+            textCtrl(getPath(cfg, ['quota', 'shareDaily']) ?? 3, v => actions.setCfg(['quota', 'shareDaily'], v), { type: 'number' })),
+          row('公开 @ 分享前检查疑似 AI 评论（试用）', '仅在评论区 @ 主人前抽查热评，避免在疑似 AI 刷屏区发言。',
+            switchCtrl('疑似 AI 评论检查', getPath(cfg, ['share', 'aiCommentGuard']) === true, v => actions.setCfg(['share', 'aiCommentGuard'], v, true))))
+      : null,
+    row('允许自主发 B 站公开动态', '本轮看过视频且有公开感想时，每日最多发 1 条公开动态。',
+      switchCtrl('允许发动态', getPath(cfg, ['chat', 'dynamic']) === true, v => actions.setCfg(['chat', 'dynamic'], v, true))),
+    row('允许自主扩展只读浏览', '每次作息唤醒结束后，可自行追加少量只读探索浏览（不额外发言）。',
+      switchCtrl('允许自主扩展浏览', getPath(cfg, ['life', 'autonomy']) === true, v => actions.setCfg(['life', 'autonomy'], v, true))))
 
-  const listenCard = el('div', { className: 'card' },
-    el('h2', {}, '收件箱监听'),
-    row('接收主人的私信', '只认主人这一会话；陌生人一律忽略，无新消息零模型消耗。', switchCtrl('私信监听', !!getPath(cfg, ['listen', 'dm']), v => actions.setCfg(['listen', 'dm'], v, true))),
-    row('接收评论区通知', '轮询回复我的 / @ 我的收件箱。', switchCtrl('评论监听', commentListen, v => actions.setCfg(['listen', 'comment'], v, true))),
-    commentListen ? row('评论接收范围', '', selectCtrl(getPath(cfg, ['listen', 'scope']) ?? 'both', [['both', '直接回复和 @ 提及'], ['reply', '仅直接回复']], v => actions.setCfg(['listen', 'scope'], v, true))) : null,
-    commentListen ? row('只处理主人的评论', '', switchCtrl('仅主人评论', !!getPath(cfg, ['listen', 'onlyOwner']), v => actions.setCfg(['listen', 'onlyOwner'], v, true))) : null,
-    commentListen ? row('同一人 30 天内最多回复一次', '防拉锯保护，不对主人限制。', switchCtrl('同人30天限一次', !!getPath(cfg, ['listen', 'oncePerPerson']), v => actions.setCfg(['listen', 'oncePerPerson'], v, true))) : null,
-    commentListen ? row('作息窗口外也监听评论', '', switchCtrl('全天监听评论', !!getPath(cfg, ['listen', 'allDay']), v => actions.setCfg(['listen', 'allDay'], v, true))) : null,
-    commentListen ? row('响应主人的 @ 总结请求', '通过下方通知渠道发送总结。', switchCtrl('响应@总结', !!getPath(cfg, ['listen', 'mentionSummary']), v => actions.setCfg(['listen', 'mentionSummary'], v, true))) : null)
+  const dmCard = el('div', { className: 'card' },
+    el('h2', {}, '二、与主人的私信互动'),
+    el('p', { className: 'card-sub' }, '仅识别「大鲸鱼与主人」中配置的主人账号，陌生人私信一律忽略；无新消息时不消耗模型配额。'),
+    row('监听主人的 B 站私信', '定时检查你发给大鲸鱼的私信，收到后自动回复。',
+      switchCtrl('监听主人私信', dmListen, v => actions.setCfg(['listen', 'dm'], v, true))),
+    row('聊完后可补发一条后续私信', '回复完你的私信几分钟内，若有没说完的补充想法可再发一句。',
+      switchCtrl('聊完后补话', getPath(cfg, ['chat', 'followup']) === true, v => actions.setCfg(['chat', 'followup'], v, true))),
+    row('久未联系时主动私信打招呼', '仅在非安静时段且有具体话题时主动开口，不无故打扰。',
+      switchCtrl('久未联系私信', getPath(cfg, ['chat', 'idle']) === true, v => actions.setCfg(['chat', 'idle'], v, true))))
 
-  const notifyCard = el('div', { className: 'card' },
-    el('h2', {}, '日记推送与通知渠道'),
-    row('推送新写的公开日记', '私人日记永不推送；仅公开日记提交成功后推送一次。', switchCtrl('推送公开日记', getPath(cfg, ['diary', 'push']) !== false, v => actions.setCfg(['diary', 'push'], v, true))),
-    row('通知渠道', '本轮小结、报备与公开日记摘要将发到这里。',
+  const commentCard = el('div', { className: 'card' },
+    el('h2', {}, '三、B 站评论区与 @ 通知监听'),
+    el('p', { className: 'card-sub' }, '轮询 B 站收件箱里的「回复我的」和「@ 我的」通知。回复陌生人会先写入「待审回复」队列由你批准。'),
+    row('开启评论区与 @ 通知监听', '总开关：开启后才会定时拉取评论回复与 @ 提及通知。',
+      switchCtrl('评论区监听', commentListen, v => actions.setCfg(['listen', 'comment'], v, true))),
+    commentListen
+      ? el('div', { className: 'sub-block' },
+          row('通知监听范围', '决定同时监听回复和 @，还是只看直接回复。',
+            selectCtrl(getPath(cfg, ['listen', 'scope']) ?? 'both', [['both', '直接回复 + @ 提及'], ['reply', '仅直接回复']], v => actions.setCfg(['listen', 'scope'], v, true))),
+          row('仅处理主人的评论与 @', '勾选后彻底忽略陌生人的评论回复，只理会主人账号。',
+            switchCtrl('仅处理主人评论', getPath(cfg, ['listen', 'onlyOwner']) === true, v => actions.setCfg(['listen', 'onlyOwner'], v, true))),
+          row('响应主人的 @ 看片 / 总结请求', '你在视频评论区 @ 她看片或总结时自动响应；具体时长规则可在「视频观看设置」中调整。',
+            el('div', { className: 'inline' },
+              switchCtrl('响应 @ 总结请求', getPath(cfg, ['listen', 'mentionSummary']) === true, v => actions.setCfg(['listen', 'mentionSummary'], v, true)),
+              el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('watch') }, '设置时长规则'))),
+          row('分享评论收到新回复时私信提醒主人', '大鲸鱼发出的分享评论下面有新回复时，私信提醒你去看。',
+            switchCtrl('分享评论提醒', getPath(cfg, ['chat', 'shareReply']) === true, v => actions.setCfg(['chat', 'shareReply'], v, true))),
+          row('同一陌生人 30 天内最多回复一次', '防拉锯保护，避免和评论区陌生人来回刷楼（不对主人限制）。',
+            switchCtrl('同人30天限一次', getPath(cfg, ['listen', 'oncePerPerson']) === true, v => actions.setCfg(['listen', 'oncePerPerson'], v, true))),
+          row('作息时间窗外也持续监听评论', '不勾选则仅在「人设与作息」设定的时间窗内轮询评论收件箱。',
+            switchCtrl('全天监听评论', getPath(cfg, ['listen', 'allDay']) === true, v => actions.setCfg(['listen', 'allDay'], v, true))))
+      : null)
+
+  const diaryNotifyCard = el('div', { className: 'card' },
+    el('h2', {}, '四、自动日记与消息通知推送'),
+    el('p', { className: 'card-sub' }, '配置日记自动记录，以及本轮小结、公开日记摘要、待审提醒发到哪里。'),
+    row('自动写日记（公开 + 私人两本）', '后台根据公开浏览和与主人的私人交流分别记录两本日记。',
+      switchCtrl('自动写日记', diaryEnabled, v => actions.setCfg(['diary', 'enabled'], v, true))),
+    diaryEnabled
+      ? el('div', { className: 'sub-block' },
+          row('新公开日记写完后推送给主人', '私人日记永不外推；仅公开日记生成完成后通过下方渠道推送一次。',
+            switchCtrl('推送公开日记', getPath(cfg, ['diary', 'push']) === true, v => actions.setCfg(['diary', 'push'], v, true))))
+      : null,
+    row('通知推送渠道', '本轮观看小结、待审回复提醒与公开日记摘要将发到这里。',
       selectCtrl(notifyType, [
-        ['none', '不推送'],
+        ['none', '不推送（默认）'],
         ['desktop', 'Windows 桌面通知'],
         ['dm', 'B 站私信'],
         ['webhook', 'Webhook（飞书 / 钉钉 / 企微 / QQ）'],
@@ -438,7 +507,7 @@ export function renderInteractTab(state, actions) {
       el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.notifyTest }, state.busy === 'notify' ? '测试发送中…' : '保存并发送测试通知')),
     state.notifyOut ? el('pre', { className: 'console-out' }, state.notifyOut) : null)
 
-  return el('div', {}, shareCard, listenCard, notifyCard)
+  return el('div', {}, proactiveCard, dmCard, commentCard, diaryNotifyCard)
 }
 
 export function renderPendingTab(state, actions) {

@@ -9,6 +9,7 @@ import {
   renderRuntimeTab,
 } from './render-sections.js'
 import { renderModelsTab } from './render-models.js'
+import { renderWatchTab } from './render-watch.js'
 import { renderMemoryTab } from './render-memory.js'
 import { renderAboutTab } from './render-about.js'
 
@@ -25,6 +26,8 @@ const state = {
   personaMsg: '',
   likeTagDraft: '',
   dislikeTagDraft: '',
+  ownerCheck: null,
+  ownerCheckErr: '',
   qr: null,
   qrError: '',
   modelCatalog: null,
@@ -38,7 +41,6 @@ const state = {
   depsError: '',
   ffmpegMsg: null,
   notifyOut: '',
-  triggerOut: '',
   about: null,
   updateCheck: null,
   updateResult: null,
@@ -161,7 +163,7 @@ const actions = {
     if (!state.cfg) return
     setPath(state.cfg, pathArr, value)
     if (shouldRender) render()
-    else updateDirtyBadge()
+    else updateSaveStatePill()
   },
 
   setModelRole(role) {
@@ -172,6 +174,37 @@ const actions = {
   selectModel(role, modelId) {
     if (!state.cfg || !modelId) return
     setPath(state.cfg, ['models', role === 'worker' ? 'worker' : 'main'], modelId)
+    render()
+  },
+
+  async verifyOwner() {
+    const mid = String(state.cfg?.owner?.mid ?? '').trim()
+    const name = String(state.cfg?.owner?.name ?? '').trim()
+    state.busy = 'verify_owner'
+    state.ownerCheck = null
+    state.ownerCheckErr = ''
+    render()
+    try {
+      state.ownerCheck = await bridge.callTool('whale_app_ops', { action: 'verify_owner', mid, name })
+    } catch (e) {
+      state.ownerCheckErr = e.message
+    } finally {
+      state.busy = ''
+      render()
+    }
+  },
+
+  applyOwnerName(actualName) {
+    if (!state.cfg || !actualName) return
+    setPath(state.cfg, ['owner', 'name'], actualName)
+    if (state.ownerCheck) {
+      state.ownerCheck = {
+        ...state.ownerCheck,
+        matched: true,
+        expectedName: actualName,
+        detail: `✓ 已同步为 B 站实际昵称「${actualName}」（记得点击右上角「保存配置」）`,
+      }
+    }
     render()
   },
 
@@ -189,6 +222,8 @@ const actions = {
       state.pending = res.pending?.items ?? []
       if (res.models) state.modelCatalog = res.models
       if (res.about) state.about = res.about
+      state.ownerCheck = null
+      state.ownerCheckErr = ''
       state.ready = true
       state.banner = null
     } catch (e) {
@@ -412,21 +447,6 @@ const actions = {
     }
   },
 
-  async triggerNight(dry) {
-    state.busy = 'trigger'
-    state.triggerOut = dry ? '正在预演手工唤醒…' : '正在提交手工唤醒并通知后台守护…'
-    render()
-    try {
-      const res = await bridge.callTool('whale_app_ops', { action: 'trigger_night', dry })
-      state.triggerOut = res.result ? JSON.stringify(res.result, null, 2) : (res.out || res.err || '完成')
-    } catch (e) {
-      state.triggerOut = '✗ ' + e.message
-    } finally {
-      state.busy = ''
-      render()
-    }
-  },
-
   async refreshStatus() {
     state.busy = 'status'
     render()
@@ -547,9 +567,13 @@ function isDirty() {
   return Boolean(state.cfg && state.savedJson && JSON.stringify(state.cfg) !== state.savedJson)
 }
 
-function updateDirtyBadge() {
-  const badge = document.getElementById('dirty-pill')
-  if (badge) badge.style.display = isDirty() ? 'inline-flex' : 'none'
+function updateSaveStatePill() {
+  const pill = document.getElementById('save-state-pill')
+  if (!pill) return
+  const dirty = isDirty()
+  pill.className = 'pill ' + (dirty ? 'warn' : 'ok')
+  const txt = pill.querySelector('.save-state-txt')
+  if (txt) txt.textContent = dirty ? '有未保存更改' : '配置已保存'
 }
 
 function render() {
@@ -564,6 +588,7 @@ function render() {
     ['account', '大鲸鱼与主人'],
     ['persona', '人设与作息'],
     ['models', '模型选择'],
+    ['watch', '视频观看设置'],
     ['interact', '分享与监听'],
     ['pending', '待审回复', state.pending.length],
     ['runtime', '运行与体检'],
@@ -571,16 +596,13 @@ function render() {
     ['about', '关于与更新'],
   ]
 
+  const dirty = isDirty()
   const topbar = el('header', { className: 'topbar' },
     el('div', { className: 'brand' },
       el('h1', {}, '哔哩哔哩大鲸鱼'),
-      el('span', { className: 'pill ' + (state.status?.sidecarRunning ? 'ok' : 'warn') },
+      el('span', { id: 'save-state-pill', className: 'pill ' + (dirty ? 'warn' : 'ok') },
         el('span', { className: 'dot' }),
-        state.status?.sidecarRunning ? '后台守护运行中' : '守护未连接'),
-      state.cfg.self?.mid
-        ? el('span', { className: 'pill' }, `${state.cfg.self.name || '已登录'} (${state.cfg.self.mid})`)
-        : el('span', { className: 'pill warn' }, '未登录 B 站'),
-      el('span', { id: 'dirty-pill', className: 'pill warn', style: { display: isDirty() ? 'inline-flex' : 'none' } }, '有未保存更改')),
+        el('span', { className: 'save-state-txt' }, dirty ? '有未保存更改' : '配置已保存'))),
     el('div', { className: 'actions' },
       el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: actions.saveSettings }, state.busy === 'save' ? '保存中…' : '保存配置'),
       el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.bootstrap }, '重新读取')))
@@ -596,6 +618,7 @@ function render() {
   if (state.tab === 'account') body = renderAccountTab(state, actions)
   else if (state.tab === 'persona') body = renderPersonaTab(state, actions)
   else if (state.tab === 'models') body = renderModelsTab(state, actions)
+  else if (state.tab === 'watch') body = renderWatchTab(state, actions)
   else if (state.tab === 'interact') body = renderInteractTab(state, actions)
   else if (state.tab === 'pending') body = renderPendingTab(state, actions)
   else if (state.tab === 'runtime') body = renderRuntimeTab(state, actions)

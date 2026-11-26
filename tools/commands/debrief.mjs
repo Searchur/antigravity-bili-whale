@@ -48,10 +48,12 @@ const opt = {}
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i].startsWith('--')) opt[argv[i].slice(2)] = argv[i + 1]?.startsWith('--') ? true : argv[++i] ?? true
 }
+const watchAuto = (() => { try { return config().watch?.auto ?? {} } catch { return {} } })()
 const BUCKET = Number(opt.bucket ?? 30)
 const TOP = Number(opt.top ?? 5)
-const GRID = String(opt.grid ?? '3x3')
+const GRID = String(opt.grid ?? watchAuto.frameGrid ?? '3x3')
 const NCOM = Number(opt.comments ?? 8)
+const SKIP_FRAMES = Boolean(opt['no-frames']) || (!opt.grid && !opt.every && watchAuto.mode === 'text_only')
 const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
 // ── profile 预检（取数之前，静态检查，不发任何请求）────────────────────
@@ -195,7 +197,7 @@ try {
 
 // ── ⑥ 画面抽帧（交给 read_file）──
 let framesData = { enabled: false }
-if (!opt['no-frames']) {
+if (!SKIP_FRAMES) {
   let frameError = null
   let toolLines = []
   let sheet = null
@@ -206,7 +208,15 @@ if (!opt['no-frames']) {
     //   capture 的默认超时是 120s，而「场景检测空跑 + 下载 + 抽帧」按时长线性长 ✗
     //   改成按时长算：120s + 每秒视频 1.5s（25 分钟 → 约 40 分钟余量 ✓）
     const framesTimeout = 120_000 + Math.round((Number(dur ?? 0) || 0) * 1.5) * 1000
-    const out = execFileSync(NODE_EXE, [watch, bvid, GRID, ...(opt.tile !== undefined ? ['--tile', String(opt.tile)] : [])], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: framesTimeout })
+    const watchArgs = [watch, bvid, GRID]
+    if (!opt.grid && (opt.every !== undefined || watchAuto.frameStrategy === 'interval')) {
+      const everySec = opt.every !== undefined ? Number(opt.every) : Number(watchAuto.frameEverySec ?? 15)
+      const maxFrames = Number(watchAuto.maxFrames ?? 16)
+      if (Number.isFinite(everySec) && everySec >= 3) watchArgs.push('--every', String(Math.floor(everySec)))
+      if (Number.isInteger(maxFrames) && maxFrames >= 4) watchArgs.push('--max-frames', String(maxFrames))
+    }
+    if (opt.tile !== undefined) watchArgs.push('--tile', String(opt.tile))
+    const out = execFileSync(NODE_EXE, watchArgs, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: framesTimeout })
     const parsed = parseFrameOutput(out)
     toolLines = parsed.toolLines
     sheet = parsed.sheet

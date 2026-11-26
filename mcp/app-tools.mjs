@@ -90,15 +90,17 @@ export function appToolDefinitions() {
     },
     {
       name: 'whale_app_ops',
-      title: '模型列表、体检、安装依赖、推送测试、手工唤醒与版本更新',
-      description: '读取 Antigravity 实时模型列表、执行依赖体检、一键安装 ffmpeg、发送测试通知、读取运行状态、触发手工唤醒、检查与执行插件本地更新（仅 UI 调用）。',
+      title: '模型列表、体检、安装依赖、核验主人、推送测试、手工唤醒与版本更新',
+      description: '读取 Antigravity 实时模型列表、执行依赖体检、一键安装 ffmpeg、核验主人 UID 与昵称、发送测试通知、读取运行状态、触发手工唤醒、检查与执行插件本地更新（仅 UI 调用）。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['models', 'deps', 'install_ffmpeg', 'notify_test', 'status', 'trigger_night', 'about', 'update_check', 'update_apply'] },
+          action: { type: 'string', enum: ['models', 'deps', 'install_ffmpeg', 'verify_owner', 'notify_test', 'status', 'trigger_night', 'about', 'update_check', 'update_apply'] },
           dry: { type: 'boolean' },
           force: { type: 'boolean' },
           ref: { type: 'string' },
+          mid: { type: 'string' },
+          name: { type: 'string' },
         },
         required: ['action'],
       },
@@ -203,6 +205,7 @@ export function createAppToolRunner(api) {
           if (args.action === 'models') return okResult(await api.getModels())
           if (args.action === 'deps') return okResult(await api.checkDeps())
           if (args.action === 'install_ffmpeg') return okResult(await api.installFfmpeg({ force: args.force === true }))
+          if (args.action === 'verify_owner') return okResult(await api.verifyOwner(args.mid, args.name))
           if (args.action === 'notify_test') return okResult(await api.notifyTest())
           if (args.action === 'status') return okResult(await api.getStatus())
           if (args.action === 'trigger_night') return okResult(await api.triggerNightNow(args.dry !== false))
