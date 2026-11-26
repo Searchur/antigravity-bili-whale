@@ -90,14 +90,15 @@ export function appToolDefinitions() {
     },
     {
       name: 'whale_app_ops',
-      title: '模型列表、体检、安装依赖、推送测试与手工唤醒',
-      description: '读取 Antigravity 实时模型列表、执行依赖体检、一键安装 ffmpeg、发送测试通知、读取运行状态或触发手工唤醒（仅 UI 调用）。',
+      title: '模型列表、体检、安装依赖、推送测试、手工唤醒与版本更新',
+      description: '读取 Antigravity 实时模型列表、执行依赖体检、一键安装 ffmpeg、发送测试通知、读取运行状态、触发手工唤醒、检查与执行插件本地更新（仅 UI 调用）。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['models', 'deps', 'install_ffmpeg', 'notify_test', 'status', 'trigger_night'] },
+          action: { type: 'string', enum: ['models', 'deps', 'install_ffmpeg', 'notify_test', 'status', 'trigger_night', 'about', 'update_check', 'update_apply'] },
           dry: { type: 'boolean' },
           force: { type: 'boolean' },
+          ref: { type: 'string' },
         },
         required: ['action'],
       },
@@ -166,14 +167,15 @@ export function createAppToolRunner(api) {
           )
         }
         case 'whale_app_bootstrap': {
-          const [settings, persona, status, pending, models] = await Promise.all([
+          const [settings, persona, status, pending, models, about] = await Promise.all([
             api.getSettings(),
             api.getPersona(),
             api.getStatus(),
             api.getPending(),
             api.getModels(),
+            api.getAbout(),
           ])
-          return okResult({ ok: true, settings, persona, status, pending, models })
+          return okResult({ ok: true, settings, persona, status, pending, models, about })
         }
         case 'whale_app_settings': {
           if (args.action === 'get') return okResult(await api.getSettings())
@@ -204,6 +206,9 @@ export function createAppToolRunner(api) {
           if (args.action === 'notify_test') return okResult(await api.notifyTest())
           if (args.action === 'status') return okResult(await api.getStatus())
           if (args.action === 'trigger_night') return okResult(await api.triggerNightNow(args.dry !== false))
+          if (args.action === 'about') return okResult(await api.getAbout())
+          if (args.action === 'update_check') return okResult(await api.checkUpdate())
+          if (args.action === 'update_apply') return okResult(await api.applyUpdate(args.ref || 'main'))
           throw new Error('未知 ops action: ' + args.action)
         }
         case 'whale_app_life': {

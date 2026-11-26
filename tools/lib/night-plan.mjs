@@ -116,12 +116,14 @@ export function makePlan(cfg, state = {}, now = Date.now(), random = Math.random
   const from = picked.earliest
   const atMs = from + Math.floor(random() * Math.max(1, w.endsAt - from))
   const atDate = new Date(atMs), at = atDate.getHours() * 60 + atDate.getMinutes()
-  const skip = random() < Math.min(1, Math.max(0, Number(cfg.skipChance ?? 0.3)))
+  const skip = random() < Math.min(0.8, Math.max(0, Number(cfg.skipChance ?? 0.2)))
+  const maxVideos = Math.min(10, Math.max(1, Number(cfg.maxVideos ?? 5) || 5))
+  const deepWatchMax = Math.min(3, maxVideos, Math.max(1, Number(cfg.deepWatchMax ?? 3) || 3))
   return { ...history, action: skip ? 'skip' : 'wake', fired: false, atMs, at,
     atText: `${dayOf(atMs)} ${String(atDate.getHours()).padStart(2, '0')}:${String(atDate.getMinutes()).padStart(2, '0')}`,
     window: w.label, windowKey: w.key, startsAt: w.startsAt, endsAt: w.endsAt,
     withinWindow: `${w.label} 第 ${(history.usedCount[w.key] ?? 0) + 1}/${w.wakes} 次`,
-    maxVideos: cfg.maxVideos ?? 5, createdAt: new Date(now).toISOString(),
+    maxVideos, deepWatchMax, createdAt: new Date(now).toISOString(),
     ...(skip ? { reason: '本次计划跳过看视频，仍写日记' } : { roll: 'watch' }) }
 }
 export function completePlan(state, now = Date.now()) {

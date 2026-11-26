@@ -10,6 +10,7 @@ export function el(tag, attrs = {}, ...children) {
     else if (k === 'disabled') node.disabled = Boolean(v)
     else if (k === 'readOnly') node.readOnly = Boolean(v)
     else if (k === 'open') node.open = Boolean(v)
+    else if (k === 'maxLength') node.maxLength = Number(v)
     else node.setAttribute(k, v === true ? '' : String(v))
   }
   for (const child of children.flat(Infinity)) {
@@ -61,24 +62,95 @@ export function textCtrl(value, onChange, { wide = false, readOnly = false, plac
   })
 }
 
-export function listCtrl(rawArray, onChange) {
-  return el('input', {
-    className: 'input wide',
-    value: Array.isArray(rawArray) ? rawArray.join('，') : '',
-    placeholder: '用中英文逗号分隔',
-    onInput: (e) => {
-      const list = e.target.value.split(/[,，]/).map(s => s.trim()).filter(Boolean)
-      onChange(list)
-    },
-  })
-}
-
 export function selectCtrl(value, options, onChange) {
   return el('select', {
     className: 'select',
-    value: value ?? '',
+    value: String(value ?? ''),
     onChange: (e) => onChange(e.target.value),
-  }, options.map(([val, text]) => el('option', { value: val, selected: String(value ?? '') === String(val) }, text)))
+  }, options.map(([val, text]) => el('option', { value: String(val), selected: String(value ?? '') === String(val) }, text)))
+}
+
+const MAX_PERSONA_CHARS = 4000
+const MAX_LIKE_TAGS = 6
+const MAX_DISLIKE_TAGS = 12
+const LIKE_SUGGESTIONS = ['AI 工具', '科技新闻', '编程开发', '效率软件', '数码评测', '科普', '猫咪', '纪录片', '独立游戏', '影视解说']
+const DISLIKE_SUGGESTIONS = ['带货', '擦边', '标题党', '纯搬运', '营销号', '引战', '剧透']
+
+function tagEditorCtrl({
+  items,
+  max,
+  kind,
+  draftValue,
+  onDraftChange,
+  onChange,
+  suggestions,
+  placeholder,
+}) {
+  const list = Array.isArray(items) ? items.filter(Boolean) : []
+  const atMax = list.length >= max
+
+  const addTags = (raw) => {
+    const parts = String(raw ?? '').split(/[,，、\n]/).map(s => s.trim()).filter(Boolean)
+    if (!parts.length) return
+    const next = [...list]
+    for (const p of parts) {
+      if (next.length >= max) break
+      if (!next.includes(p)) next.push(p)
+    }
+    onDraftChange('')
+    onChange(next)
+  }
+
+  const removeTag = (tag) => onChange(list.filter(t => t !== tag))
+
+  const inputNode = el('input', {
+    className: 'input',
+    style: { flex: '1', minWidth: '170px' },
+    value: draftValue ?? '',
+    disabled: atMax,
+    placeholder: atMax ? `已达上限（最多 ${max} 个），请先删除不需要的标签` : placeholder,
+    onInput: (e) => onDraftChange(e.target.value),
+    onKeydown: (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        addTags(e.target.value)
+      }
+    },
+  })
+
+  return el('div', { className: 'tag-editor' },
+    el('div', { className: 'tag-chips' },
+      list.length === 0
+        ? el('span', { className: 'row-hint' }, '暂未添加标签，可在下方输入或点击快捷标签添加。')
+        : list.map(tag => el('span', { className: `tag-chip ${kind}` },
+            tag,
+            el('button', {
+              type: 'button',
+              className: 'tag-chip-rm',
+              title: `移除「${tag}」`,
+              'aria-label': `移除 ${tag}`,
+              onClick: () => removeTag(tag),
+            }, '×')))),
+    el('div', { className: 'tag-input-row' },
+      inputNode,
+      el('button', {
+        type: 'button',
+        className: 'btn sm',
+        disabled: atMax,
+        onClick: () => addTags(inputNode.value),
+      }, '+ 添加'),
+      el('span', { className: 'pill ' + (atMax ? 'warn' : '') }, `已选 ${list.length} / ${max}`)),
+    el('div', { className: 'tag-suggest' },
+      el('span', { className: 'tag-suggest-label' }, '快捷添加：'),
+      ...suggestions.map(sug => {
+        const exists = list.includes(sug)
+        return el('button', {
+          type: 'button',
+          className: 'tag-suggest-btn',
+          disabled: exists || atMax,
+          onClick: () => addTags(sug),
+        }, exists ? `✓ ${sug}` : `+ ${sug}`)
+      })))
 }
 
 /**
@@ -137,10 +209,12 @@ export function renderAccountTab(state, actions) {
 
 /**
  * Tab 2：人设与作息
- * - 汇总大鲸鱼的称呼、人设正文、口味偏好与作息生物钟。
+ * - 汇总大鲸鱼的基础称呼、人设正文（硬上限 4000 字）、可视化口味标签（最多 6 个）与作息生物钟。
  */
 export function renderPersonaTab(state, actions) {
   const cfg = state.cfg
+  const personaLen = state.personaText.length
+  const personaOver = personaLen > MAX_PERSONA_CHARS
 
   const namingCard = el('div', { className: 'card' },
     el('h2', {}, '基础称呼'),
@@ -151,27 +225,70 @@ export function renderPersonaTab(state, actions) {
 
   const personaCard = el('div', { className: 'card' },
     el('h2', {}, '她的人设正文（仅对大鲸鱼生效，不影响日常编程对话）'),
-    el('p', { className: 'card-sub' }, `保存位置：${state.personaPath || '%USERPROFILE%\\.antigravity-bili-whale\\persona.md'}。建议写身份来历、说话腔调、在意的事与边界；上限 20000 字。`),
+    el('p', { className: 'card-sub' }, `保存位置：${state.personaPath || '%USERPROFILE%\\.antigravity-bili-whale\\persona.md'}。建议写 300–1500 字（精炼表达模型遵守度最高），前后端硬上限 ${MAX_PERSONA_CHARS} 字。`),
     el('textarea', {
       className: 'textarea',
       rows: 9,
-      placeholder: '例如：\n她的名字是…\n她说话习惯短句、自然…\n她喜欢…\n她绝对不会…',
+      maxLength: MAX_PERSONA_CHARS,
+      placeholder: '例如：\n她的性格与说话腔调（偏短句、自然随和、不端着…）\n她的背景来历与日常小习惯…\n她平时在意的事…\n她的原则与底线（绝对不会做什么）…',
       value: state.personaText,
       onInput: (e) => {
         state.personaText = e.target.value
+        const over = state.personaText.length > MAX_PERSONA_CHARS
         const counter = document.getElementById('persona-counter')
-        if (counter) counter.textContent = `当前 ${state.personaText.length} 字 / 上限 20000 字`
+        if (counter) {
+          counter.className = over ? 'row-hint counter-err' : 'row-hint'
+          counter.textContent = over
+            ? `当前 ${state.personaText.length} / ${MAX_PERSONA_CHARS} 字（已超限，请先删减 ${state.personaText.length - MAX_PERSONA_CHARS} 字）`
+            : `当前 ${state.personaText.length} / ${MAX_PERSONA_CHARS} 字`
+        }
+        const btn = document.getElementById('persona-save-btn')
+        if (btn) btn.disabled = !!state.busy || over
       },
     }),
     el('div', { className: 'inline', style: { marginTop: '10px', justifyContent: 'space-between' } },
-      el('span', { id: 'persona-counter', className: 'row-hint' }, `当前 ${state.personaText.length} 字 / 上限 20000 字（磁盘 ${state.personaBytes} 字节）`),
-      el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: actions.savePersona }, state.busy === 'persona' ? '保存中…' : '保存并注入人设')),
+      el('span', { id: 'persona-counter', className: personaOver ? 'row-hint counter-err' : 'row-hint' },
+        personaOver
+          ? `当前 ${personaLen} / ${MAX_PERSONA_CHARS} 字（已超限，请先删减 ${personaLen - MAX_PERSONA_CHARS} 字）`
+          : `当前 ${personaLen} / ${MAX_PERSONA_CHARS} 字（磁盘 ${state.personaBytes} 字节）`),
+      el('button', {
+        id: 'persona-save-btn',
+        type: 'button',
+        className: 'btn primary',
+        disabled: !!state.busy || personaOver,
+        onClick: actions.savePersona,
+      }, state.busy === 'persona' ? '保存中…' : '保存并注入人设')),
     state.personaMsg ? el('div', { className: state.personaMsg.startsWith('✓') ? 'banner ok' : 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.personaMsg) : null)
 
   const tasteCard = el('div', { className: 'card' },
     el('h2', {}, '她的口味偏好'),
-    row('爱看的关键词', 'feed 选片打分中权重最高，决定她看待 B 站的视角。', listCtrl(getPath(cfg, ['preferences', 'like']), v => actions.setCfg(['preferences', 'like'], v))),
-    row('不爱看的词', '命中后自动降权或排除。', listCtrl(getPath(cfg, ['preferences', 'dislike']), v => actions.setCfg(['preferences', 'dislike'], v))))
+    el('p', { className: 'card-sub' }, '决定大鲸鱼主动去 B 站搜什么、挑什么视频看，以及主动避开哪些内容。修改后记得点右上角「保存配置」。'),
+    row(
+      '喜欢的类型（最多 6 个）',
+      '大鲸鱼每次醒来会按这 6 个以内的主题主动去 B 站搜索，并在选片打分里给最高权重；上限 6 个是为了避免搜索过密触发 B 站限流。',
+      tagEditorCtrl({
+        items: getPath(cfg, ['preferences', 'like']),
+        max: MAX_LIKE_TAGS,
+        kind: 'like',
+        draftValue: state.likeTagDraft,
+        onDraftChange: (v) => { state.likeTagDraft = v },
+        onChange: (next) => actions.setCfg(['preferences', 'like'], next, true),
+        suggestions: LIKE_SUGGESTIONS,
+        placeholder: '输入喜欢的类型后按回车，如 AI 工具',
+      })),
+    row(
+      '不喜欢的类型（屏蔽，最多 12 个）',
+      '视频标题或标签命中这些词时会自动降权或直接排除。',
+      tagEditorCtrl({
+        items: getPath(cfg, ['preferences', 'dislike']),
+        max: MAX_DISLIKE_TAGS,
+        kind: 'dislike',
+        draftValue: state.dislikeTagDraft,
+        onDraftChange: (v) => { state.dislikeTagDraft = v },
+        onChange: (next) => actions.setCfg(['preferences', 'dislike'], next, true),
+        suggestions: DISLIKE_SUGGESTIONS,
+        placeholder: '输入不想看的类型后按回车，如 带货',
+      })))
 
   const wins = Array.isArray(getPath(cfg, ['night', 'windows'])) ? getPath(cfg, ['night', 'windows']) : []
   const nums = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧']
@@ -179,9 +296,16 @@ export function renderPersonaTab(state, actions) {
   const delWin = (i) => actions.setCfg(['night', 'windows'], wins.filter((_, j) => j !== i), true)
   const addWin = () => actions.setCfg(['night', 'windows'], [...wins, { start: '20:00', end: '22:00', wakes: 1 }], true)
 
+  const rawSkip = Number(getPath(cfg, ['night', 'skipChance']) ?? 0.2)
+  const snappedSkip = Number(Math.min(0.8, Math.max(0, Math.round((Number.isFinite(rawSkip) ? rawSkip : 0.2) * 5) / 5)).toFixed(1))
+  const curMinGap = Math.min(240, Math.max(10, Math.floor(Number(getPath(cfg, ['night', 'minGapMin']) ?? 10) || 10)))
+  const curMaxVideos = Math.min(10, Math.max(1, Math.floor(Number(getPath(cfg, ['night', 'maxVideos']) ?? 5) || 5)))
+  const curDeepMax = Math.min(3, curMaxVideos, Math.max(1, Math.floor(Number(getPath(cfg, ['night', 'deepWatchMax']) ?? 3) || 3)))
+  const totalConfiguredWakes = wins.reduce((sum, w) => sum + (Number(w?.wakes) || 1), 0)
+
   const nightCard = el('div', { className: 'card' },
     el('h2', {}, '她的作息与生物钟'),
-    el('p', { className: 'card-sub' }, '每个时间窗内随机挑时刻醒来（不整点）。保存作息变更会立即通知后台守护重算计划。'),
+    el('p', { className: 'card-sub' }, '每个时间窗内随机挑时刻醒来（不卡整点），每醒来 1 次或按概率跳过 1 次均计 1 次机会。相邻两次醒来强制遵守下方最小间隔（硬下限，窗口内排不下会自动少醒），全天所有窗口合计最多 12 次。保存配置后会立即通知后台守护重算计划。'),
     wins.length === 0
       ? el('div', { className: 'row-hint' }, '还没有时间窗，请至少添加一个。')
       : el('div', {}, ...wins.map((w, i) =>
@@ -192,15 +316,73 @@ export function renderPersonaTab(state, actions) {
               el('span', { className: 'row-hint' }, '–'),
               el('input', { className: 'input sm', value: w.end ?? '', placeholder: '24:00', onChange: e => updWin(i, { end: e.target.value }) }),
               el('span', { className: 'row-hint' }, '醒来'),
-              el('input', { className: 'input xs', type: 'number', min: 1, max: 12, value: w.wakes ?? 1, onChange: e => updWin(i, { wakes: Number(e.target.value) || 1 }) }),
+              el('input', { className: 'input xs', type: 'number', min: 1, max: 12, value: w.wakes ?? 1, onChange: e => updWin(i, { wakes: Math.min(12, Math.max(1, Number(e.target.value) || 1)) }) }),
               el('span', { className: 'row-hint' }, '次')),
             el('button', { type: 'button', className: 'btn danger sm', disabled: wins.length <= 1, onClick: () => delWin(i) }, '删除')))),
-    el('div', { className: 'inline', style: { margin: '10px 0' } },
+    totalConfiguredWakes > 12
+      ? el('div', { className: 'banner warn', style: { marginTop: '8px' } }, `当前所有窗口醒来次数合计 ${totalConfiguredWakes} 次，超过每日上限 12 次；实际每天最多只会执行 12 次。`)
+      : null,
+    el('div', { className: 'inline', style: { margin: '10px 0 4px' } },
       el('button', { type: 'button', className: 'btn', onClick: addWin }, '+ 添加时间窗'),
       el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.triggerNight(true) }, '预演手工唤醒（--dry）'),
       el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: () => actions.triggerNight(false) }, '立即唤醒一次（--go）')),
-    row('今晚不看的概率', '0.3 = 三成概率随机跳过看片（仍写日记）。', textCtrl(getPath(cfg, ['night', 'skipChance']), v => actions.setCfg(['night', 'skipChance'], v), { type: 'number' })),
-    row('单次醒来候选视频数', '初筛最多条数，筛完再挑 2–3 条深读。', textCtrl(getPath(cfg, ['night', 'maxVideos']), v => actions.setCfg(['night', 'maxVideos'], v), { type: 'number' })),
+    el('div', { className: 'row-hint', style: { marginBottom: '6px' } }, '提示：「预演」只检查不真跑；「立即唤醒一次」会将本窗口计划提前到 5 秒后执行（仅在当前时间处于上方作息时间窗内且仍有剩余次数时生效）。'),
+    row(
+      '两次醒来最小间隔',
+      '硬性下限（默认 10 分钟）：就算一个短窗口里设了很多次，也绝不压缩最小间隔；排不下的次数自动放弃，另含每轮结束后 8 分钟冷却。',
+      selectCtrl(
+        [10, 15, 30, 60, 120].includes(curMinGap) ? curMinGap : 10,
+        [
+          ['10', '10 分钟（默认）'],
+          ['15', '15 分钟'],
+          ['30', '30 分钟'],
+          ['60', '60 分钟（1 小时）'],
+          ['120', '120 分钟（2 小时）'],
+        ],
+        v => actions.setCfg(['night', 'minGapMin'], Number(v), true),
+      )),
+    row(
+      '每次醒来不看的概率',
+      '0% = 每次醒来必刷视频；最高 80% = 大部分时候跳过看片（不设 100% 以免永远不看）。跳过只消耗本次机会，不影响自动写日记。',
+      selectCtrl(
+        String(snappedSkip),
+        [
+          ['0', '0%（每次必看，从不跳过）'],
+          ['0.2', '20%（偶尔跳过，推荐）'],
+          ['0.4', '40%（有时跳过）'],
+          ['0.6', '60%（多数时候跳过）'],
+          ['0.8', '80%（很少看片，最高档）'],
+        ],
+        v => actions.setCfg(['night', 'skipChance'], Number(v), true),
+      )),
+    row(
+      '单次醒来候选视频数',
+      '每次醒来初筛最多捞出几条候选视频供她挑选（范围 1–10 条；数字越大面越广，越小越快）。',
+      selectCtrl(
+        String(curMaxVideos),
+        Array.from({ length: 10 }, (_, idx) => {
+          const n = idx + 1
+          return [String(n), n === 5 ? `${n} 条（默认）` : `${n} 条`]
+        }),
+        v => {
+          const nextMax = Number(v)
+          actions.setCfg(['night', 'maxVideos'], nextMax, false)
+          if (curDeepMax > nextMax) actions.setCfg(['night', 'deepWatchMax'], nextMax, false)
+          actions.rerender()
+        },
+      )),
+    row(
+      '单次最感兴趣深看数',
+      '从上方候选视频中挑最感兴趣的最多几条完整看字幕、弹幕、评论与画面（范围 1–3 条，且不超过候选数）。',
+      selectCtrl(
+        String(curDeepMax),
+        [
+          ['1', '最多 1 条（最省配额）'],
+          ['2', '最多 2 条（均衡）'],
+          ['3', '最多 3 条（默认上限）'],
+        ].filter(([val]) => Number(val) <= curMaxVideos),
+        v => actions.setCfg(['night', 'deepWatchMax'], Number(v), true),
+      )),
     state.triggerOut ? el('pre', { className: 'console-out' }, state.triggerOut) : null)
 
   return el('div', {}, namingCard, personaCard, tasteCard, nightCard)

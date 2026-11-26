@@ -10,6 +10,7 @@ import {
 } from './render-sections.js'
 import { renderModelsTab } from './render-models.js'
 import { renderMemoryTab } from './render-memory.js'
+import { renderAboutTab } from './render-about.js'
 
 const state = {
   ready: false,
@@ -22,6 +23,8 @@ const state = {
   personaBytes: 0,
   personaPath: '',
   personaMsg: '',
+  likeTagDraft: '',
+  dislikeTagDraft: '',
   qr: null,
   qrError: '',
   modelCatalog: null,
@@ -36,6 +39,11 @@ const state = {
   ffmpegMsg: null,
   notifyOut: '',
   triggerOut: '',
+  about: null,
+  updateCheck: null,
+  updateResult: null,
+  updateError: '',
+  copiedKey: '',
   lifeState: null,
   lifeLoaded: false,
   lifeQuery: '',
@@ -88,6 +96,7 @@ const bridge = createMcpBridge({
       state.status = payload.status ?? state.status
       state.pending = payload.pending?.items ?? state.pending
       if (payload.models) state.modelCatalog = payload.models
+      if (payload.about) state.about = payload.about
       state.ready = true
       render()
     }
@@ -114,11 +123,39 @@ function switchTab(id) {
   if (id === 'memory' && !state.lifeLoaded) {
     void actions.runLife('status').then(() => actions.runCorpus('list'))
   }
+  if (id === 'about' && !state.about) {
+    void actions.refreshAbout()
+  }
 }
 
 const actions = {
   rerender: () => render(),
   switchTab,
+
+  openUrl(url) {
+    void bridge.openLink(url)
+  },
+
+  async copyText(text, key) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch {}
+      ta.remove()
+    }
+    state.copiedKey = key
+    render()
+    setTimeout(() => {
+      if (state.copiedKey === key) {
+        state.copiedKey = ''
+        render()
+      }
+    }, 2000)
+  },
 
   setCfg(pathArr, value, shouldRender = false) {
     if (!state.cfg) return
@@ -151,10 +188,52 @@ const actions = {
       state.status = res.status ?? null
       state.pending = res.pending?.items ?? []
       if (res.models) state.modelCatalog = res.models
+      if (res.about) state.about = res.about
       state.ready = true
       state.banner = null
     } catch (e) {
       setBanner('err', '加载配置失败：' + e.message)
+    } finally {
+      state.busy = ''
+      render()
+    }
+  },
+
+  async refreshAbout() {
+    try {
+      state.about = await bridge.callTool('whale_app_ops', { action: 'about' })
+      render()
+    } catch {}
+  },
+
+  async checkUpdate() {
+    state.busy = 'update_check'
+    state.updateError = ''
+    render()
+    try {
+      const res = await bridge.callTool('whale_app_ops', { action: 'update_check' })
+      state.updateCheck = res
+      if (res.local) state.about = { ok: true, local: res.local }
+    } catch (e) {
+      state.updateError = '检查更新失败：' + e.message
+    } finally {
+      state.busy = ''
+      render()
+    }
+  },
+
+  async applyUpdate(ref = 'main') {
+    state.busy = 'update_apply'
+    state.updateError = ''
+    state.updateResult = { kind: 'warn', text: '正在从 GitHub 下载最新版插件压缩包、校验完整性并更新本地文件（约 5–20 秒）…' }
+    render()
+    try {
+      const res = await bridge.callTool('whale_app_ops', { action: 'update_apply', ref })
+      state.updateResult = { kind: 'ok', text: `✓ ${res.message}` }
+      await actions.refreshAbout()
+    } catch (e) {
+      state.updateResult = null
+      state.updateError = '本地一键更新失败：' + e.message
     } finally {
       state.busy = ''
       render()
@@ -489,6 +568,7 @@ function render() {
     ['pending', '待审回复', state.pending.length],
     ['runtime', '运行与体检'],
     ['memory', '记忆与语料'],
+    ['about', '关于与更新'],
   ]
 
   const topbar = el('header', { className: 'topbar' },
@@ -519,7 +599,8 @@ function render() {
   else if (state.tab === 'interact') body = renderInteractTab(state, actions)
   else if (state.tab === 'pending') body = renderPendingTab(state, actions)
   else if (state.tab === 'runtime') body = renderRuntimeTab(state, actions)
-  else body = renderMemoryTab(state, actions)
+  else if (state.tab === 'memory') body = renderMemoryTab(state, actions)
+  else body = renderAboutTab(state, actions)
 
   mount(
     topbar,

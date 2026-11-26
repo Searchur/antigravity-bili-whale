@@ -4,9 +4,10 @@ import { WHALE_HOME, configPath } from './paths.mjs'
 
 export const NIGHT_DEFAULTS = Object.freeze({
   windows: [{ start: '20:00', end: '24:00', wakes: 1 }],
-  skipChance: 0.3,
+  skipChance: 0.2,
   minGapMin: 10,
   maxVideos: 5,
+  deepWatchMax: 3,
 })
 
 export function mergeNightConfig({ user = {}, defaults = NIGHT_DEFAULTS } = {}) {

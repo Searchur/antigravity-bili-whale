@@ -21,6 +21,10 @@ export const MODEL_DEFAULTS = Object.freeze({
   worker: 'flash_lite',
 })
 
+export const MAX_LIKE_TAGS = 6
+export const MAX_DISLIKE_TAGS = 12
+export const MAX_PERSONA_CHARS = 4000
+
 /** 中性默认值：全部基于 Antigravity 内置模型，不依赖外部 API。 */
 export const DEFAULTS = {
   chat: CHAT_DEFAULTS,
@@ -36,7 +40,7 @@ export const DEFAULTS = {
     diaryTitle: '今日摘要',
   },
   preferences: {
-    like: ['AI 工具与插件', '鬼畜与怀旧向剪辑', '猫咪', 'Live2D/模型'],
+    like: ['AI 工具', '科技新闻', '编程开发', '效率软件'],
     dislike: ['带货', '擦边', '标题党', '纯搬运'],
     keywords: [],
   },
@@ -48,7 +52,7 @@ export const DEFAULTS = {
   diary: { push: true, enabled: true },
   share: { aiCommentGuard: false, aiThreshold: 30, enabled: true, via: 'dm', minScore: 13, silentAfterDays: 3 },
   listen: { ...LISTEN_DEFAULTS },
-  night: { windows: [{ start: '20:00', end: '24:00', wakes: 1 }], skipChance: 0.3, minGapMin: 10, maxVideos: 5 },
+  night: { windows: [{ start: '20:00', end: '24:00', wakes: 1 }], skipChance: 0.2, minGapMin: 10, maxVideos: 5, deepWatchMax: 3 },
 }
 
 export function withoutRetiredListening(cfg) {

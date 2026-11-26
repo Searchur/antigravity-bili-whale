@@ -67,14 +67,18 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.ok(!content.text.includes('手动导入 Cookie'))
     assert.ok(Buffer.byteLength(content.text, 'utf8') < 10 * 1024 * 1024)
 
-    // Bootstrap call returns structuredContent including models catalog
+    // Bootstrap call returns structuredContent including models catalog and about metadata
     const boot = await router.handleRequest({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'whale_app_bootstrap', arguments: {} } })
     assert.equal(boot.result.structuredContent.ok, true)
     assert.equal(boot.result.structuredContent.settings.config.models.main, 'flash')
     assert.ok(Array.isArray(boot.result.structuredContent.models.groups))
     assert.ok(boot.result.structuredContent.models.groups.length >= 1)
+    assert.equal(boot.result.structuredContent.about.local.name, 'antigravity-bili-whale')
 
-    // Ops models action returns model catalog
+    // Ops about & models actions work cleanly
+    const opsAbout = await router.handleRequest({ jsonrpc: '2.0', id: 40, method: 'tools/call', params: { name: 'whale_app_ops', arguments: { action: 'about' } } })
+    assert.equal(opsAbout.result.structuredContent.ok, true)
+    assert.ok(opsAbout.result.structuredContent.local.repository.includes('github.com/Searchur/antigravity-bili-whale'))
     const opsModels = await router.handleRequest({ jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'whale_app_ops', arguments: { action: 'models' } } })
     assert.equal(opsModels.result.structuredContent.ok, true)
     assert.ok(Array.isArray(opsModels.result.structuredContent.groups))

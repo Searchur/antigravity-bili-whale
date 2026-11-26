@@ -67,5 +67,16 @@ export function createMcpBridge({ onInitialResult } = {}) {
     })
   }
 
-  return { app, connect, callTool }
+  async function openLink(url) {
+    if (!url) return
+    try {
+      if (typeof app.openLink === 'function') {
+        await app.openLink({ url })
+        return
+      }
+    } catch {}
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  return { app, connect, callTool, openLink }
 }
