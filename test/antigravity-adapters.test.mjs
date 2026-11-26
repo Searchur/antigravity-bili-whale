@@ -51,12 +51,18 @@ test('createAntigravitySessionController creates via HTTP, continues via sendMes
 
     // Large prompt (>22k chars) must materialize to file to avoid Windows 32KB argv limit
     const hugeText = 'X'.repeat(25_000)
-    await ctrl.prompt({ sessionId: 'conv-uuid-1', requestId: 'req-huge', sessionRole: 'browse-main', content: [{ type: 'text', text: hugeText }] })
+    await ctrl.prompt({
+      sessionId: 'conv-uuid-1', sessionRole: 'browse-main', identity: { account: '1001', owner: '2001' },
+      content: [{ type: 'text', text: hugeText }],
+    })
     const sendCall = calls.find(c => c.op === 'send')
     assert.ok(sendCall.content.length < 3000)
     assert.ok(sendCall.content.includes('read-prompt'))
-    const promptFile = path.join(workDir, '.prompts', 'req-huge.md')
-    assert.equal(fs.readFileSync(promptFile, 'utf8'), hugeText)
+    const name = sendCall.content.match(/[a-f0-9]{48}\.json/)[0]
+    const prompt = JSON.parse(fs.readFileSync(path.join(workDir, '.prompts', name), 'utf8'))
+    assert.equal(prompt.text, hugeText)
+    assert.equal(prompt.account, '1001')
+    assert.equal(prompt.owner, '2001')
 
     await assert.rejects(() => ctrl.prompt({ sessionId: 'missing-id', content: [{ type: 'text', text: 'hi' }] }), { code: 'session/not-found' })
   } finally {

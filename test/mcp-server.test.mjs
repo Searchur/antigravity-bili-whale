@@ -100,10 +100,17 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     // Portable read-prompt & read-shot scoped helpers
     const pDir = path.join(dir, 'whale-work', '.prompts')
     fs.mkdirSync(pDir, { recursive: true })
-    fs.writeFileSync(path.join(pDir, 'sample.md'), 'hello full prompt')
-    const pRes = await router.handleRequest({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'bili_ops', arguments: { command: 'read-prompt', args: ['sample.md'] } } })
+    const promptName = 'a'.repeat(48) + '.json'
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '1001' }, owner: { mid: '2001' } }))
+    fs.writeFileSync(path.join(pDir, promptName), JSON.stringify({
+      account: '1001', owner: '2001', expiresAt: Date.now() + 60_000, text: 'hello full prompt',
+    }))
+    const promptCall = { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'bili_ops', arguments: { command: 'read-prompt', args: [promptName] } } }
+    const pRes = await router.handleRequest(promptCall)
     assert.equal(pRes.result.isError, false)
     assert.equal(pRes.result.content[0].text, 'hello full prompt')
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '1001' }, owner: { mid: '2002' } }))
+    assert.equal((await router.handleRequest(promptCall)).result.isError, true)
 
     const sDir = path.join(dir, 'shots')
     fs.mkdirSync(sDir, { recursive: true })
@@ -126,6 +133,7 @@ test('MCP stdio server process handles newline-delimited JSON-RPC over stdin/std
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   })
+  const closed = new Promise(resolve => child.once('close', resolve))
   try {
     const lines = []
     let buf = ''
@@ -155,9 +163,11 @@ test('MCP stdio server process handles newline-delimited JSON-RPC over stdin/std
     assert.equal(lines[0].result.serverInfo.name, 'antigravity-bili-whale')
     assert.equal(lines[1].id, 2)
     assert.deepEqual(lines[1].result, {})
+    assert.equal(fs.statSync(path.join(dir, 'whale-work')).isDirectory(), true)
   } finally {
     child.stdin.end()
     child.kill()
+    await closed
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })

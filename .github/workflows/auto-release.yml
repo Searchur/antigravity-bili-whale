@@ -33,67 +33,66 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Resolve version and auto-bump patch if tag exists
+      - name: Resolve release version and synchronize manifests
         id: ver
         run: |
           node --input-type=module <<'EOF'
           import fs from 'node:fs'
           import { execFileSync } from 'node:child_process'
 
-          const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim()
-          const tagExists = (t) => Boolean(run('git', ['tag', '-l', t]))
-
+          const tagExists = tag => Boolean(execFileSync('git', ['tag', '-l', tag], { encoding: 'utf8' }).trim())
           const manifest = JSON.parse(fs.readFileSync('plugin.json', 'utf8'))
-          const current = String(manifest.version || '1.0.0').replace(/^v/i, '')
+          const current = manifest.version
+          if (!/^\d+\.\d+\.\d+$/.test(current)) throw new Error('plugin.json must contain a stable version')
           let target = current
-          let bumped = false
-
           if (tagExists(`v${target}`)) {
-            const parts = target.split('.').map(n => Number.parseInt(n, 10) || 0)
-            let [maj, min, pat] = [parts[0] || 0, parts[1] || 0, parts[2] || 0]
-            do {
-              pat += 1
-              target = `${maj}.${min}.${pat}`
-            } while (tagExists(`v${target}`))
-            bumped = true
-
-            manifest.version = target
-            fs.writeFileSync('plugin.json', JSON.stringify(manifest, null, 2) + '\n', 'utf8')
-
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'))
-            pkg.version = target
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n', 'utf8')
-
-            for (const file of ['mcp/server.mjs', 'ui-src/bridge.js']) {
-              if (!fs.existsSync(file)) continue
-              const src = fs.readFileSync(file, 'utf8')
-              const updated = src.replace(/version:\s*['"][0-9]+\.[0-9]+\.[0-9]+['"]/, `version: '${target}'`)
-              if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
-            }
-
-            if (fs.existsSync('mcp/app-tools.mjs')) {
-              const src = fs.readFileSync('mcp/app-tools.mjs', 'utf8')
-              const updated = src.replace(/\?\?\s*'[0-9]+\.[0-9]+\.[0-9]+'/, `?? '${target}'`)
-              if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
-            }
+            const [major, minor, patch] = current.split('.').map(Number)
+            let nextPatch = patch
+            do { target = `${major}.${minor}.${++nextPatch}` } while (tagExists(`v${target}`))
           }
 
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${target}\ntag=v${target}\nbumped=${bumped}\n`)
-          console.log(`Resolved release version: v${target} (bumped=${bumped})`)
+          const syncJsonVersion = (file, getRoot) => {
+            const value = JSON.parse(fs.readFileSync(file, 'utf8'))
+            const root = getRoot(value)
+            if (value.version === target && root.version === target) return
+            value.version = root.version = target
+            fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8')
+          }
+          for (const file of ['plugin.json', 'package.json']) syncJsonVersion(file, value => value)
+          syncJsonVersion('package-lock.json', value => value.packages[''])
+
+          for (const file of ['mcp/server.mjs', 'ui-src/bridge.js', 'mcp/app-tools.mjs']) {
+            const src = fs.readFileSync(file, 'utf8')
+            const pattern = file === 'mcp/app-tools.mjs' ? /(\?\?\s*)'\d+\.\d+\.\d+'/ : /(version:\s*)'\d+\.\d+\.\d+'/
+            if (!pattern.test(src)) throw new Error(`Version declaration missing in ${file}`)
+            const updated = src.replace(pattern, `$1'${target}'`)
+            if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${target}\n`)
+          console.log(`Resolved release version: v${target}`)
           EOF
 
-      - name: Rebuild UI bundle and push auto-bumped version commit
-        if: steps.ver.outputs.bumped == 'true'
+      - name: Install locked development dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build and test release
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
           npm run build:ui
-          git add plugin.json package.json mcp/server.mjs ui-src/bridge.js mcp/app-tools.mjs mcp/dist/app.html
-          git commit -m "chore(release): ${{ steps.ver.outputs.tag }} [skip ci]"
-          git push origin HEAD:main
+          npm test
+          node --input-type=module -e 'import { validatePluginPayload } from "./lib/plugin-install.js"; validatePluginPayload(process.cwd())'
+
+      - name: Sync verified release files to main
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          git add plugin.json package.json package-lock.json mcp/server.mjs ui-src/bridge.js mcp/app-tools.mjs mcp/dist/app.html
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): $TAG [skip ci]"
+            git push origin HEAD:main
+          else
+            test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$(git rev-parse HEAD)"
+          fi
 
       - name: Create Git tag and GitHub Release
         env:

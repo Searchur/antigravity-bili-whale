@@ -19,6 +19,7 @@ const state = {
   banner: null,
   cfg: null,
   savedJson: '',
+  accountRevision: 0,
   personaText: '',
   personaBytes: 0,
   personaPath: '',
@@ -71,6 +72,16 @@ function mount(...nodes) {
 function setBanner(kind, text) {
   state.banner = text ? { kind, text } : null
   render()
+}
+
+function applySavedAccount(account) {
+  if (!state.cfg) return
+  const self = { mid: account.mid, name: account.name }
+  const saved = JSON.parse(state.savedJson)
+  state.cfg.self = self
+  saved.self = self
+  state.savedJson = JSON.stringify(saved)
+  state.accountRevision++
 }
 
 const bridge = createMcpBridge({
@@ -188,6 +199,7 @@ const actions = {
 
   async logout() {
     cancelQrInternal()
+    state.accountRevision++
     state.busy = 'logout'
     state.logoutMsg = null
     render()
@@ -196,12 +208,10 @@ const actions = {
       state.confirmLogout = false
       state.qr = null
       state.qrError = ''
-      if (state.cfg) {
-        state.cfg.self = { mid: '', name: '' }
-        state.savedJson = JSON.stringify(state.cfg)
-      }
+      applySavedAccount({ mid: '', name: '' })
       state.depsLoaded = false
-      state.logoutMsg = { kind: 'ok', text: res.detail || '已退出登录并清除本地凭据' }
+      const confirmed = res.remoteRevoked || res.remoteStatus === 'no_credentials'
+      state.logoutMsg = { kind: confirmed ? 'ok' : 'warn', text: res.detail || '已清除本地凭据' }
     } catch (e) {
       state.logoutMsg = { kind: 'err', text: '退出登录失败：' + e.message }
     } finally {
@@ -248,6 +258,7 @@ const actions = {
       const res = await bridge.callTool('whale_app_bootstrap')
       state.cfg = res.settings?.config ?? {}
       state.savedJson = JSON.stringify(state.cfg)
+      state.accountRevision++
       state.personaText = res.persona?.text ?? ''
       state.personaBytes = res.persona?.bytes ?? 0
       state.personaPath = res.persona?.path ?? ''
@@ -331,6 +342,7 @@ const actions = {
       if (res.config) {
         state.cfg = res.config
         state.savedJson = JSON.stringify(res.config)
+        state.accountRevision++
       }
       if (res.warn) setBanner('warn', res.warn)
       else state.banner = null
@@ -402,10 +414,7 @@ const actions = {
           state.qr = r
           if (r.status === 'success') {
             qrFlow.id = null
-            if (r.account && state.cfg) {
-              state.cfg.self = { mid: r.account.mid, name: r.account.name }
-              state.savedJson = JSON.stringify(state.cfg)
-            }
+            if (r.account && !r.account.warn) applySavedAccount(r.account)
             state.depsLoaded = false
           } else if (['waiting', 'scanned'].includes(r.status)) {
             qrFlow.timer = setTimeout(poll, 2200)
@@ -436,10 +445,11 @@ const actions = {
   },
 
   async runDeps() {
+    const accountRevision = state.accountRevision
     state.busy = 'deps'
     render()
     try {
-      const j = await bridge.callTool('whale_app_ops', { action: 'deps' })
+      const { report: j } = await bridge.callTool('whale_app_ops', { action: 'deps' })
       if (Array.isArray(j?.cards) && j.cards.length > 0) {
         state.depsData = j
       } else {
@@ -459,10 +469,7 @@ const actions = {
         }
       }
       state.depsLoaded = true
-      if (j?.self && state.cfg) {
-        state.cfg.self = j.self
-        state.savedJson = JSON.stringify(state.cfg)
-      }
+      if (j?.self && state.accountRevision === accountRevision) applySavedAccount(j.self)
     } catch {
       state.depsData = {
         ok: false,

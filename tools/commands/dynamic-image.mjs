@@ -1,4 +1,4 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 // Post ONE image dynamic. Does not delete anything — the caller decides.
 //
@@ -16,6 +16,9 @@ import crypto from 'node:crypto'
 import { gate, record } from '../lib/quota-gate.mjs'
 import { guardSend, lifeStore } from '../lib/life-runtime.mjs'
 import { getDraft, draftForm } from '../lib/expression-delivery.mjs'
+import { config } from '../lib/config.mjs'
+import { enforceOutboundSafety } from '../lib/content-safety.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
 
 const argv = process.argv.slice(2)
 const args = new Map()
@@ -79,6 +82,9 @@ if (!['png', 'jpg', 'gif'].includes(kind)) {
 }
 if (!dims) { console.error('✗ 没解析出尺寸，无法组装 pics'); process.exit(5) }
 
+const safety = await enforceOutboundSafety({ text: [text, atName].filter(Boolean).join('\n'), channel: 'dynamic', cfg: config() })
+if (safety.blocked) { console.error(safety.reason); process.exit(4) }
+
 // ---- credentials -----------------------------------------------------------
 const credPath = dataPath('credentials.json')
 if (!fs.existsSync(credPath)) { console.error(`缺少凭据文件: ${credPath}`); process.exit(3) }
@@ -121,7 +127,15 @@ console.log(`     JSON: scene=2（带图）, pics=[{img_src:<上一步返回>, i
 console.log(`     正文: ${text ? `「${text.replace(/\n/g, ' / ')}」(${text.length} 字)` : '（空）'}`)
 if (atMid) console.log(`     @节点: raw_text="@${atName ?? ''} "  type=2  biz_id=${atMid}`)
 
-if (isDry) { console.log('\n[dry] 未上传、未发布（上传本身也是写操作，所以 dry 阶段一次请求都不发）。'); process.exit(0) }
+const request = {
+  channel: 'dynamic', scene: 'public-comment', target: String(nav.data?.mid ?? ''),
+  text: String(text || '[图文动态]'), auto: args.has('auto'), share: false,
+  draftId: args.get('draft') ?? null,
+}
+if (!gate({ type: 'dynamic', target: 'dynamic', auto: request.auto })) { console.error('拒绝：限额闸不通过'); process.exit(2) }
+await guardSend(request, { dry: true })
+requireWritePreview('dynamic-image', { request, atMid, atName }, { dry: isDry, credentials: cred, attachment: buf })
+if (isDry) { console.log('\n[dry] 未上传、未发布。'); process.exit(0) }
 
 // 2026-10-21 修（外部审计 #9）：闸门必须在【上传图片之前】——
 //   上传本身就是写操作；先传后拦，等于图已经上去了才说"不行" ✗
@@ -129,20 +143,11 @@ if (isDry) { console.log('\n[dry] 未上传、未发布（上传本身也是写�
 //   去重与发送记录都在这里强制；任何拒绝都发生在"一次请求都没发"之前。
 let guard = null
 try {
-  guard = await guardSend({
-    channel: 'dynamic', scene: 'public-comment', target: String(cred.mid ?? ''),
-    text: String(text || '[图文动态]'), auto: process.argv.includes('--auto'), share: false,
-    draftId: args.get('draft') ?? null,
-  })
+  guard = await guardSend(request)
 } catch (e) {
   console.error('拒绝：' + String(e.message ?? e) + '（还没上传图片，未产生任何写入）')
   process.exit(2)
 }
-if (!gate({ type: 'dynamic', target: 'dynamic', auto: process.argv.includes('--auto') })) {
-  console.error('拒绝：限额闸不通过（额度 / 名单）—— 还没上传图片，未产生任何写入 ✓')
-  process.exit(2)
-}
-
 console.log('\n[1/2] 上传图片…')
 const fd = new FormData()
 const mime = kind === 'png' ? 'image/png' : kind === 'jpg' ? 'image/jpeg' : 'image/gif'

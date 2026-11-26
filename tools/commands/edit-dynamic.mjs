@@ -1,11 +1,13 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 // 编辑已存在的动态：POST /x/dynamic/feed/edit/dyn（端点从网页 JS 里扒出来的）
 //   "/x/dynamic/feed/" + (dyn_id_str ? "edit" : "create") + "/dyn"
 // 用法: node edit-dynamic.mjs <dyn_id> <文本文件> [--go]
 //   不给 --go 就只打印将要发送的 payload（预演）。
 import fs from 'node:fs'
-import path from 'node:path'
+import { config } from '../lib/config.mjs'
+import { enforceOutboundSafety } from '../lib/content-safety.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
 // 2026-10-21 修（外部审计）：下面 --go 路径里调了 gate()，但从来没导入过 ✗
 //   一跑到那儿就是 ReferenceError（danmaku.mjs 早就踩过同一个坑，这次补齐三条）
 import { gate } from '../lib/quota-gate.mjs'
@@ -13,6 +15,7 @@ import { gate } from '../lib/quota-gate.mjs'
 const dyn = process.argv[2]
 const textFile = process.argv[3]
 const go = process.argv.includes('--go')
+if (go && process.argv.includes('--dry')) { console.error('必须且只能给 --dry 或 --go'); process.exit(2) }
 if (!dyn || !textFile) { console.error('用法: node edit-dynamic.mjs <dyn_id> <文本文件> [--go]'); process.exit(2) }
 
 const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
@@ -24,6 +27,8 @@ const H = {
   cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`,
 }
 const text = fs.readFileSync(textFile, 'utf8').replace(/\r\n/g, '\n')
+const safety = await enforceOutboundSafety({ text, channel: 'dynamic', cfg: config() })
+if (safety.blocked) { console.error(safety.reason); process.exit(4) }
 
 // 先把当前动态的图片原样取出来（编辑时带上，免得把图弄丢）
 const d = await (await fetch(`https://api.bilibili.com/x/polymer/web-dynamic/v1/detail?id=${dyn}&features=itemOpusStyle`, { headers: H })).json()
@@ -48,10 +53,11 @@ console.log(text)
 console.log('—— payload 摘要 ——')
 console.log(JSON.stringify(payload).slice(0, 400) + '…')
 
+const auto = process.argv.includes('--auto')
+if (!gate({ type: 'dynamic', target: 'dynamic', auto })) { console.error('拒绝：限额闸不通过'); process.exit(2) }
+requireWritePreview('dynamic-edit', { payload, auto }, { dry: !go, credentials: cred })
 if (!go) { console.log('\n[预演] 未发送。确认无误加 --go。'); process.exit(0) }
 
-// P0-5（Kimi 评审 #5）：写通道也要过限额闸；不通过就停手
-if (!gate({ type: 'dynamic', target: 'dynamic', auto: process.argv.includes('--auto') })) { console.error('拒绝：限额闸不通过（额度/白名单）'); process.exit(2) }
 // JSON requests supply CSRF as a query parameter; never log the URL.
 const query = new URLSearchParams({ platform: 'web', csrf: String(cred.bili_jct) })
 const r = await fetch(`https://api.bilibili.com/x/dynamic/feed/edit/dyn?${query}`, {

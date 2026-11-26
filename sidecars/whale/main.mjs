@@ -26,6 +26,7 @@ const readCfgSafe = () => {
 }
 const readMainModel = () => readCfgSafe()?.models?.main || 'flash'
 const workDir = resolveWorkDir('', workDirPath, log)
+process.chdir(workDir)
 
 const rpc = createAntigravityRpc()
 const sessionController = createAntigravitySessionController({

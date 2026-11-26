@@ -38,7 +38,6 @@ export function archiveLifeState(state, { dir, now, cfg }, force = false) {
     protectedIDs.add(event.id)
   }
 
-  for(const j of Object.values(state.settings.diary?.jobs??{}))if(['running','retry'].includes(j.status))for(const e of j.sources)protectedIDs.add(e.id)
   const keep = []
   const old = []
   const boundary = now() - cfg.retentionDays * DAY
@@ -50,9 +49,9 @@ export function archiveLifeState(state, { dir, now, cfg }, force = false) {
       : keep
   ).push(event))
 
-  // Expired, unreferenced events are forgotten; recent overflow is archived instead.
+  // Historical diary entries remain searchable in the archive.
   const forget = cfg.forgetExpiredEvents !== false
-  const forgotten = forget ? old.filter(event => event.at < boundary&&event.kind!=='diary') : []
+  const forgotten = forget ? old.filter(event => event.at < boundary && event.kind !== 'diary') : []
   const archived = old.filter(event => !forgotten.includes(event))
   if (archived.length) {
     if (state.affect) {

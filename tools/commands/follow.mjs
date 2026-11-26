@@ -3,6 +3,7 @@ import { lifeStore } from '../lib/life-runtime.mjs'
 import fs from 'node:fs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { credentialsPath } from '../lib/paths.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
 import { config } from '../lib/config.mjs'
 
 const args = process.argv.slice(2)
@@ -35,7 +36,9 @@ try {
   console.log(`当前状态：${before ? '已关注' : '未关注'}`)
   if (modes[0] === '--check') process.exit(0)
   if (before) { console.log('已经关注，无需写入'); process.exit(0) }
-  if (modes[0] === '--dry') { console.log('[dry] 将关注，未写入'); process.exit(0) }
+  const dry = modes[0] === '--dry'
+  requireWritePreview('follow', { target }, { dry, credentials: cred })
+  if (dry) { console.log('[dry] 将关注，未写入'); process.exit(0) }
   if (config().life?.paused || lifeStore().read().settings.paused) throw Error('鲸鱼已暂停，不能执行账号写操作')
   const body = new URLSearchParams({ fid: target, act: '1', re_src: '11', csrf: String(cred.bili_jct) })
   await call('https://api.bilibili.com/x/relation/modify', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: body.toString() })

@@ -21,6 +21,7 @@ import { apiGet } from '../lib/bili-api.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import { dshPath } from '../lib/paths.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
 
 const FAV_LOG = dataPath('favorites.json')
 // 2026-10-21 修（外部审计 #10）：新用户跑 `fav --list` 会因为缺文件直接一脸 ENOENT ✗
@@ -168,7 +169,7 @@ if (bad) { console.error(`✗ 不能收：${bad}`); process.exit(3) }
 // 写操作才需要凭据（--list / --check 不需要）
 if (!cred.sessdata || !cred.bili_jct) {
   console.error('✗ 还没配置 B站 凭据，没法收藏')
-  console.error('  去设置页粘贴 SESSDATA + bili_jct 并保存（只读的 fav --list 不需要凭据 ✓）')
+  console.error('  请先在控制台扫码登录。')
   process.exit(2)
 }
 let info, fav, account
@@ -182,7 +183,8 @@ console.log(`  理由：${reason}`)
 console.log(`  类别：${String(opt.kind ?? '') || inferKind(reason)}（可选 --kind 想学|想再看|和我有关|以后要提 覆盖）`)
 console.log(`  收藏夹：「${fav.title}」（media_id=${fav.id}）· 今天第 ${favoriteItems(load(), selfMid).filter((x) => new Date(x.at).toLocaleDateString('sv-SE') === today()).length + 1}/3 条`)
 
-if (!GO && !DRY) { console.error('✗ 必须给 --dry 或 --go'); process.exit(2) }
+if (GO === DRY) { console.error('✗ 必须且只能给 --dry 或 --go'); process.exit(2) }
+requireWritePreview('favorite', { bv, folder: fav.id, reason, kind, better: !!opt.better }, { dry: DRY, credentials: cred })
 if (DRY) { console.log('  [dry] 未写入 ✓ 确认后把 --dry 换成 --go'); process.exit(0) }
 
 let release

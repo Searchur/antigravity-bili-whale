@@ -1,4 +1,4 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { cacheComments } from '../lib/ai-share.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
 // 拉一条视频的热评 / 最新评论（只读）——「看完的人怎么看」那一路，从 debrief 里拆出来单用。

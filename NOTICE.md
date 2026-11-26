@@ -7,11 +7,16 @@
 | 名称 | 用途 | 许可 / 说明 |
 | --- | --- | --- |
 | **dsh-bili-whale** | 上游原始 B 站鲸鱼核心、状态机、行为规范与工具链 | MIT |
-| **@modelcontextprotocol/ext-apps** | 开发期预打包进 `mcp/dist/app.html` 的 MCP Apps 前端 SDK | MIT |
+| **@modelcontextprotocol/ext-apps** | MCP Apps前端SDK | MIT及Apache-2.0，详见随产品发布的许可文本 |
+| **@modelcontextprotocol/sdk** | MCP协议基础能力 | MIT |
+| **zod** | 前端协议数据校验 | MIT |
+| **zod-to-json-schema** | 数据校验架构转换 | ISC |
 | **qrcode (Kazuhiko Arase)** | `vendor/qrcode/qrcode.mjs` 内置零依赖二维码生成器 | MIT（见 `vendor/qrcode/LICENSE`） |
 | **Bilibili API / bilibili-API-collect** | B 站公开接口调用及 `tools/docs/` 接口参考文档 | 非官方；本项目不包含 B 站代码或数据 |
-| **ffmpeg** | 可选的视频画面抽帧工具（本机探测或用户通过面板按需下载） | **LGPL v2.1+** / GPL（仓库本身不打包 ffmpeg） |
+| **ffmpeg** | 本机可选的视频画面抽帧工具 | **LGPL v2.1+** 或GPL（仓库不打包ffmpeg） |
 | **Node.js** | 本地运行环境 | MIT |
+
+`mcp/dist/app.html`内的`third-party-licenses`数据块保留实际进入前端包的第三方组件的版本、版权与许可文本。
 
 ## 免责声明
 

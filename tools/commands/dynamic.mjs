@@ -1,4 +1,5 @@
 import { HOME, dataPath } from '../lib/paths.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
 // One-shot dynamic (动态) test: post -> list -> remove. Same boundary as the
@@ -95,7 +96,7 @@ if (mode === 'list') {
 
 if (mode === 'post') {
   if (!text) { console.error('post 需要 --text'); process.exit(2) }
-  if (!isDry && !isGo) { console.error('必须显式 --dry 或 --go'); process.exit(2) }
+  if (isDry === isGo) { console.error('必须且只能给 --dry 或 --go'); process.exit(2) }
   const safetyRes = await enforceOutboundSafety({ text, channel: 'dynamic', isOwnerTarget: false, cfg: config() })
   if (safetyRes.blocked) {
     console.error(`✗ [安全审核拦截] ${safetyRes.reason}（类别：${safetyRes.category}）`)
@@ -118,14 +119,14 @@ if (mode === 'post') {
   console.log(`  content-type: application/json    cookie: SESSDATA=***; bili_jct=***; buvid3=***`)
   console.log(`  正文(${text.length} 字): ${text}`)
   console.log('  报文: '+body)
-  const request=draft?{channel:'dynamic',scene:'public-comment',target:String(mid),text,auto:args.has('auto'),share:false,draftId:draft.id,video:draft.video,socialJobId:args.get('social-job')}:null
-  if(request)await guardSend(request,{dry:true})
+  const request={channel:'dynamic',scene:'public-comment',target:String(mid),text,auto:args.has('auto'),share:false,draftId:draft?.id,video:draft?.video,socialJobId:args.get('social-job')}
+  if (!gate({ type: 'dynamic', target: 'dynamic', auto: request.auto })) { console.error('拒绝：限额闸不通过'); process.exit(2) }
+  await guardSend(request,{dry:true})
+  requireWritePreview('dynamic-post', request, { dry: isDry, credentials: cred })
   if (isDry) { console.log('\n[dry] 未发布。'); process.exit(0) }
-// P0-5（Kimi 评审 #5）：写通道也要过限额闸；不通过就停手
-if (!gate({ type: 'dynamic', target: 'dynamic', auto: process.argv.includes('--auto') })) { console.error('拒绝：限额闸不通过（额度/白名单）'); process.exit(2) }
   let guard
   try{
-  if(request)guard=await guardSend(request)
+  guard=await guardSend(request)
   const r = await fetch(url, {
     method: 'POST',
     waitWriteMs:180000,
@@ -185,12 +186,13 @@ if (mode === 'check') {
 
 if (mode === 'rm') {
   if (!dynId) { console.error('rm 需要 --id <dyn_id>'); process.exit(2) }
-  if (!isDry && !isGo) { console.error('必须显式 --dry 或 --go'); process.exit(2) }
+  if (isDry === isGo) { console.error('必须且只能给 --dry 或 --go'); process.exit(2) }
   console.log('=== 登录态 ===')
   await whoami()
   console.log(`\n=== 将要删除 dyn_id=${dynId} ===`)
   console.log('  POST https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/rm_dynamic  (multipart/form-data)')
   console.log('  fields: dynamic_id / csrf / csrf_token   cookie: SESSDATA=***; bili_jct=***')
+  requireWritePreview('dynamic-delete', { dynId }, { dry: isDry, credentials: cred })
   if (isDry) { console.log('\n[dry] 未删除。'); process.exit(0) }
   const fd = new FormData()
   fd.append('dynamic_id', String(dynId))

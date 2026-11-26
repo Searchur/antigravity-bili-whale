@@ -41,7 +41,7 @@ items.push({
   name: 'ffmpeg（抽帧看画面）',
   ok: ff.ok,
   detail: ff.ok ? `${ff.version}\n  路径：${ff.path}` : (ff.path ? `找到了但跑不起来：${ff.version ?? ff.error}` : '未安装（不影响纯文字浏览）'),
-  fix: '在左侧栏「哔哩哔哩大鲸鱼」→「运行与体检」点击「一键安装 ffmpeg」，或执行 winget install -e --id Gyan.FFmpeg',
+  fix: '如需抽帧，请在终端执行 winget install -e --id Gyan.FFmpeg，或设置 FFMPEG 指向已有的 ffmpeg.exe。',
 })
 
 // 3. Node.js

@@ -168,7 +168,7 @@ export function createAppToolRunner(api) {
         }
         case 'whale_app_ops': {
           if (args.action === 'models') return okResult(await api.getModels())
-          if (args.action === 'deps') return okResult(await api.checkDeps())
+          if (args.action === 'deps') return okResult({ ok: true, report: await api.checkDeps() })
           if (args.action === 'wake_now') return okResult(await api.wakeNow())
           if (args.action === 'verify_owner') return okResult(await api.verifyOwner(args.mid, args.name))
           if (args.action === 'status') return okResult(await api.getStatus())

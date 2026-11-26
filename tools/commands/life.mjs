@@ -25,8 +25,6 @@ try{
   }
   else if(cmd==='rules')json(HARD_RULE_IDS)
   else if(cmd==='check'){const i=input(arg),result=checkHard(i.text,i.scene,lifeConfig(config().life));json(result);if(!result.ok)process.exitCode=2}
-  else if(cmd==='diary-status')json(store.diaryStatus())
-  else if(cmd==='diary-render')json(await store.renderDiary())
   else if(cmd==='affect-status')json(store.affectStatus())
   else if(cmd==='affect-explain')json(store.affectExplain())
   else if(cmd==='affect-preview')json(store.affectPreview(config()))
@@ -58,7 +56,6 @@ try{
   else if(cmd==='search')json(store.search(arg??'',{archives:rest.includes('--archives'),scene:rest.includes('--private')?'private':'public'}))
   else if(cmd==='propose')json(await store.propose(input(arg)))
   else if(cmd==='reflect')json(await store.record('reflection',{...input(arg),origin:'model'}))
-  else if(cmd==='diary')json(await store.record('diary',{...input(arg),origin:'model'}))
   else if(cmd==='archive')json(await store.archive())
   else if(cmd==='migrate')json(await migrateLegacy(store,DSH_HOME,{dryRun:arg!=='--apply'}))
   else if(cmd==='export')json(store.export())
@@ -87,5 +84,5 @@ try{
   else if(cmd==='prepare')json(await prepareExpression(store,input(arg)))
   else if(cmd==='revise')json(await editExpression(store,arg,fs.readFileSync(rest[0],'utf8')))
   else if(cmd==='finalize'||cmd==='discard')json(await finalizeExpression(store,arg,{discard:cmd==='discard'}))
-  else console.log('life: dynamic-status | memory-migrate [--apply] | memory-catalog-preview <json> [scene] | memory-history-preview <json> [scene] | memory-catalog <json-with-taskId> [scene] | memory-history <json> [scene] | memory-fetch <json> [scene] | memory-explain <id> [scene] | learning-status | traces | decision <json> | maintain | induce-submit <jobId> <token> <json> | induce-review <jobId> <token> <json> | context-explain [query] [scene] | recall <query> [scene] | source <id> [scene] | legacy-recall <query.json> [scene] | legacy-source <ref.json> [scene] | rebuild | replay-check | consolidate <json> | migrate [--dry-run|--apply] | status | references <视频来源事件ID> [intent] | rules | check <json> | migrate | compare <json> | context [query] [scene] | search <query> [--archives] | propose <json> | reflect <json> | diary <json> | archive | export | close <thread> [reason] | agenda-add <text> | agenda-done <id> <result> | activity-read <lease> <feed|debrief|comments|search> [args] | activity-end <lease> | expression-plan <scene> | prepare <json> | revise <id> <text-file> | finalize <id> | discard <id>\n提案接受、撤销、线程恢复、不确定发送核查在设置页完成。')
+  else console.log('life: dynamic-status | memory-migrate [--apply] | memory-catalog-preview <json> [scene] | memory-history-preview <json> [scene] | memory-catalog <json-with-taskId> [scene] | memory-history <json> [scene] | memory-fetch <json> [scene] | memory-explain <id> [scene] | learning-status | traces | decision <json> | maintain | induce-submit <jobId> <token> <json> | induce-review <jobId> <token> <json> | context-explain [query] [scene] | recall <query> [scene] | source <id> [scene] | legacy-recall <query.json> [scene] | legacy-source <ref.json> [scene] | rebuild | replay-check | consolidate <json> | migrate [--dry-run|--apply] | status | references <视频来源事件ID> [intent] | rules | check <json> | compare <json> | context [query] [scene] | search <query> [--archives] | propose <json> | reflect <json> | archive | export | close <thread> [reason] | agenda-add <text> | agenda-done <id> <result> | activity-read <lease> <feed|debrief|comments|search> [args] | activity-end <lease> | expression-plan <scene> | prepare <json> | revise <id> <text-file> | finalize <id> | discard <id>\n提案接受、撤销、线程恢复、不确定发送核查在设置页完成。')
 }catch(e){console.error(e.message);process.exitCode=2}

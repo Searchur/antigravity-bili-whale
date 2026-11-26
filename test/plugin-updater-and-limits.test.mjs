@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { compareSemver, parseLatestCommitAtom, checkForUpdate, applyPluginUpdate } from '../lib/plugin-updater.js'
+import { copyRuntimeFixture } from './fixtures/plugin-package.mjs'
 import { createApiHandlers } from '../lib/api-handlers.js'
 import { wakePrompt } from '../lib/scheduler.js'
 import { mentionSummaryLines } from '../lib/mention-summary.js'
@@ -77,12 +78,7 @@ test('plugin-updater uses zero-rate-limit raw/atom/codeload endpoints, detects v
       fetchImpl: mockFetch,
       extractZip: async (_zipFile, destDir) => {
         const root = path.join(destDir, 'antigravity-bili-whale-main')
-        fs.mkdirSync(path.join(root, 'mcp', 'dist'), { recursive: true })
-        fs.mkdirSync(path.join(root, 'sidecars', 'whale'), { recursive: true })
-        fs.writeFileSync(path.join(root, 'plugin.json'), JSON.stringify({ name: 'antigravity-bili-whale', version: '1.1.0' }))
-        fs.writeFileSync(path.join(root, 'mcp', 'server.mjs'), '// v1.1.0 server')
-        fs.writeFileSync(path.join(root, 'mcp', 'dist', 'app.html'), '<!DOCTYPE html><title>v1.1.0</title>')
-        fs.writeFileSync(path.join(root, 'sidecars', 'whale', 'main.mjs'), '// v1.1.0 sidecar')
+        copyRuntimeFixture(root, '1.1.0')
       },
     })
     assert.equal(applied.ok, true)
@@ -236,7 +232,8 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(init.config.listen.mentionSummaryFan, false)
     assert.equal(init.config.safety.enabled, true)
     assert.equal(init.config.safety.mode, 'dual')
-    assert.equal(init.config.diary.enabled, false)
+    assert.equal(Object.hasOwn(init.config, 'diary'), false)
+    assert.equal(Object.hasOwn(init.config, 'notify'), false)
     assert.equal(init.config.life.autonomy, false)
     assert.equal(init.config.watch.auto.maxDurationMin, 15)
     assert.equal(init.config.watch.ownerMention.autoMaxMin, 5)
@@ -252,7 +249,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal((await api.verifyOwner('12345', '旧名字')).matched, false)
 
     // 3. True logout handles 302 redirect + nav verification, deletes credentials.json, clears self, notifies sidecar
-    await api.saveSettings({ self: { mid: '999', name: '大鲸鱼号' } })
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '999', name: '大鲸鱼号' } }))
     const out = await api.logout()
     assert.equal(out.ok, true)
     assert.equal(exitCalled, true)
@@ -324,7 +321,8 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     const wPrompt = wakePrompt({ atText: '2026-11-26 21:00', window: '20:00–24:00' }, '', 8, 'dm', 'direct', {}, saved.config, 2)
     assert.ok(wPrompt.includes('每 10 秒抽 1 帧'))
     assert.ok(wPrompt.includes('每日最多发 2 条'))
-    assert.ok(wPrompt.includes('无需写日记'))
+    assert.ok(wPrompt.includes('保留有来源的观看记录'))
+    assert.equal(wPrompt.includes('日记'), false)
 
     // 7. Environment rows omit datadir and remove ffmpeg install/update action completely
     const deps = await api.checkDeps()
@@ -446,7 +444,10 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
       rpc: { available: () => false },
     })
     try {
-      await api.saveSettings({ self: { mid: '999', name: '大鲸鱼' }, owner: { mid: '12345', name: '主人' } })
+      fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
+        self: { mid: '999', name: '大鲸鱼' }, owner: { mid: '12345', name: '主人' },
+      }))
+      fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'offline-calendar-fixture', bili_jct: 'a'.repeat(32) }))
       const cfg = (await api.getSettings()).config
 
       // Seed 26 searchable experience events to verify search limit 20 vs 50

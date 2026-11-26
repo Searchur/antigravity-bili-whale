@@ -96,19 +96,16 @@ export const DEFAULTS = {
     name: '大鲸鱼',
     ownerTitle: '主人',
     selfClaim: '我',
-    diaryTitle: '今日摘要',
   },
   preferences: {
     like: ['AI 工具', '科技新闻', '编程开发', '效率软件'],
     dislike: ['带货', '擦边', '标题党', '纯搬运'],
     keywords: [],
   },
-  notify: { type: 'none', url: '', template: 'text', cmd: '', args: [] },
   aliases: [],
   owner: { mid: '', name: '' },
   self: { mid: '', name: '' },
   quota: { shareDaily: 3 },
-  diary: { push: false, enabled: false },
   share: { enabled: false, via: 'dm', minScore: 13, silentAfterDays: 3 },
   listen: { ...LISTEN_DEFAULTS },
   night: { windows: [{ start: '20:00', end: '24:00', wakes: 1 }], skipChance: 0.2, minGapMin: 10, maxVideos: 5, deepWatchMax: 3 },
@@ -257,12 +254,12 @@ export function config({ fresh = false } = {}) {
   const merged = withoutRetiredListening(merge(DEFAULTS, user))
   merged.browse = { enabled: user.browse?.enabled === true }
   merged.models = normalizeModels(merged.models)
-  merged.watch = normalizeWatch(merged.watch)
+  merged.watch = normalizeWatch(user.watch)
   merged.listen = normalizeListen(user.listen ?? merged.listen)
   merged.fanLimits = normalizeFanLimits(merged.fanLimits)
   merged.safety = normalizeSafety(merged.safety)
-  merged.diary = { enabled: false, push: false }
-  merged.notify = { type: 'none', url: '', template: 'text', cmd: '', args: [] }
+  delete merged.diary
+  delete merged.notify
   merged.life = { ...(merged.life ?? {}), autonomy: false }
   merged.personaOncePerSession = true
   if (!String(merged.persona?.name ?? '').trim()) merged.persona = { ...(merged.persona ?? {}), name: '大鲸鱼' }

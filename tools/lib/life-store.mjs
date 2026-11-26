@@ -1,4 +1,3 @@
-import {attachDiary,validateDiary} from './diary-state.mjs'
 import {captureSessionBoundary,sessionBoundaryChanged} from './session-boundary.mjs'
 import {attachAffect,ensureAffect,syncAffect,affectSendCheck,bindAffectSend,affectDispatched,affectSettled} from './affect-state.mjs'
 import {validateAffect,affectContext} from './affect-engine.mjs'
@@ -34,7 +33,7 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
   const cfg=lifeConfig(config)
   const dir=path.join(dshHome,'whale-life',fingerprint(account+'|'+owner).slice(0,24)),file=path.join(dir,'state.json')
   const checkpointFile=path.join(dir,'checkpoint.json')
-  const validate=s=>{if(s.version!==1||!Number.isInteger(s.revision)||!['events','memories','proposals','drafts','agenda','leases','archives'].every(k=>Array.isArray(s[k]))||!s.threads||!s.pending||!s.settings)throw Error('schema');validateDynamicState(s);validateRelations(s);validateAffect(s.affect);validateDiary(s.settings.diary);return s}
+  const validate=s=>{if(s.version!==1||!Number.isInteger(s.revision)||!['events','memories','proposals','drafts','agenda','leases','archives'].every(k=>Array.isArray(s[k]))||!s.threads||!s.pending||!s.settings)throw Error('schema');validateDynamicState(s);validateRelations(s);validateAffect(s.affect);return s}
   const {checkpoint,read}=createLifePersistence({account,owner,file,checkpointFile,validate,digest})
   const event=(s,kind,data={})=>{
     const e={id:id(),at:now(),kind,...data};s.events.push(e);observeEvent(s,e);if(cfg.enabled&&!cfg.paused)observeRelations(s,e,cfg.dynamicMemory);return e
@@ -67,7 +66,6 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
       if(sessionBoundaryChanged(boundaryBefore,s))s.settings.sessionBoundaryVersion=(s.settings.sessionBoundaryVersion??0)+1
       syncAffect(s,now(),cfg)
       validateAffect(s.affect)
-      validateDiary(s.settings.diary)
       checkOperation();archive(s);checkOperation()
       if(JSON.stringify(s)===before&&fs.existsSync(checkpointFile)){
         // No new commit, but repair a missing/behind compatibility projection.
@@ -126,7 +124,7 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
     if(request.socialJobId){
       const job=(s.settings.socialJobs??[]).find(j=>j.id===request.socialJobId),full=currentFull??{},chat=chatConfig(full.chat)
       if(!request.auto||!job||job.status!=='sending'||job.draftId!==request.draftId||now()-job.at>300000||!inWindow(full.night??{},now())||!lifeConfig(full.life).enabled||s.settings.paused||lifeConfig(full.life).paused||job.ownerAt!==(s.affect?.lastOwnerAt??0)||
-        (job.kind==='dynamic'?(!chat.dynamic||request.channel!=='dynamic'||chat.dynamicDailyMax<1):(!chat.shareReply||request.channel!=='dm'||s.affect?.initiativeBlocked)))return {allow:false,reason:'社交任务已取消、过期或设置变化'}
+        !(job.kind==='dynamic'&&chat.dynamic&&request.channel==='dynamic'&&chat.dynamicDailyMax>=1))return {allow:false,reason:'社交任务已取消、过期或设置变化'}
     }
     if(request.auto&&request.share&&currentFull&&(currentFull.share?.enabled===false||(request.affectShareRoute!==undefined&&String(currentFull.share?.via??'dm')!==request.affectShareRoute)||s.affect?.initiativeBlocked))return {allow:false,reason:'分享出口、开关或主动联系许可已变化'}
     const affectReason=affectSendCheck(s,request,currentFull?lifeConfig(currentFull.life):cfg,currentFull??{},now());if(affectReason)return {allow:false,reason:affectReason}
@@ -183,15 +181,11 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
     checkpointStatus(){const s=checkpoint();return {schema:1,revision:s.revision,digest:digest(s),archives:s.archives.length}},
     replayCheck(){const s=checkpoint();for(const a of s.archives){if(archiveDigest(fs.readFileSync(path.join(dir,'archive',path.basename(a.name)),'utf8'))!==a.digest)throw Error('归档校验失败')}return {ok:true,revision:s.revision,memories:s.memories.length,pending:Object.keys(s.pending).length,networkEffects:0}},
     async record(kind,data={},dedupKey=''){
-      const current=typeof fullConfig==='function'?fullConfig():fullConfig;if(kind==='diary'&&(!cfg.enabled||cfg.paused||current?.life?.enabled===false||current?.life?.paused||current?.diary?.enabled===false||read().settings.paused))return {status:'disabled'}
-      if(!['received','observed','reflection','diary','video-read','activity-result'].includes(kind))throw Error('该事件只能由发送或控制工具写入')
-      const result=await tx(s=>{
-        if(kind==='diary'&&data.data?.visibility==='public'&&(data.data?.sourceIds??[]).some(id=>{const e=s.events.find(e=>e.id===id);return !e||!visible(e,'public')}))throw Error('公开日记不能引用私人来源')
+      if(!['received','observed','reflection','video-read','activity-result'].includes(kind))throw Error('该事件只能由发送或控制工具写入')
+      return tx(s=>{
         if(dedupKey){const old=api.search(dedupKey,{archives:true,limit:100}).find(e=>e.key===dedupKey);if(old)return old}
         return event(s,kind,{text:str(data.text,12000),target:str(data.target,256),origin:str(data.origin||'model',40),actor:str(data.actor,64),key:str(dedupKey,256),data:data.data??null})
       })
-      if(kind==='diary'){try{await api.renderDiary()}catch(e){return {...result,diaryRender:{status:'failed',code:'DIARY_RENDER_FAILED'}}}}
-      return result
     },
     recordScheduler(kind,data){
       if(!['wake-delivery-forced-release','night-triggered','night-trigger-rejected'].includes(kind))throw Error('无效调度事件')
@@ -404,10 +398,9 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
     consumeActivity(leaseId){return tx(s=>{const l=s.leases.find(x=>x.id===leaseId);if(!l||l.expiresAt<=now()||l.remaining<=0||l.status!=='active'||cfg.paused||s.settings.paused)throw Error('自主活动已结束或预算耗尽');l.remaining--;return l})},
     endActivity(leaseId){return tx(s=>{const l=s.leases.find(x=>x.id===leaseId);if(!l)throw Error('活动不存在');l.status='done';l.expiresAt=now();return l})},
     export(){const s=read();return {exportedAt:now(),...s,archiveContents:s.archives.map(a=>{const raw=fs.readFileSync(path.join(dir,'archive',path.basename(a.name)),'utf8');if(archiveDigest(raw)!==a.digest)throw Error('历史归档校验失败');return {name:a.name,...JSON.parse(raw)}})}},
-    status(){const s=read();return {schema:1,revision:s.revision,policyRevision:s.settings.policyRevision??0,recovery:fs.existsSync(checkpointFile)?'checkpoint':'legacy-state',learning:api.learningStatus(),affect:api.affectStatus(),diary:api.diaryStatus(),dynamicMemory:api.dynamicStatus(),memoryRevision:s.settings.memoryRevision??0,capabilities:{formation:'session-file-two-stage',privateContinuity:'shared-main',externalIngress:'adapter-required',behaviorEvaluation:'not-live-validated',context:'ok',readFacade:'ok',hostToolIsolation:'unavailable',erase:'unavailable'},enabled:cfg.enabled,paused:cfg.paused||!!s.settings.paused,events:s.events.length,archives:s.archives.length,chat:{batches:(s.settings.dmBatches??[]).map(b=>({id:b.id,status:b.status,parts:b.parts.map(p=>p.status)})),jobs:(s.settings.socialJobs??[]).map(j=>({id:j.id,kind:j.kind,status:j.status})),replyInbox:s.settings.shareReplyInbox??[]},pending:Object.entries(s.pending).map(([id,p])=>({id,channel:p.channel,target:p.target,at:p.at,status:p.status,phase:p.phase??'legacy-uncertain',operationId:p.operationId??id})),threads:Object.values(s.threads),memories:s.memories,proposals:s.proposals,agenda:s.agenda,leases:s.leases,activities:s.settings.activityQueue??[],lastArchiveAt:s.settings.lastArchiveAt??null}}
+    status(){const s=read();return {schema:1,revision:s.revision,policyRevision:s.settings.policyRevision??0,recovery:fs.existsSync(checkpointFile)?'checkpoint':'legacy-state',learning:api.learningStatus(),affect:api.affectStatus(),dynamicMemory:api.dynamicStatus(),memoryRevision:s.settings.memoryRevision??0,capabilities:{formation:'session-file-two-stage',privateContinuity:'shared-main',externalIngress:'adapter-required',behaviorEvaluation:'not-live-validated',context:'ok',readFacade:'ok',hostToolIsolation:'unavailable',erase:'unavailable'},enabled:cfg.enabled,paused:cfg.paused||!!s.settings.paused,events:s.events.length,archives:s.archives.length,chat:{batches:(s.settings.dmBatches??[]).map(b=>({id:b.id,status:b.status,parts:b.parts.map(p=>p.status)})),jobs:(s.settings.socialJobs??[]).filter(j=>j.kind==='dynamic').map(j=>({id:j.id,kind:j.kind,status:j.status}))},pending:Object.entries(s.pending).map(([id,p])=>({id,channel:p.channel,target:p.target,at:p.at,status:p.status,phase:p.phase??'legacy-uncertain',operationId:p.operationId??id})),threads:Object.values(s.threads),memories:s.memories,proposals:s.proposals,agenda:s.agenda,leases:s.leases,activities:s.settings.activityQueue??[],lastArchiveAt:s.settings.lastArchiveAt??null}}
   }
   attachAffect(api,cfg)
-  attachDiary(api,cfg,{event,fullConfig})
   attachDynamicMemory(api,cfg)
   attachCognition(api,{event,account,owner,cfg})
   return api

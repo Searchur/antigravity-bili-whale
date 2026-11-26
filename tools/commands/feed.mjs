@@ -1,7 +1,7 @@
 import {pipelineConfig,chooseVideos,eligibleVideo,videoDuration,interestEvidence,isInterest,interestGroup,fairOrder,ageDays,browsingRank} from '../local/pipeline-config.mjs'
 import {apiGet} from '../lib/bili-api.mjs'
 import { favoriteItems } from '../lib/favorites.mjs'
-import { HOME, dataPath } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { preferenceMatches, preferenceSearch } from '../lib/feed-preferences.mjs'
 import { legacyVideoIndex } from '../lib/legacy-index.mjs'
 import { lifeStore } from '../lib/life-runtime.mjs'
@@ -11,16 +11,11 @@ import { guardedFetch as fetch } from '../lib/traffic.mjs'
 // 选题器：照"她自己的偏好"挑今天该看什么。**只读**，不产生任何对外动作。
 //
 // 用法: node feed.mjs [--n 6] [--per 2] [--pool 30]
-// 数据来源：~/.dsh/whale-diary.md 的「爱看」一行（偏好关键词）+「看过的」表格（防重复）
-//          + commented-videos.md（已评论过的视频也排除）
-//
-// 为什么这么做（2026-10-14 主人定的方向）：主人要的是"有日子的鱼"，
-// 所以"看什么"不该由别人喂，而该由她自己的偏好决定 —— 偏好写在日记里，这个脚本只负责照它去捞。
+// 口味偏好来自控制台配置。既有观看和评论记录用于排除重复选题。
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from '../lib/config.mjs'
 import crypto from 'node:crypto'
-import { dshPath } from '../lib/paths.mjs'
 
 
 const argv = process.argv.slice(2)
@@ -40,15 +35,13 @@ if(!Number.isInteger(PER)||PER<1||PER>20)throw Error('--per 必须为 1–20')
 const POOL = Number(opt.pool ?? 200)
 if(!Number.isInteger(POOL)||POOL<1||POOL>1000)throw Error('--pool 必须为 1–1000')
 
-const diary = dshPath('whale-diary.md')
-// 2026-10-18：审计表挪到 `~/.bili-ai/` ✓（原来写死作者机器路径 ✗ 换机器就写不进去，静默失效 ✗）
+const legacyWatchHistory = dataPath('whale-diary.md')
 const audit = dataPath('commented-videos.md')
 
-// ── 偏好与"看过"名单：都从日记里读 ──
 let prefs = [...(config().preferences?.like ?? [])]   // 偏好来自统一配置（首选）
 let dislike = [...(config().preferences?.dislike ?? [])]
 let seen = new Set(life.read().events.filter(e=>e.kind==='video-read').map(e=>e.target))
-for(const file of [diary,audit]){
+for(const file of [legacyWatchHistory,audit]){
   const index=legacyVideoIndex(file,life.dir)
   // Legacy inferred interests are not promoted into reviewed constraints.
   for(const bv of index.seen)seen.add(bv)

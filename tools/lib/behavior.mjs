@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 export const BEHAVIOR_ROOT=fileURLToPath(new URL('../../behavior/',import.meta.url))
-export const BEHAVIOR_IDS=['common','private-reply','private-recommendation','public-comment','public-reply','browse','diary','formation','memory','stickers','tools']
+export const BEHAVIOR_IDS=['common','private-reply','private-recommendation','public-comment','public-reply','browse','formation','memory','stickers','tools']
 export function loadBehavior(ids,{root=BEHAVIOR_ROOT}={}){
  return [...new Set(ids)].map(id=>{
   if(!BEHAVIOR_IDS.includes(id))throw Error('未知规范章节')

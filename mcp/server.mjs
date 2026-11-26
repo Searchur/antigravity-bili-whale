@@ -10,8 +10,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { PLUGIN_ROOT } from '../tools/lib/paths.mjs'
+import { PLUGIN_ROOT, workDirPath } from '../tools/lib/paths.mjs'
 import { createApiHandlers } from '../lib/api-handlers.js'
+import { resolveWorkDir } from '../lib/work-dir.js'
 import { modelToolDefinitions, createModelToolRunner } from './model-tools.mjs'
 import { APP_URI, appToolDefinitions, createAppToolRunner } from './app-tools.mjs'
 
@@ -112,7 +113,13 @@ export function createMcpRouter({ api = createApiHandlers(), modelRunner = creat
 // Run stdio server only when executed directly
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
 if (isMain) {
-  const router = createMcpRouter()
+  const htmlPath = process.env.BILI_WHALE_APP_HTML ? path.resolve(process.env.BILI_WHALE_APP_HTML) : undefined
+  const fromPlugin = path.relative(PLUGIN_ROOT, process.cwd())
+  // Windows holds an open directory handle for cwd and would block an update swap.
+  if (fromPlugin !== '..' && !fromPlugin.startsWith('..' + path.sep) && !path.isAbsolute(fromPlugin)) {
+    process.chdir(resolveWorkDir('', workDirPath))
+  }
+  const router = createMcpRouter({ htmlPath })
   const writeMsg = (obj) => {
     if (!obj) return
     process.stdout.write(JSON.stringify(obj) + '\n')

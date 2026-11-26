@@ -62,15 +62,3 @@ export function decision(bvid,oid,threshold=AI_SUSPECT_THRESHOLD) {
   if((suspected+unknown)/n*100>=threshold)return {status:'uncertain',allow:false,n,ratio,reason:'无法确定的评论可能影响结论，暂缓分享'}
   return {status:'allowed',allow:true,n,ratio,reason:'样本疑似比例低于阈值'}
 }
-export async function notifyOnce(bvid,result,send) {
-  if(readAI(bvid,'notice'))return false
-  // Exclusive marker prevents parallel CLI invocations from duplicating alerts.
-  const lock=file(bvid,'notice')+'.lock'
-  let fd
-  try {fd=fs.openSync(lock,'wx')} catch(e) {if(e.code==='EEXIST')return false;throw e}
-  try {
-    if(readAI(bvid,'notice'))return false
-    await send(`暂缓 @ 分享\nhttps://www.bilibili.com/video/${bvid}/\n${result.reason}\n样本：${result.n??0} 条；疑似占比：${result.ratio==null?'无法判断':result.ratio.toFixed(1)+'%'}。仅为模型估计，不是身份鉴定。`)
-    writeAI(bvid,'notice',{at:Date.now()});return true
-  } finally {fs.closeSync(fd);fs.unlinkSync(lock)}
-}

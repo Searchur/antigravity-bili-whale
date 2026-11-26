@@ -3,7 +3,7 @@
   "args": ["main.mjs"],
   "restart_policy": "always",
   "display_name": "哔哩哔哩大鲸鱼后台守护",
-  "description": "哔哩哔哩大鲸鱼自主生物钟、私信与评论监听、记忆归纳、心情与双本日记常驻后台服务（随 Antigravity App 自动启停）。",
+  "description": "负责作息调度、私信与评论监听、记忆归纳、心情更新和外发内容复审，随Antigravity App自动启停。",
   "has_web_ui": false,
   "agent_permissions": {
     "access_grants": [

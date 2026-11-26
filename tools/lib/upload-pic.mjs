@@ -34,9 +34,10 @@ export function normalizePicture(picture) {
  * @param {string} csrf bili_jct
  * @param {object} headers 已带 cookie / referer / user-agent 的请求头
  */
-export async function uploadPic(file, csrf, headers) {
+export async function uploadPic(file, csrf, headers, { expectedHash } = {}) {
   const buf = fs.readFileSync(file)
   const hash=crypto.createHash('sha256').update(buf).digest('hex')
+  if (expectedHash && hash !== expectedHash) throw Error('预检后图片文件发生变化，请重新预检')
   const cookie=new Headers(headers).get('cookie')??''
   const account=cookie.match(/(?:^|;)\s*SESSDATA=([^;]+)/i)?.[1]??cookie
   const key=crypto.createHash('sha256').update(account+'\n'+hash).digest('hex')

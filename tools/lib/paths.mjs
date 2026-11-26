@@ -1,7 +1,7 @@
 /**
  * 统一路径解析（Windows Antigravity App 独立数据目录）。
  *
- * 所有状态、配置、凭据、记忆库、日记、待审队列、抽帧缓存与专用工作区
+ * 所有状态、配置、凭据、记忆库、抽帧缓存与专用工作区
  * 全部收口到独立目录：%USERPROFILE%\.antigravity-bili-whale\
  * （测试或便携场景可通过环境变量 BILI_WHALE_HOME 覆盖）。
  *
@@ -46,16 +46,13 @@ export const credentialsPath = whalePath('credentials.json')
 /** 鲸鱼专属人设文档 */
 export const personaPath = whalePath('persona.md')
 
-/** 待审回复队列 */
-export const pendingRepliesPath = whalePath('pending-replies.json')
-
 /** 鲸鱼专用隔离工作目录 */
 export const workDirPath = whalePath('whale-work')
 
 /** 封面/字幕/抽帧缓存目录 */
 export const shotsPath = whalePath('shots')
 
-/** 插件本地二进制目录（例如面板一键安装的 ffmpeg.exe） */
+/** 插件本地二进制目录，可放置自行安装的 ffmpeg.exe */
 export const binPath = whalePath('bin')
 
 /** Sidecar ↔ MCP Server 本机回环 IPC 端点描述文件 */

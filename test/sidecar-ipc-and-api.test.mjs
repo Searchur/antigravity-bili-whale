@@ -78,7 +78,6 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     cfgFile: path.join(dir, 'config.json'),
     credFile: path.join(dir, 'credentials.json'),
     personaFile: path.join(dir, 'persona.md'),
-    pendingFile: path.join(dir, 'pending-replies.json'),
     rpc: {
       available: () => true,
       getModelCatalog: async () => liveCatalog,
@@ -118,10 +117,9 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     const qrCancelled = api.qrCancel(qr.id)
     assert.equal(qrCancelled.status, 'cancelled')
 
-    // Save settings including live Antigravity model IDs, self & owner
+    // Save settings including live Antigravity model IDs and owner
     const saved = await api.saveSettings({
       owner: { mid: '20001', name: '主人' },
-      self: { mid: '10086', name: '测试大鲸鱼' },
       models: { main: 'gemini-4-neon-xhigh', worker: 'claude-sonnet-5-5-low' },
       night: { windows: [{ start: '21:00', end: '23:30', wakes: 2 }], skipChance: 0.2, maxVideos: 6 },
     })
@@ -156,6 +154,9 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     assert.ok(sidecarCard.version.includes('9999'))
 
     // Life actions (owner-note + replay-check)
+    const cfgFile = path.join(dir, 'config.json')
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+    fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, self: { mid: '10086', name: '测试大鲸鱼' } }))
     const note = await api.lifeAction('owner-note', { text: '以后多看猫咪视频' })
     assert.equal(note.ok, true)
     assert.ok(note.result.id)

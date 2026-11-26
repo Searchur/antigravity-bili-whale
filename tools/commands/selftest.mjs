@@ -6,7 +6,6 @@ import { NODE_EXE } from '../lib/nodebin.mjs'
 import { config } from '../lib/config.mjs'
 import { expressionPrompt } from '../lib/expression.mjs'
 import { lifeConfig } from '../lib/life-config.mjs'
-import { lifeStore } from '../lib/life-runtime.mjs'
 
 if (process.argv.includes('--docs')) {
   const spec = JSON.parse(fs.readFileSync(new URL('../prompts/expression-v1.json', import.meta.url), 'utf8'))
@@ -57,19 +56,6 @@ try {
   }
 } catch {
   line(NO, '依赖体检', '无法读取结果，请运行 node tools/bili.mjs deps')
-}
-
-if (current?.self?.mid && current.owner?.mid) {
-  try {
-    const diary = lifeStore(current).diaryStatus()
-    const push = current.diary?.push !== false && current.notify?.type && current.notify.type !== 'none'
-    line(OK, '自动日记', diary.enabled ? '已启用' : '已暂停或关闭')
-    line(OK, '公开日记推送', push ? `渠道 ${current.notify.type}，最近结果 ${diary.lastPush?.status ?? '暂无'}` : '已关闭或未配置通知渠道')
-    console.log('    公开日记 ' + diary.paths.public)
-    console.log('    私人日记 ' + diary.paths.private)
-  } catch {
-    line(NO, '日记状态', '无法读取，请运行 node tools/bili.mjs life diary-status 查看')
-  }
 }
 
 if (failures === 0) {

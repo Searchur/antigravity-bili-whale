@@ -69,8 +69,8 @@ export function normalizeMessage(row) {
   return {ts,sender,text,key,type,withdrawn,image,share,seq:/^\d+$/.test(seq)?seq:null}
 }
 
-export async function readHistory(owner,headers,state,{baseline=false}={}) {
-  const nav=await apiGet('https://api.bilibili.com/x/web-interface/nav',headers)
+export async function readHistory(owner,headers,state,{baseline=false,nav=null}={}) {
+  nav??=await apiGet('https://api.bilibili.com/x/web-interface/nav',headers)
   if(nav.code!==0||!nav.data?.wbi_img)throw Error('私信历史签名密钥不可用，保留游标')
   const seen=new Set(),all=[]
   let cursor='0'

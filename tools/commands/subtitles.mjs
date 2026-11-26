@@ -1,4 +1,4 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { selectSubtitlePages, pickSubtitle } from '../lib/subtitle-pages.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { apiGet } from '../lib/bili-api.mjs'

@@ -63,7 +63,7 @@ const saveFeedback = (f) => { fs.mkdirSync(path.dirname(FEEDBACK), { recursive: 
 /** 沉默天数：从来没反馈过就从"第一次分享"算；返回 { days, cap } */
 function silence() {
   const fb = loadFeedback()
-  fb.last = latestFeedback(fb.last, config().owner?.mid)
+  fb.last = latestFeedback(fb.last, config())
   const base = fb.last ?? (q.log.find((x) => x.share)?.at ?? null)   // 没反馈过 → 从第一次分享算
   const days = base ? Math.floor((Date.now() - new Date(base).getTime()) / 86_400_000) : 0
   const after = Number(config().share?.silentAfterDays ?? 3)     // 3 天开始衰减
@@ -111,9 +111,11 @@ if (cmd === 'status') {
   console.log(`今日对外发言: 共 ${used} 条（**分享型** ${usedShare}/${q.shareDaily ?? 3} · 自主发言不设条数上限 ✓ · 主人授权 ${used - usedAuto - usedShare} 条）   日期 ${today()}`)
   console.log(`缰绳：分享 ≤${q.shareDaily ?? 3}/天 · 评分卡 ≥${config().share?.minScore ?? 13}/20 · 同一视频 7 天一次 · 署名复核 · 事后报备`)
   console.log(`已删除（2026-10-18 主人定）：白名单 ✗ · 「自主 N 条」独立额度 ✗`)
-  const recent = q.log.slice(-5)
-  console.log(recent.length ? '最近记录:' : '最近记录: (无)')
-  for (const r of recent) console.log(`  ${r.at}  ${r.type}  ${r.target ?? '-'}  ${r.note ?? ''}`)
+  if (!opt['summary-only']) {
+    const recent = q.log.slice(-5)
+    console.log(recent.length ? '最近记录:' : '最近记录: (无)')
+    for (const r of recent) console.log(`  ${r.at}  ${r.type}  ${r.target ?? '-'}  ${r.note ?? ''}`)
+  }
   process.exit(0)
 }
 

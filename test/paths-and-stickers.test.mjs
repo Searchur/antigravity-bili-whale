@@ -20,7 +20,7 @@ test('isolated WHALE_HOME never points to .dsh or .bili-ai', () => {
   assert.equal(paths.credentialsPath, path.join(tmpRoot, 'credentials.json'))
   assert.equal(paths.configPath, path.join(tmpRoot, 'config.json'))
   assert.equal(paths.personaPath, path.join(tmpRoot, 'persona.md'))
-  assert.equal(paths.pendingRepliesPath, path.join(tmpRoot, 'pending-replies.json'))
+  assert.equal(paths.binPath, path.join(tmpRoot, 'bin'))
   assert.ok(!paths.WHALE_HOME.includes('.dsh'))
   assert.ok(!paths.WHALE_HOME.includes('.bili-ai'))
 })

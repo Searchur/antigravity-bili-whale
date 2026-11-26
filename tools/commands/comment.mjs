@@ -5,7 +5,6 @@ import {lifeConfig} from '../lib/life-config.mjs'
 import { guardSend, threadKey, lifeStore } from '../lib/life-runtime.mjs'
 import {checkCommentTarget} from '../lib/comment-target.mjs'
 import {exactJson} from '../lib/json-exact.mjs'
-import { decision, notifyOnce } from '../lib/ai-share.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { uploadPic, replyPictures } from '../lib/upload-pic.mjs'
 // Post ONE bilibili comment on the user's behalf. Explicitly single-shot.
@@ -29,7 +28,9 @@ import { validateShare } from '../lib/share-policy.mjs'
 import { NODE_EXE } from '../lib/nodebin.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
 import { isFollowerOfWhale } from '../lib/relation.mjs'
-import { checkFanQuota, recordFanReply } from '../lib/fan-quota.mjs'
+import { checkFanQuota, lockFanReplyQuota, recordFanReply } from '../lib/fan-quota.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
+import { fanCommentQuota } from '../../lib/mention-summary.js'
 
 // ── 限额闸（B 档「限额自主」的代码强制部分，2026-10-14 主人选 B 档）────────────────
 // 语义：闸门**只管自主发言**（带 --auto，即"她自己决定说的"）；主人当场授权的发言不拦 ✓
@@ -243,6 +244,7 @@ const referer = refererArg !== '' ? refererArg : `https://www.bilibili.com/video
 const cfgNow = config()
 let replyTargetAuthor = null
 let isOwnerReplyTarget = false
+let fanQuotaRequest = null
 if (parent && root) {
   replyTargetAuthor = await parentAuthor(oid, root, parent, type)
   const ownerMidNow = String(cfgNow.owner?.mid ?? '').trim()
@@ -257,12 +259,11 @@ if (parent && root) {
       console.error(`✗ 对方（UID ${replyTargetAuthor.mid}）未关注大鲸鱼，仅回复主人或已关注粉丝的评论。`)
       process.exit(4)
     }
-    const fq = checkFanQuota({
-      channel: 'comment',
-      uid: replyTargetAuthor.mid,
-      perUserDaily: cfgNow.fanLimits?.commentPerUserDaily ?? 1,
-      totalDaily: cfgNow.fanLimits?.commentTotalDaily ?? 10,
-    })
+    const replyThread = threadKey(type, oid, root)
+    const incoming = lifeStore(cfgNow).read().events.findLast(event => event.kind === 'received' && event.origin === 'external'
+      && event.actor === replyTargetAuthor.mid && event.target === replyThread && String(event.data?.parent) === String(parent))
+    fanQuotaRequest = fanCommentQuota(cfgNow, { mid: replyTargetAuthor.mid, kind: incoming?.data?.notificationKind, text: incoming?.text || '', quotedText: incoming?.data?.notificationTarget })
+    const fq = checkFanQuota(fanQuotaRequest)
     if (!fq.allowed) {
       console.error(`✗ [粉丝评论限额] ${fq.reason}`)
       process.exit(4)
@@ -354,7 +355,9 @@ console.log(`  正文长度 ${message.length} 字符（上限 1000）；oid=${oi
 }
 
 const lifeRequest={channel:'comment',scene:parent?'reply':'public-comment',target:String(bvid||oid),thread:threadKey(type,oid,root),parent:String(parent??''),text:String(message),auto:AUTO||SHARE,share:SHARE,video:bvid,draftId:args.get('draft')}
-const lifeGuard=await guardSend(lifeRequest,{dry})
+await guardSend(lifeRequest,{dry:true})
+const attachment = PIC ? fs.readFileSync(PIC) : null
+requireWritePreview('comment', { oid, referer, ...lifeRequest }, { dry, credentials: cred, attachment })
 if (dry) {
   if (PIC) {
     if (!fs.existsSync(PIC)) { console.error('[dry] --pic 路径不存在：' + PIC); process.exit(2) }
@@ -364,12 +367,15 @@ if (dry) {
   console.log('\n[dry] 预检通过，未发送。把 --dry 换成 --go 时仍会重新检查额度。')
   process.exit(0)
 }
+// The process owns the quota until it records the result and exits.
+await lockFanReplyQuota(fanQuotaRequest)
+const lifeGuard=await guardSend(lifeRequest)
 // 2026-10-29：评论带图 —— 上传放在 dry 之后（上传本身是写操作）
 let picData = null
 if (PIC) {
   if (!fs.existsSync(PIC)) { console.error('--pic 路径不存在：' + PIC); process.exit(2) }
   try {
-    picData = await uploadPic(PIC, cred.bili_jct, { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader })
+    picData = await uploadPic(PIC, cred.bili_jct, { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader }, { expectedHash: crypto.createHash('sha256').update(attachment).digest('hex') })
     console.log(`\n[图] 已上传：${picData.image_url}（${picData.image_width}x${picData.image_height}）`)
     params.pictures = replyPictures(picData)
     // pictures 进了参数，签名必须重算 ✓
@@ -428,9 +434,7 @@ if (out.code === 0) {
     } catch (e) { console.log(`  [once] 记账失败（不影响已发出的评论）：${String(e.message).slice(0, 80)}`) }
   }
   // 记录粉丝评论回复次数（仅在回复非主人粉丝成功时记账）
-  if (parent && replyTargetAuthor?.mid && !isOwnerReplyTarget) {
-    try { recordFanReply({ channel: 'comment', uid: replyTargetAuthor.mid }) } catch {}
-  }
+  if (fanQuotaRequest) recordFanReply(fanQuotaRequest)
   // 记账（发出去才算数）
   const rec = quota(['record', '--type', 'comment', '--target', bvid ? `BV:${bvid}` : `oid:${oid}`,
     '--note', message.replace(/\s+/g, ' ').slice(0, 40), ...(SHARE ? ['--share'] : AUTO ? ['--auto'] : [])])

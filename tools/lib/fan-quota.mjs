@@ -3,6 +3,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { WHALE_HOME } from './paths.mjs'
 import { localDay } from './local-date.mjs'
+import { acquireProcessLock } from './process-lock.mjs'
 
 const CHANNELS = ['dm', 'comment', 'mentionSummary']
 const MAX_HISTORY_DAYS = 365
@@ -78,7 +79,9 @@ function readState(whaleHome = WHALE_HOME, now = Date.now) {
       }
     }
     return emptyDay(today, sanitizeHistory(history))
-  } catch {}
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw Error('粉丝额度记录无法读取，请检查数据文件', { cause: err })
+  }
   return emptyDay(today)
 }
 
@@ -114,6 +117,22 @@ export function checkFanQuota({ channel, uid, perUserDaily, totalDaily, whaleHom
     return { allowed: false, reason: `今日对该粉丝（UID ${mid}）已达回复上限（${userUsed}/${perLimit}）`, userUsed, totalUsed }
   }
   return { allowed: true, reason: '', userUsed, totalUsed }
+}
+
+export async function lockFanReplyQuota(request, count = 1) {
+  if (!request) return () => {}
+  const release = await acquireProcessLock(quotaFile(request.whaleHome))
+  try {
+    const quota = checkFanQuota(request)
+    if (!quota.allowed) throw Error(quota.reason)
+    if (quota.userUsed + count > request.perUserDaily || quota.totalUsed + count > request.totalDaily) {
+      throw Error('剩余粉丝回复额度不足以发送全部内容')
+    }
+    return release
+  } catch (error) {
+    await release()
+    throw error
+  }
 }
 
 /**

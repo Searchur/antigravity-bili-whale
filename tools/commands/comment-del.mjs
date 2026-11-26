@@ -1,10 +1,10 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 // 删除自己发的一条评论。用法:
 //   node comment-del.mjs --oid <aid> --rpid <rpid> --bvid <BV> --dry | --go
 // 文档: docs/comment-add.md「删除评论」（x/v2/reply/del，只能删自己的）
 import fs from 'node:fs'
-import path from 'node:path'
+import { requireWritePreview } from '../lib/write-preview.mjs'
 
 const argv = process.argv.slice(2)
 const args = new Map()
@@ -28,6 +28,7 @@ console.log('=== 将删除 ===')
 console.log(`  POST https://api.bilibili.com/x/v2/reply/del`)
 console.log(`  type=1  oid=${oid}  rpid=${rpid}  csrf=***csrf***   cookie=SESSDATA=***`)
 if (bvid) console.log(`  referer=https://www.bilibili.com/video/${bvid}/`)
+requireWritePreview('comment-delete', { oid, rpid, bvid }, { dry: isDry, credentials: cred })
 if (isDry) { console.log('\n[dry] 未删除。'); process.exit(0) }
 
 const r = await fetch('https://api.bilibili.com/x/v2/reply/del', {

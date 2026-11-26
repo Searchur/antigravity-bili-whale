@@ -3,6 +3,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { PLUGIN_ROOT, WHALE_HOME, configPath, shotsPath, workDirPath } from '../tools/lib/paths.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../lib/node-runtime.js'
+import { publicScene } from '../tools/lib/memory-scope.mjs'
 
 const MAX_OUTPUT_CHARS = 120_000
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -26,15 +27,15 @@ const GROUPS = [
   {
     name: 'bili_interact',
     title: 'B站公开互动写操作（强制 --dry/--go）',
-    description: '评论、草稿、动态、点赞、收藏、关注工具。支持命令：comment、comment-del、reply-draft、dynamic、dynamic-image、dynamic-edit、like、fav、follow。所有写操作必须先显式传 --dry 预览，再传 --go 发送；严禁跳过 --dry。',
-    commands: ['comment', 'comment-del', 'reply-draft', 'dynamic', 'dynamic-image', 'dynamic-edit', 'like', 'fav', 'follow'],
+    description: '评论、动态、点赞、收藏、关注工具。支持命令：comment、comment-del、dynamic、dynamic-image、dynamic-edit、like、fav、follow。写操作先用 --dry 预览，再用相同参数改为 --go。',
+    commands: ['comment', 'comment-del', 'dynamic', 'dynamic-image', 'dynamic-edit', 'like', 'fav', 'follow'],
     timeoutMs: 360_000,
   },
   {
     name: 'bili_dm',
-    title: 'B站主人私信专属通道（强制 --dry/--go）',
-    description: '私信收发工具。支持命令：dm（单条私信，只发主人且必须互关）、dm-batch（多段私信）、dm-await（查看待确认/检查新私信）。发送类命令必须先 --dry 再 --go。',
-    commands: ['dm', 'dm-batch', 'dm-await'],
+    title: 'B站主人私信与粉丝来信回复（强制 --dry/--go）',
+    description: '主人私信及粉丝来信回复。支持命令：dm（主人私信或持有效来信回执回复粉丝）、dm-batch（主人多段私信）。先 --dry 预览再 --go 发送。',
+    commands: ['dm', 'dm-batch'],
     timeoutMs: 360_000,
   },
   {
@@ -46,9 +47,9 @@ const GROUPS = [
   },
   {
     name: 'bili_life',
-    title: '鲸鱼长期记忆、日记与作息状态',
-    description: '长期生命状态、表达草稿、双本日记与作息工具。支持命令：life（记忆/提案/线程/决策/活动/上下文检索）、expression（prepare/revise/finalize/discard/references）、diary（show/log/tail）、corpus（语料参考）、quota（分享额度）、night（plan/status/trigger）、traffic（请求保护状态）。',
-    commands: ['life', 'expression', 'diary', 'corpus', 'quota', 'night', 'traffic'],
+    title: '鲸鱼长期记忆与作息状态',
+    description: '长期记忆、表达草稿与作息工具。支持命令：life（有界记忆与上下文检索）、expression（表达草稿）、corpus（语料参考）、quota（分享额度）、night（作息）、traffic（请求保护状态）。',
+    commands: ['life', 'expression', 'corpus', 'quota', 'night', 'traffic'],
     timeoutMs: 120_000,
   },
   {
@@ -60,14 +61,35 @@ const GROUPS = [
   },
   {
     name: 'bili_ops',
-    title: '鲸鱼运维、规范阅读与通知推送',
-    description: '运维与行为规范工具。支持命令：deps（依赖体检）、selftest（启动自检）、session（确认当前登录账号）、notify（向主人发送报备/摘要）、behavior（list/read <章节>/reload）、config（show/set）、read-prompt（读取超长唤醒上下文文件）。',
-    commands: ['deps', 'selftest', 'session', 'notify', 'behavior', 'config', 'read-prompt'],
+    title: '鲸鱼运维与规范阅读',
+    description: '运维与行为规范工具。支持命令：deps（依赖体检）、selftest（启动自检）、session（确认当前登录账号）、behavior（行为规范）、config（选片参数）、read-prompt（读取已授权的唤醒上下文文件）。',
+    commands: ['deps', 'selftest', 'session', 'behavior', 'config', 'read-prompt'],
     timeoutMs: 120_000,
   },
 ]
 
 const GROUP_MAP = new Map(GROUPS.map(g => [g.name, g]))
+
+const TASK_MEMORY_ACTIONS = new Set(['memory-catalog', 'memory-history', 'memory-fetch', 'decision'])
+const PUBLIC_MEMORY_ACTIONS = new Set([
+  'context', 'context-explain', 'recall', 'explain', 'source',
+  'memory-catalog-preview', 'memory-history-preview', 'memory-explain', 'legacy-recall', 'legacy-source',
+])
+const EXPRESSION_ACTIONS = new Set(['prepare', 'revise', 'finalize', 'discard', 'references', 'compare'])
+
+function modelLifeArgs(command, args) {
+  const [action, value, scene = 'public'] = args
+  if (EXPRESSION_ACTIONS.has(action)) return args
+  if (['expression-plan', 'plan'].includes(action)) return publicScene(value) ? args : null
+  if (command === 'expression') return null
+  // Private retrieval requires the existing unguessable task ID and exact scene
+  // from the Sidecar's recorded context. Model-supplied roles authorize nothing.
+  if (TASK_MEMORY_ACTIONS.has(action)) return args
+  if (PUBLIC_MEMORY_ACTIONS.has(action)) return publicScene(scene) ? [action, value ?? '', scene] : null
+  if (action === 'search') return args.slice(2).includes('--private') ? null : args
+  if (['rules', 'check'].includes(action)) return args
+  return null
+}
 
 function isInsideDir(baseDir, targetFile) {
   try {
@@ -173,19 +195,42 @@ export function createModelToolRunner({
         content: [{ type: 'text', text: `不支持的命令 "${command}"；${toolName} 仅允许：${group.commands.join(', ')}` }],
       }
     }
-    const extra = Array.isArray(rawArgs?.args) ? rawArgs.args.map(v => String(v)) : []
+    let extra = Array.isArray(rawArgs?.args) ? rawArgs.args.map(v => String(v)) : []
+    const restricted = () => ({
+      isError: true,
+      content: [{ type: 'text', text: '该模型工具仅提供公开资料和本任务授权的上下文，管理数据请在控制台查看。' }],
+    })
+    if (toolName === 'bili_life' && ['life', 'expression'].includes(command)) {
+      extra = modelLifeArgs(command, extra)
+      if (!extra) return restricted()
+    }
+    if (toolName === 'bili_life' && command === 'corpus' && extra[0] !== 'retrieve') return restricted()
+    if (toolName === 'bili_life' && command === 'quota') {
+      if (extra[0] === 'status') extra = ['status', '--summary-only']
+      else if (extra[0] !== 'check') return restricted()
+    }
+    if (toolName === 'bili_dm') {
+      const hasUid = flag => extra.filter(value => value === flag).length === 1 && /^[1-9]\d{0,19}$/.test(extra[extra.indexOf(flag) + 1] ?? '')
+      if (extra.includes('--status') || !hasUid('--account') || !hasUid('--to')) {
+        return { isError: true, content: [{ type: 'text', text: '私信操作需要本任务的 --account 大鲸鱼UID 和 --to 收信人UID。' }] }
+      }
+    }
+    if (toolName === 'bili_life' && command === 'night' && (extra.length !== 1 || extra[0] !== 'status')) return restricted()
 
     // Portable built-in helper: read oversized prompt materialized in whale-work/.prompts/
     if (toolName === 'bili_ops' && command === 'read-prompt') {
-      const name = path.basename(String(extra[0] ?? ''))
-      if (!name || !/^[a-zA-Z0-9._-]+\.md$/.test(name)) {
-        return { isError: true, content: [{ type: 'text', text: 'read-prompt 需要合法的 .md 文件名' }] }
-      }
+      const name = extra[0]
+      if (!/^[a-f0-9]{48}\.json$/.test(name)) return restricted()
       const target = path.join(promptsDir, name)
-      if (!isInsideDir(promptsDir, target)) {
-        return { isError: true, content: [{ type: 'text', text: '未找到指定提示文件' }] }
-      }
-      return { isError: false, content: [{ type: 'text', text: fs.readFileSync(target, 'utf8') }] }
+      if (!isInsideDir(promptsDir, target)) return restricted()
+      try {
+        const prompt = JSON.parse(fs.readFileSync(target, 'utf8'))
+        const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+        if (!prompt.account || !prompt.owner || !(Date.now() < prompt.expiresAt) ||
+          String(cfg.self?.mid ?? '').trim() !== prompt.account || String(cfg.owner?.mid ?? '').trim() !== prompt.owner ||
+          typeof prompt.text !== 'string') return restricted()
+        return { isError: false, content: [{ type: 'text', text: prompt.text }] }
+      } catch { return restricted() }
     }
 
     // Portable built-in helper: read cover / frame image strictly inside shots/

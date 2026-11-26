@@ -1,4 +1,4 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 // comment-await.mjs —— 评论版"叫我起床"
 //
 // 为什么这么设计：agent 收不到"被动事件"，但**后台任务结束会通知 agent** ✓

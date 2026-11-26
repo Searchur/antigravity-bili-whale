@@ -26,7 +26,9 @@ import { gate, record } from '../lib/quota-gate.mjs'
 import { exactJson } from '../lib/json-exact.mjs'
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
 import { isFollowerOfWhale } from '../lib/relation.mjs'
-import { checkFanQuota, recordFanReply } from '../lib/fan-quota.mjs'
+import { checkFanQuota, lockFanReplyQuota, recordFanReply } from '../lib/fan-quota.mjs'
+import { requireWritePreview } from '../lib/write-preview.mjs'
+import { dmListenerScope } from '../lib/dm-listener-scope.mjs'
 
 // 稳定的设备 ID：只生成一次，之后永远复用 ✓
 //   · 存在 ~/.bili-ai/dev_id（0600）
@@ -63,9 +65,6 @@ if(AFFECT_PLAN&&(!opt.draft||opt.share)){console.error('心情分享必须使用
 const SHARE = !!opt.share       // ④ 分享型：占「分享 3 条/天」额度（与评论区 @ 共用 ✓）
 // 分享型的 target 用正文里的 BV 号（"同一视频 7 天一次"才判得准 ✓）；没有就退回 dm:<mid>
 const BV = (String(opt.msg ?? "").match(/BV[0-9A-Za-z]{10}/) ?? [])[0] ?? "";
-// ⚠️ SHARE_TARGET 移到 ONLY_TO 定义之后（2026-10-19 修：原先在模块顶层引用 ONLY_TO，触发 TDZ
-//    ReferenceError: Cannot access 'ONLY_TO' before initialization → dm.mjs 整个跑不起来，
-//    notify 的私信后端也跟着挂 ✗）
 const DRY = !!opt.dry
 const GO = !!opt.go
 const STATUS = !!opt.status
@@ -87,13 +86,13 @@ const miss = missingForWrite(cred)
 if (miss.length) {
   console.error('✗ 凭据不完整，没法发私信：')
   for (const m of miss) console.error('   · 缺 ' + m)
-  console.error('  → 设置页把 SESSDATA 和 bili_jct 【两个都】重新粘贴一次并保存 ✓')
+  console.error('  请先在控制台重新扫码登录。')
   process.exit(2)
 }
 // 只检查"有没有"不够 —— 截断/粘错的 bili_jct 一样会让 B 站回 -111 ✗
 if (!looksLikeJct(cred.bili_jct)) {
   console.error('⚠️ bili_jct 格式不像（长度 ' + String(cred.bili_jct).length + '，B站 目前是 32 位十六进制）')
-  console.error('   发送大概率会被拒（code=-111 CSRF 校验失败）—— 建议回设置页重新粘贴一次')
+  console.error('   发送可能被拒，请重新扫码登录。')
   console.error('   （只读接口不受影响，所以"依赖体检全绿"不代表能发东西 ✗）')
   console.error('')
 }
@@ -123,10 +122,11 @@ const targetBV = BV || (String(opt.target ?? '').match(/^(?:BV:)?(BV[0-9A-Za-z]{
 if (SHARE && !STATUS && !targetBV) { console.error('分享需要正文或 --target 中的有效 BV 号'); process.exit(2) }
 const SHARE_TARGET = AFFECT_PLAN ? 'affect:' + AFFECT_PLAN : targetBV ? 'BV:' + targetBV : 'dm:' + ONLY_TO
 
-function verifyFanReceipt(mid, receipt) {
-  if (!receipt) return false
+function verifyFanReceipt(account, mid, receipt) {
+  const scope = dmListenerScope(cfg)
+  if (!receipt || scope?.account !== account) return false
   try {
-    const map = JSON.parse(fs.readFileSync(dataPath('dm-fan-receipts.json'), 'utf8'))
+    const map = JSON.parse(fs.readFileSync(scope.receiptsFile, 'utf8'))
     const entry = map?.[receipt]
     return Boolean(entry && String(entry.mid) === String(mid) && Date.now() - Number(entry.at ?? 0) < 24 * 3600_000)
   } catch { return false }
@@ -218,15 +218,20 @@ if (safetyRes.blocked) {
 }
 
 const meInfo = await me()
+if (opt.account && (String(opt.account) !== String(meInfo.mid) || String(opt.account) !== String(cfg.self?.mid))) {
+  console.error('当前登录的大鲸鱼账号与任务账号不一致，已停止发送。')
+  process.exit(4)
+}
 if (String(meInfo.mid) === ONLY_TO) {
   console.error('✗ 不能给自己发私信（目标 UID 与当前登录账号相同）')
   process.exit(2)
 }
 
+let fanQuotaRequest = null
 if (IS_FAN_REPLY) {
   if (SHARE) { console.error('✗ 禁止向粉丝主动分享视频，仅允许被动回复来信'); process.exit(4) }
   if (!cfg.listen?.dmFan) { console.error('✗ 当前未开启「回复粉丝私信」开关'); process.exit(4) }
-  if (!verifyFanReceipt(ONLY_TO, RECEIPT)) {
+  if (!verifyFanReceipt(String(meInfo.mid), ONLY_TO, RECEIPT)) {
     console.error('✗ 缺少有效的粉丝来信回执（--receipt），严禁无来信主动向粉丝发起私信。')
     process.exit(4)
   }
@@ -235,12 +240,13 @@ if (IS_FAN_REPLY) {
     console.error(`✗ 对方（UID ${ONLY_TO}）未关注大鲸鱼，仅回复已关注粉丝的私信。`)
     process.exit(4)
   }
-  const fq = checkFanQuota({
+  fanQuotaRequest = {
     channel: 'dm',
     uid: ONLY_TO,
     perUserDaily: cfg.fanLimits?.dmPerUserDaily ?? 2,
     totalDaily: cfg.fanLimits?.dmTotalDaily ?? 10,
-  })
+  }
+  const fq = checkFanQuota(fanQuotaRequest)
   if (!fq.allowed) {
     console.error(`✗ [粉丝私信限额] ${fq.reason}`)
     process.exit(4)
@@ -261,7 +267,7 @@ if (IS_FAN_REPLY) {
   console.log(`  互关 ✓  ·  今天第 ${used + 1} 条（主人专属通道）`)
 }
 
-if (!GO && !DRY) { console.error('✗ 必须给 --dry 或 --go'); process.exit(2) }
+if (GO === DRY) { console.error('✗ 必须且只能给 --dry 或 --go'); process.exit(2) }
 
 // ④ 分享型先过闸（日上限 / 同一视频 7 天一次 / 评分卡 …由 quota 统一管 ✓）
 if (AFFECT_PLAN) {lifeStore().validateAffectPlanRequest(AFFECT_PLAN,String(opt.draft),MSG,cfg)}
@@ -287,6 +293,7 @@ const request = {
 }
 // Preview validation before uploads or creating any pending-send reservation.
 await guardSend(request,{dry:true})
+requireWritePreview('dm', { request, receipt: RECEIPT }, { dry: DRY, credentials: cred })
 if (DRY) {
   if (PIC) console.log(MSG ? '  [dry] 将分别发送文字和图片，各有独立回执；仅计一次分享额度' : '  [dry] 将仅发送图片')
   console.log('  [dry] 预检通过，未上传或发送；正式发送会重新检查额度')
@@ -306,7 +313,7 @@ async function deliver(guard, text, pic) {
     if (receipt == null || !String(receipt)) throw Error('平台接受但未返回消息回执，保留未知发送占位')
     await guard.store.settle(guard.token,{status:'sent',receipt:String(receipt)})
     if (IS_FAN_REPLY) {
-      recordFanReply({ channel: 'dm', uid: ONLY_TO })
+      recordFanReply(fanQuotaRequest)
     } else {
       const quota = loadQ()
       saveQ({ date: today(), count: (quota.date === today() ? Number(quota.count ?? 0) : 0) + 1, mid: ONLY_TO, at: new Date().toISOString() })
@@ -316,13 +323,14 @@ async function deliver(guard, text, pic) {
   if (Number.isFinite(result.code) && result.code !== 0) await guard.store.settle(guard.token,{status:'rejected'})
   throw Error('发送失败：HTTP '+result.http+' '+explainCode(result.code))
 }
+let releaseQuota
 try {
+  releaseQuota = await lockFanReplyQuota(fanQuotaRequest, MSG && PIC ? 2 : 1)
   activeGuard = await guardSend(request)
   let picData = null
   if (PIC) {
     console.log('  正在上传图片；发送将遵守配置的写入冷却')
-    picData = await uploadPic(PIC,cred.bili_jct,H)
-    if (picData._sha256 !== imageHash) throw Error('预检后图片文件发生变化，请重新预检')
+    picData = await uploadPic(PIC,cred.bili_jct,H,{expectedHash:imageHash})
   }
   if (MSG) {
     textReceipt = await deliver(activeGuard,MSG,null)
@@ -348,4 +356,6 @@ try {
   if (textReceipt) console.error('文字已发送，图片未确认；不要重发正文。明确失败后可用 --pic 单独重试；结果未知时先核查回执。')
   console.error('  ✗ '+error.message)
   process.exitCode = 1
+} finally {
+  await releaseQuota?.()
 }

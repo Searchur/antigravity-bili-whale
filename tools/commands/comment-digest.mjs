@@ -1,4 +1,4 @@
-import { HOME } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 // comment-digest.mjs —— "今天谁找过人家"：给主人的日终汇报（只读，一句都不回）
 //
 // 用途：她过完一天（或主人睡前）时跑一遍，把结果推给主人看 ——

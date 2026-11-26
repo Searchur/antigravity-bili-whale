@@ -193,16 +193,17 @@ export function renderAccountTab(state, actions) {
       loggedIn
         ? el('span', { className: 'pill ok' }, el('span', { className: 'dot' }), '已连接 B 站账号')
         : el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '尚未登录')),
-    el('p', { className: 'card-sub' }, '建议为大鲸鱼准备独立的 B 站小号。凭据仅保存在 Windows 独立目录 %USERPROFILE%\\.antigravity-bili-whale\\credentials.json（受当前用户 ACL 保护，永不回显）。点击「退出登录」会调用 B 站官方注销接口撤销远程会话并复核失效、删除本地凭据且立即暂停轮询以防风控。'),
+    el('p', { className: 'card-sub' }, '建议为大鲸鱼准备独立的B站小号。凭据保存在独立数据目录，受当前Windows用户访问权限保护。退出登录会清除本地凭据，并检查B站远程会话是否已注销。'),
     el('div', { className: 'account-hero' },
       el('div', { className: 'account-meta' },
         el('div', { className: 'account-name-row' },
           el('span', { className: 'account-name' }, loggedIn ? (cfg.self.name || '已登录大鲸鱼账号') : '尚未连接大鲸鱼 B 站账号'),
           loggedIn ? el('span', { className: 'pill mono' }, `UID ${cfg.self.mid}`) : null),
         el('div', { className: 'row-hint' }, loggedIn
-          ? '扫码登录可刷新凭据；若需临时停用防风控，可点右侧「退出登录」注销远程会话、清除凭据并暂停所有 B 站请求。'
+          ? '可重新扫码刷新凭据，或退出登录以停止已登录的账号活动。'
           : '点击右侧「扫码登录」，使用手机哔哩哔哩 App 扫描二维码即可自动校验并写入账号信息。'),
         qrLabel ? el('div', { className: qr?.status === 'success' ? 'banner ok' : 'row-hint', style: { marginTop: '4px', marginBottom: 0 } }, qrLabel) : null,
+        qr?.account?.warn ? el('div', { className: 'banner warn' }, qr.account.warn) : null,
         state.logoutMsg ? el('div', { className: `banner ${state.logoutMsg.kind || 'ok'}`, style: { marginTop: '4px', marginBottom: 0 } }, state.logoutMsg.text) : null,
         state.qrError || qr?.error ? el('div', { className: 'banner err', style: { marginTop: '4px', marginBottom: 0 } }, state.qrError || qr.error) : null),
       el('div', { className: 'qr-wrap' },

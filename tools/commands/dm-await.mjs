@@ -1,4 +1,4 @@
-import { HOME, dataPath } from '../lib/paths.mjs'
+import { credentialsPath, dataPath } from '../lib/paths.mjs'
 // Exit contract: 0 = message/ack/baseline; 1 + {hit:false} = normal empty; 2 = invalid input; 3 = failure.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -10,26 +10,33 @@ import { exactJson } from '../lib/json-exact.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { isFollowerOfWhale } from '../lib/relation.mjs'
 import { checkFanQuota } from '../lib/fan-quota.mjs'
+import { dmListenerScope } from '../lib/dm-listener-scope.mjs'
+import { apiGet } from '../lib/bili-api.mjs'
 
 const argv = process.argv.slice(2)
 const peek = argv.includes('--peek')
 const json = argv.includes('--json')
 const cfg = config()
-const owner = String(cfg.owner?.mid ?? '').trim()
+const scope = dmListenerScope(cfg)
+const { account: selfMid, owner, stateFile: file, receiptsFile } = scope ?? {}
 const ownerName = String(cfg.owner?.name ?? '主人')
-const selfMid = String(cfg.self?.mid ?? '').trim()
 const dmOwnerOn = cfg.listen?.dmOwner === true
 const dmFanOn = cfg.listen?.dmFan === true
-const file = dataPath('dm-await-state.json')
-const receiptsFile = dataPath('dm-fan-receipts.json')
+
+function checkScope() {
+  const current = dmListenerScope(config({ fresh: true }))
+  if (current?.stateFile !== file) throw Error('B 站账号或主人已变化，停止旧私信任务')
+}
 
 function save(state) {
+  checkScope()
   const tmp = file + '.' + crypto.randomUUID() + '.tmp'
-  try { fs.writeFileSync(tmp, JSON.stringify(state, null, 2)); fs.renameSync(tmp, file) }
+  try { fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, file) }
   finally { fs.rmSync(tmp, { force: true }) }
 }
 
 function recordFanReceipt(receipt, mid) {
+  checkScope()
   let map = {}
   try { map = JSON.parse(fs.readFileSync(receiptsFile, 'utf8')) ?? {} } catch {}
   const now = Date.now()
@@ -38,7 +45,7 @@ function recordFanReceipt(receipt, mid) {
   }
   map[receipt] = { mid: String(mid), at: now }
   const tmp = receiptsFile + '.' + crypto.randomUUID() + '.tmp'
-  try { fs.writeFileSync(tmp, JSON.stringify(map, null, 2)); fs.renameSync(tmp, receiptsFile) }
+  try { fs.writeFileSync(tmp, JSON.stringify(map, null, 2), { mode: 0o600 }); fs.renameSync(tmp, receiptsFile) }
   finally { fs.rmSync(tmp, { force: true }) }
 }
 
@@ -78,10 +85,11 @@ function markUnconfirmed(state, receipt) {
 }
 
 function emit(message) {
+  checkScope()
   console.log(json ? JSON.stringify(message) : `DM_HIT mid=${message.mid} fan=${!!message.isFan} text=${message.text}`)
 }
 
-async function pollFanSessions(headers, state) {
+async function pollFanSessions(headers, state, nav) {
   const fanCursors = { ...(state.fanCursors ?? {}) }
   const url = 'https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&group_fold=1&unfollow_fold=0&sort_rule=2&size=20&build=0&mobi_app=web'
   const res = await exactJson(await fetch(url, { headers }))
@@ -119,7 +127,7 @@ async function pollFanSessions(headers, state) {
     if (!fq.allowed) continue
 
     try {
-      const hist = await readHistory(talker, headers, cursor)
+      const hist = await readHistory(talker, headers, cursor, { nav })
       for (const m of hist.messages) {
         out.push({
           ...m,
@@ -138,7 +146,7 @@ async function pollFanSessions(headers, state) {
 }
 
 async function main() {
-  if (!dmOwnerOn && !dmFanOn) {
+  if (!scope || (!dmOwnerOn && !dmFanOn)) {
     console.log(json ? JSON.stringify({ hit: false }) : '私信监听未开启')
     return 1
   }
@@ -149,8 +157,6 @@ async function main() {
   } catch (e) {
     if (e.code !== 'ENOENT') throw Error('私信状态无法读取，已停止推进已读位置：' + e.message)
   }
-  if (state.owner && owner && state.owner !== owner) state = { fanCursors: state.fanCursors ?? {} }
-
   const ackIndex = argv.indexOf('--ack')
   if (ackIndex >= 0) {
     if (!state.pending || state.pending.receipt !== argv[ackIndex + 1]) {
@@ -172,6 +178,7 @@ async function main() {
   }
 
   if (argv.includes('--list-unconfirmed')) {
+    checkScope()
     const list = (state.unconfirmed ?? []).filter(x => x && x.key)
     console.log(JSON.stringify({ count: list.length, items: list }))
     return 0
@@ -183,38 +190,51 @@ async function main() {
   }
 
   if (!state.queue?.length || argv.includes('--baseline')) {
-    const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
+    const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
     const headers = {
       'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       referer: 'https://www.bilibili.com/',
       cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`,
     }
+    const nav = await apiGet('https://api.bilibili.com/x/web-interface/nav', headers)
+    if (nav.code !== 0 || nav.data?.isLogin !== true || String(nav.data.mid) !== selfMid)
+      throw Error('当前 B 站登录账号与配置不一致，未推进私信游标')
+    checkScope()
 
     const combined = []
     if (dmOwnerOn && owner) {
-      const result = await readHistory(owner, headers, state, { baseline: argv.includes('--baseline') })
-      if (argv.includes('--baseline')) {
+      const explicitBaseline = argv.includes('--baseline')
+      // The unscoped file cannot prove which account owns its pending messages.
+      // Start at the verified account's current position when upgrading it.
+      const baseline = explicitBaseline || (state.lastSeen === undefined && fs.existsSync(dataPath('dm-await-state.json')))
+      const result = await readHistory(owner, headers, state, { baseline, nav })
+      if (baseline) {
         const latest = result.all.at(-1)
         const ts = latest?.ts ?? 0
-        save({
+        state = {
           ...state,
           owner,
           lastSeen: ts,
           lastKey: latest?.key,
           lastKeys: result.all.filter(r => r.ts === ts).map(r => r.key),
+          pending: undefined,
           queue: [],
-        })
-        console.log('已把当前私信状态标记为已读')
-        return 0
+        }
+        if (explicitBaseline) {
+          save(state)
+          console.log('已把当前私信状态标记为已读')
+          return 0
+        }
+      } else {
+        for (const m of result.messages) {
+          combined.push({ ...m, mid: owner, name: ownerName, isFan: false })
+        }
+        state = { ...state, owner, lastIncoming: Math.max(Number(state.lastIncoming ?? 0), ...result.messages.map(r => r.ts)) }
       }
-      for (const m of result.messages) {
-        combined.push({ ...m, mid: owner, name: ownerName, isFan: false })
-      }
-      state = { ...state, owner, lastIncoming: Math.max(Number(state.lastIncoming ?? 0), ...result.messages.map(r => r.ts)) }
     }
 
     if (dmFanOn && !argv.includes('--baseline')) {
-      const fanRes = await pollFanSessions(headers, state)
+      const fanRes = await pollFanSessions(headers, state, nav)
       state = { ...state, fanCursors: fanRes.fanCursors }
       combined.push(...fanRes.messages)
     }
@@ -254,8 +274,10 @@ async function main() {
 
 let release
 try {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  release = await acquireProcessLock(file)
+  if (scope && (dmOwnerOn || dmFanOn)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    release = await acquireProcessLock(file)
+  }
   process.exitCode = await main()
 } catch (e) {
   console.error(e.message)
