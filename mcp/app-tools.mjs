@@ -76,12 +76,11 @@ export function appToolDefinitions() {
     {
       name: 'whale_app_ops',
       title: '模型列表、环境检测、日志导出、打开本地目录、核验主人与版本更新',
-      description: '读取模型列表、执行环境检测、一键安装 ffmpeg、核验主人 UID、导出带时间戳诊断日志、打开受限白名单本地目录、读取运行状态或执行插件更新（仅 UI 调用）。',
+      description: '读取模型列表、执行环境检测、核验主人 UID、导出带时间戳诊断日志、打开受限白名单本地目录、读取运行状态或执行插件更新（仅 UI 调用）。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['models', 'deps', 'install_ffmpeg', 'verify_owner', 'status', 'export_diag', 'open_path', 'about', 'update_check', 'update_apply'] },
-          force: { type: 'boolean' },
+          action: { type: 'string', enum: ['models', 'deps', 'verify_owner', 'status', 'export_diag', 'open_path', 'about', 'update_check', 'update_apply'] },
           ref: { type: 'string' },
           mid: { type: 'string' },
           name: { type: 'string' },
@@ -137,7 +136,7 @@ export function createAppToolRunner(api) {
           ])
           return okResult(
             { ok: true, settings, status, about },
-            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.2.0'}）。`,
+            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.3.0'}）。`,
           )
         }
         case 'whale_app_bootstrap': {
@@ -170,7 +169,6 @@ export function createAppToolRunner(api) {
         case 'whale_app_ops': {
           if (args.action === 'models') return okResult(await api.getModels())
           if (args.action === 'deps') return okResult(await api.checkDeps())
-          if (args.action === 'install_ffmpeg') return okResult(await api.installFfmpeg({ force: args.force === true }))
           if (args.action === 'verify_owner') return okResult(await api.verifyOwner(args.mid, args.name))
           if (args.action === 'status') return okResult(await api.getStatus())
           if (args.action === 'export_diag') return okResult(await api.exportDiagnostics())

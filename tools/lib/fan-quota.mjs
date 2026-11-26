@@ -5,26 +5,61 @@ import { WHALE_HOME } from './paths.mjs'
 import { localDay } from './local-date.mjs'
 
 const CHANNELS = ['dm', 'comment', 'mentionSummary']
+const MAX_HISTORY_DAYS = 365
 
 function quotaFile(whaleHome = WHALE_HOME) {
   return path.join(whaleHome, 'fan-quota.json')
 }
 
-function emptyDay(date) {
+function emptyDay(date, history = {}) {
   return {
     date,
     dm: { total: 0, byUid: {} },
     comment: { total: 0, byUid: {} },
     mentionSummary: { total: 0, byUid: {} },
+    history,
   }
+}
+
+function summarizeDay(state) {
+  return {
+    dmTotal: Math.max(0, Number(state?.dm?.total) || 0),
+    dmUsers: Object.keys(state?.dm?.byUid ?? {}).length,
+    commentTotal: Math.max(0, Number(state?.comment?.total) || 0),
+    commentUsers: Object.keys(state?.comment?.byUid ?? {}).length,
+    mentionSummaryTotal: Math.max(0, Number(state?.mentionSummary?.total) || 0),
+  }
+}
+
+function sanitizeHistory(rawHistory) {
+  const out = {}
+  if (!rawHistory || typeof rawHistory !== 'object' || Array.isArray(rawHistory)) return out
+  const keys = Object.keys(rawHistory).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort().slice(-MAX_HISTORY_DAYS)
+  for (const k of keys) {
+    const v = rawHistory[k]
+    if (!v || typeof v !== 'object') continue
+    const dmTotal = Math.max(0, Number(v.dmTotal) || 0)
+    const commentTotal = Math.max(0, Number(v.commentTotal) || 0)
+    const mentionSummaryTotal = Math.max(0, Number(v.mentionSummaryTotal) || 0)
+    if (dmTotal + commentTotal + mentionSummaryTotal <= 0) continue
+    out[k] = {
+      dmTotal,
+      dmUsers: Math.max(0, Number(v.dmUsers) || 0),
+      commentTotal,
+      commentUsers: Math.max(0, Number(v.commentUsers) || 0),
+      mentionSummaryTotal,
+    }
+  }
+  return out
 }
 
 function readState(whaleHome = WHALE_HOME, now = Date.now) {
   const today = localDay(now())
   try {
     const raw = JSON.parse(fs.readFileSync(quotaFile(whaleHome), 'utf8'))
+    const history = sanitizeHistory(raw?.history)
     if (raw && raw.date === today) {
-      const base = emptyDay(today)
+      const base = emptyDay(today, history)
       for (const ch of CHANNELS) {
         if (raw[ch] && typeof raw[ch] === 'object') {
           base[ch] = {
@@ -35,6 +70,14 @@ function readState(whaleHome = WHALE_HOME, now = Date.now) {
       }
       return base
     }
+    // 跨天时自动将上一日计数归档到 history，避免历史统计丢失
+    if (raw && /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date ?? ''))) {
+      const prev = summarizeDay(raw)
+      if (prev.dmTotal + prev.commentTotal + prev.mentionSummaryTotal > 0) {
+        history[raw.date] = prev
+      }
+    }
+    return emptyDay(today, sanitizeHistory(history))
   } catch {}
   return emptyDay(today)
 }
@@ -83,6 +126,7 @@ export function recordFanReply({ channel, uid, whaleHome = WHALE_HOME, now = Dat
   const state = readState(whaleHome, now)
   state[channel].total = Number(state[channel].total ?? 0) + 1
   state[channel].byUid[mid] = Number(state[channel].byUid[mid] ?? 0) + 1
+  state.history = sanitizeHistory({ ...(state.history ?? {}), [state.date]: summarizeDay(state) })
   writeState(state, whaleHome)
 }
 
@@ -93,10 +137,19 @@ export function readFanQuotaSummary(whaleHome = WHALE_HOME, now = Date.now) {
   const s = readState(whaleHome, now)
   return {
     date: s.date,
-    dmTotal: s.dm.total,
-    dmUsers: Object.keys(s.dm.byUid).length,
-    commentTotal: s.comment.total,
-    commentUsers: Object.keys(s.comment.byUid).length,
-    mentionSummaryTotal: s.mentionSummary.total,
+    ...summarizeDay(s),
   }
+}
+
+/**
+ * 读取历史按日粉丝互动统计（含今日最新计数），供日历统计聚合使用。
+ */
+export function readFanQuotaHistory(whaleHome = WHALE_HOME, now = Date.now) {
+  const s = readState(whaleHome, now)
+  const days = { ...(s.history ?? {}) }
+  const todaySum = summarizeDay(s)
+  if (todaySum.dmTotal + todaySum.commentTotal + todaySum.mentionSummaryTotal > 0) {
+    days[s.date] = todaySum
+  }
+  return { today: s.date, days }
 }

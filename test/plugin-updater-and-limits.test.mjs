@@ -10,10 +10,11 @@ import { mentionSummaryLines } from '../lib/mention-summary.js'
 import { pipelineConfig } from '../tools/local/pipeline-config.mjs'
 import { watchOptions, gridForFrameCount } from '../tools/lib/watch-options.mjs'
 import { checkRelation, isFollowerOfWhale, clearRelationCache } from '../tools/lib/relation.mjs'
-import { checkFanQuota, recordFanReply, readFanQuotaSummary } from '../tools/lib/fan-quota.mjs'
+import { checkFanQuota, recordFanReply, readFanQuotaSummary, readFanQuotaHistory } from '../tools/lib/fan-quota.mjs'
 import { checkLocalSafety, enforceOutboundSafety } from '../tools/lib/content-safety.mjs'
 import { createSafetyReviewer } from '../lib/safety-worker.js'
 import { startSidecarIpc, callSidecarIpc } from '../lib/sidecar-ipc.js'
+import { buildActivityCalendar } from '../lib/activity-stats.js'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -323,18 +324,19 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(wPrompt.includes('每日最多发 2 条'))
     assert.ok(wPrompt.includes('无需写日记'))
 
-    // 7. Environment cards omit datadir and keep ffmpeg action inline
+    // 7. Environment rows omit datadir and remove ffmpeg install/update action completely
     const deps = await api.checkDeps()
     assert.ok(Array.isArray(deps.cards))
     assert.equal(deps.cards.some(c => c.key === 'datadir'), false)
     const ffCard = deps.cards.find(c => c.key === 'ffmpeg')
     assert.ok(ffCard)
-    assert.ok(ffCard.action === 'install_ffmpeg' || ffCard.action === 'update_ffmpeg')
+    assert.equal(ffCard.action, null)
 
-    // 8. Global zero-checkmark invariant across UI sources, backend handlers, and built bundle
+    // 8. Global zero-checkmark invariant & v1.3.0 UI invariants across sources and built bundle
     const scanFiles = [
       'lib/api-handlers.js',
       'lib/plugin-updater.js',
+      'lib/activity-stats.js',
       'ui-src/main.js',
       'ui-src/render-sections.js',
       'ui-src/render-models.js',
@@ -352,6 +354,16 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(bundle.includes('疑似 AI 评论'), false)
     assert.equal(bundle.includes('告诉她一条明确偏好'), false)
     assert.equal(bundle.includes('worker-pills'), false)
+    assert.equal(bundle.includes('install_ffmpeg'), false)
+    assert.equal(bundle.includes('一键安装 ffmpeg'), false)
+    assert.equal(bundle.includes('她目前记住的事'), false)
+    assert.equal(bundle.includes('.about-hero {'), false)
+    assert.ok(bundle.includes('活动统计与日历查看'))
+    assert.ok(bundle.includes('累计总计'))
+    assert.ok(bundle.includes('最多 50 条'))
+    assert.ok(bundle.includes('最多 100 条'))
+    assert.ok(bundle.includes('env-row'))
+    assert.ok(bundle.includes('about-hero-card'))
     assert.ok(bundle.includes('每日最多发公开动态条数'))
     assert.ok(bundle.includes('私信轮询时间间隔'))
     assert.ok(bundle.includes('评论与 @ 轮询时间间隔'))
@@ -370,6 +382,92 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(!mText.includes('77777'))
   } finally {
     api.dispose()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves cross-day fan history, and respects search limit (20/50/100)', async () => {
+  const dir = mkTmp('ag-whale-cal-')
+  const day1 = Date.parse('2026-11-24T12:00:00+08:00')
+  const day2 = Date.parse('2026-11-26T15:30:00+08:00')
+  try {
+    // 1. Cross-day fan quota history preserved when rolling over to a new day
+    recordFanReply({ channel: 'dm', uid: '101', whaleHome: dir, now: () => day1 })
+    recordFanReply({ channel: 'comment', uid: '102', whaleHome: dir, now: () => day1 })
+    recordFanReply({ channel: 'mentionSummary', uid: '103', whaleHome: dir, now: () => day2 })
+    const hist = readFanQuotaHistory(dir, () => day2)
+    assert.equal(hist.days['2026-11-24'].dmTotal, 1)
+    assert.equal(hist.days['2026-11-24'].commentTotal, 1)
+    assert.equal(hist.days['2026-11-26'].mentionSummaryTotal, 1)
+
+    // 2. Seed quota.json, safety-blocked.jsonl, whale-night.json, and life-store events
+    fs.writeFileSync(path.join(dir, 'quota.json'), JSON.stringify({
+      log: [
+        { at: new Date(day1).toISOString(), type: 'comment', share: true, target: 'BV1aaa', note: '给主人推猫猫' },
+        { at: new Date(day2).toISOString(), type: 'dynamic', share: false, target: 'dyn:1', note: '今天看了好视频' },
+      ],
+    }))
+    fs.writeFileSync(path.join(dir, 'safety-blocked.jsonl'), JSON.stringify({
+      at: new Date(day2).toISOString(),
+      channel: 'comment',
+      category: '合规拦截',
+      reason: '命中规则',
+    }) + '\n')
+    fs.writeFileSync(path.join(dir, 'whale-night.json'), JSON.stringify({
+      date: '2026-11-26',
+      wakes: 2,
+      usedCount: { '2026-11-24|20:00–24:00': 1, '2026-11-26|20:00–24:00': 2 },
+    }))
+
+    const api = createApiHandlers({
+      whaleHome: dir,
+      cfgFile: path.join(dir, 'config.json'),
+      credFile: path.join(dir, 'credentials.json'),
+      personaFile: path.join(dir, 'persona.md'),
+      pendingFile: path.join(dir, 'pending-replies.json'),
+      ipcClient: async () => ({ running: false }),
+      rpc: { available: () => false },
+    })
+    try {
+      await api.saveSettings({ self: { mid: '999', name: '大鲸鱼' }, owner: { mid: '12345', name: '主人' } })
+      const cfg = (await api.getSettings()).config
+
+      // Seed 26 searchable experience events to verify search limit 20 vs 50
+      const { lifeStore } = await import('../tools/lib/life-runtime.mjs')
+      const store = lifeStore(cfg, { dshHome: dir, now: () => day2 })
+      await store.record('video-read', { target: 'BV1xyz', text: 'AI工具评测合集', data: { title: 'AI工具评测合集' } })
+      await store.record('received', { actor: '12345', text: '大鲸鱼你好', data: { channel: 'bili-dm' } })
+      for (let i = 1; i <= 26; i++) {
+        await store.record('observed', { text: `日历搜索测试样本 ${i}`, origin: 'model' })
+      }
+
+      const cal = buildActivityCalendar({ whaleHome: dir, cfg, store, now: () => day2 })
+      assert.equal(cal.today, '2026-11-26')
+      assert.equal(cal.activeDays, 2)
+      assert.equal(cal.totals.shares, 1)
+      assert.equal(cal.totals.dynamics, 1)
+      assert.equal(cal.totals.watched, 1)
+      assert.equal(cal.totals.ownerInteract, 1)
+      assert.equal(cal.totals.fanInteract, 3)
+      assert.equal(cal.totals.wakes, 3)
+      assert.equal(cal.totals.safetyBlocked, 1)
+      assert.equal(cal.days['2026-11-24'].shares, 1)
+      assert.equal(cal.days['2026-11-24'].fanInteract, 2)
+      assert.equal(cal.days['2026-11-26'].dynamics, 1)
+      assert.equal(cal.days['2026-11-26'].watched, 1)
+      assert.equal(cal.days['2026-11-26'].ownerInteract, 1)
+      assert.equal(cal.days['2026-11-26'].safetyBlocked, 1)
+
+      const s20 = await api.lifeAction('search', { query: '日历搜索测试样本', limit: 20 })
+      assert.equal(s20.limit, 20)
+      assert.equal(s20.result.length, 20)
+      const s50 = await api.lifeAction('search', { query: '日历搜索测试样本', limit: 50 })
+      assert.equal(s50.limit, 50)
+      assert.equal(s50.result.length, 26)
+    } finally {
+      api.dispose()
+    }
+  } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })

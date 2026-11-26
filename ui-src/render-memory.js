@@ -1,21 +1,183 @@
-import { el, row, renderExportResult } from './render-sections.js'
+import { el, row, selectCtrl, renderExportResult } from './render-sections.js'
+
+const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
+
+const EMPTY_STAT = Object.freeze({
+  watched: 0,
+  shares: 0,
+  dynamics: 0,
+  ownerInteract: 0,
+  ownerDm: 0,
+  ownerComment: 0,
+  fanInteract: 0,
+  fanDm: 0,
+  fanComment: 0,
+  fanMention: 0,
+  wakes: 0,
+  safetyBlocked: 0,
+  total: 0,
+  items: [],
+})
+
+function pad2(n) { return String(n).padStart(2, '0') }
+
+function localTodayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+function buildMonthGrid(monthStr) {
+  const [yRaw, mRaw] = String(monthStr || '').split('-').map(n => Number.parseInt(n, 10))
+  const now = new Date()
+  const year = Number.isFinite(yRaw) ? yRaw : now.getFullYear()
+  const month = Number.isFinite(mRaw) ? mRaw : (now.getMonth() + 1)
+  const firstDay = new Date(year, month - 1, 1)
+  const leading = (firstDay.getDay() + 6) % 7 // 周一为 0，周日为 6
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7
+  const cells = []
+  for (let i = 0; i < totalCells; i++) {
+    const d = new Date(year, month - 1, 1 - leading + i)
+    const dayStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+    cells.push({
+      dayStr,
+      dayNum: d.getDate(),
+      inMonth: d.getFullYear() === year && (d.getMonth() + 1) === month,
+    })
+  }
+  return { year, month, cells }
+}
+
+function metricTile(label, value, sub = '') {
+  return el('div', { className: 'metric-tile' },
+    el('div', { className: 'metric-k' }, label),
+    el('div', { className: 'metric-v' }, value),
+    sub ? el('div', { className: 'metric-sub', title: sub }, sub) : null)
+}
+
+function ownerSubText(s) {
+  return `私信 ${s.ownerDm ?? 0} · 评论 ${s.ownerComment ?? 0}`
+}
+
+function fanSubText(s) {
+  const base = `私信 ${s.fanDm ?? 0} · 评论 ${s.fanComment ?? 0}`
+  return (s.fanMention ?? 0) > 0 ? `${base} · @总结 ${s.fanMention}` : base
+}
 
 /**
- * Tab 6：动态与记忆（精简实用版）
- * - 整合今日活动概览（分享/评论/粉丝回复/作息计划/暂停开关）与大鲸鱼长期记忆管理。
- * - 支持检索过往经历、固定/暂停/删除记忆，以及一键导出带时间戳的备份文件到 exports 目录并直接打开定位。
+ * Tab 6：动态与记忆
+ * - 上半区：累计总计 + 今日/任意日期互动统计日历（看片/分享/动态/主人互动/粉丝互动/唤醒/安全拦截）。
+ * - 下半区：极简长期记忆管理（仅显示活跃记忆数统计、过往经历搜索支持 20/50/100 条、时间戳导出备份）。
  */
 export function renderMemoryTab(state, actions) {
   const st = state.status ?? {}
   const life = state.lifeState
-  const fq = st.fanQuota ?? {}
-  const activeMemories = (life?.memories ?? []).filter(m => m.active)
+  const activeMemoriesCount = (life?.memories ?? []).filter(m => m.active).length
   const searchResults = Array.isArray(state.lifeSearchItems) ? state.lifeSearchItems : null
+
+  const cal = st.calendar ?? {}
+  const today = cal.today || st.today || localTodayStr()
+  const selectedDay = state.calSelectedDate || today
+  const activeMonth = state.calMonth || selectedDay.slice(0, 7)
+  const isToday = selectedDay === today
+  const totals = { ...EMPTY_STAT, ...(cal.totals ?? {}) }
+  const daysMap = cal.days ?? {}
+  const dayStat = { ...EMPTY_STAT, ...(daysMap[selectedDay] ?? {}) }
+  const { year, month, cells } = buildMonthGrid(activeMonth)
+
+  const summaryBlock = el('div', { className: 'cal-summary-box' },
+    el('div', { className: 'cal-section-head' },
+      el('div', { className: 'inline' },
+        el('strong', {}, '累计总计'),
+        el('span', { className: 'pill' }, `活跃 ${cal.activeDays ?? 0} 天`),
+        el('span', { className: 'pill info' }, `共 ${totals.total ?? 0} 项活动`))),
+    el('div', { className: 'metric-grid' },
+      metricTile('累计看片', `${totals.watched} 条`),
+      metricTile('累计分享', `${totals.shares} 条`),
+      metricTile('累计动态', `${totals.dynamics} 条`),
+      metricTile('主人互动', `${totals.ownerInteract} 次`, ownerSubText(totals)),
+      metricTile('粉丝互动', `${totals.fanInteract} 次`, fanSubText(totals)),
+      metricTile('作息唤醒', `${totals.wakes} 次`),
+      metricTile('安全拦截', `${totals.safetyBlocked} 次`)))
+
+  const calendarPanel = el('div', { className: 'cal-panel' },
+    el('div', { className: 'cal-nav' },
+      el('button', { type: 'button', className: 'btn sm', onClick: () => actions.shiftCalMonth(-1) }, '上月'),
+      el('span', { className: 'cal-month-title' }, `${year} 年 ${month} 月`),
+      el('div', { className: 'inline', style: { gap: '6px' } },
+        el('button', { type: 'button', className: 'btn sm', onClick: actions.jumpCalToday }, '今天'),
+        el('button', { type: 'button', className: 'btn sm', onClick: () => actions.shiftCalMonth(1) }, '下月'))),
+    el('div', { className: 'cal-weekdays' }, ...WEEKDAYS.map(w => el('span', {}, w))),
+    el('div', { className: 'cal-grid' }, ...cells.map(c => {
+      const info = daysMap[c.dayStr]
+      const count = Number(info?.total ?? 0)
+      const lvl = count >= 7 ? 'lvl-3' : count >= 3 ? 'lvl-2' : count >= 1 ? 'lvl-1' : ''
+      const cls = [
+        'cal-cell',
+        c.inMonth ? '' : 'outside',
+        c.dayStr === today ? 'today' : '',
+        c.dayStr === selectedDay ? 'selected' : '',
+        lvl,
+      ].filter(Boolean).join(' ')
+      const tip = count > 0
+        ? `${c.dayStr}：共 ${count} 项活动（看片 ${info.watched} · 分享 ${info.shares} · 主人 ${info.ownerInteract} · 粉丝 ${info.fanInteract}）`
+        : `${c.dayStr}：暂无活动记录`
+      return el('button', {
+        type: 'button',
+        className: cls,
+        title: tip,
+        onClick: () => actions.selectCalDay(c.dayStr),
+      },
+      el('span', { className: 'cal-day-num' }, String(c.dayNum)),
+      count > 0 ? el('span', { className: 'cal-day-badge' }, count > 99 ? '99+' : String(count)) : null)
+    })),
+    el('div', { className: 'cal-legend' },
+      el('span', { className: 'row-hint' }, '点击任意日期查看分类统计'),
+      el('div', { className: 'inline', style: { gap: '6px' } },
+        el('span', { className: 'cal-dot lvl-1' }),
+        el('span', { className: 'row-hint' }, '1–2'),
+        el('span', { className: 'cal-dot lvl-2' }),
+        el('span', { className: 'row-hint' }, '3–6'),
+        el('span', { className: 'cal-dot lvl-3' }),
+        el('span', { className: 'row-hint' }, '7+'))))
+
+  const dayEvents = Array.isArray(dayStat.items) ? dayStat.items : []
+  const detailPanel = el('div', { className: 'cal-detail' },
+    el('div', { className: 'cal-section-head' },
+      el('div', { className: 'inline' },
+        el('strong', {}, isToday ? `今日统计（${selectedDay}）` : `${selectedDay} 统计`),
+        el('span', { className: 'pill ' + (isToday ? 'ok' : '') }, isToday ? '今天' : '历史日期'),
+        el('span', { className: 'pill' }, `共 ${dayStat.total ?? 0} 项`)),
+      !isToday
+        ? el('button', { type: 'button', className: 'btn sm', onClick: actions.jumpCalToday }, '回到今天')
+        : null),
+    isToday
+      ? el('div', { className: 'cal-plan-line' },
+          el('span', { className: 'row-hint' }, '今日作息计划：'),
+          el('span', {}, st.plan ? `${st.plan.action} · ${st.plan.atText || '-'}（已醒 ${st.plan.wakes} 次）` : '尚无今日计划'))
+      : null,
+    el('div', { className: 'day-stat-grid' },
+      metricTile('观看视频', `${dayStat.watched} 条`),
+      metricTile('主动分享给主人', isToday ? `${dayStat.shares} / ${st.sharesMax ?? 3} 条` : `${dayStat.shares} 条`),
+      metricTile('发布公开动态', isToday ? `${dayStat.dynamics} / ${st.dynamicDailyMax ?? 1} 条` : `${dayStat.dynamics} 条`),
+      metricTile('主人互动', `${dayStat.ownerInteract} 次`, ownerSubText(dayStat)),
+      metricTile('粉丝互动', `${dayStat.fanInteract} 次`, fanSubText(dayStat)),
+      metricTile('作息唤醒', `${dayStat.wakes} 次`),
+      metricTile('安全审核拦截', `${dayStat.safetyBlocked} 次`)),
+    el('div', { className: 'day-events-wrap' },
+      el('div', { className: 'row-hint', style: { fontWeight: 600, marginBottom: '6px' } },
+        dayEvents.length > 0 ? `当日活动明细（最近 ${dayEvents.length} 条）` : '当日活动明细'),
+      dayEvents.length === 0
+        ? el('div', { className: 'row-hint' }, '该日期暂无记录到的活动。')
+        : el('div', { className: 'day-events' }, ...dayEvents.map(ev => el('div', { className: 'day-event-item' },
+            el('span', { className: 'day-event-time mono' }, ev.time || '--:--'),
+            el('span', { className: `pill ${ev.kind === 'safety' ? 'warn' : ev.kind === 'owner' ? 'info' : ''}` }, ev.label),
+            el('span', { className: 'day-event-text', title: ev.text }, ev.text || '-'))))))
 
   const activityCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
-        el('h2', {}, '今日活动与运行概览'),
+        el('h2', {}, '活动统计与日历查看'),
         life
           ? el('span', { className: 'pill ' + (life.paused ? 'warn' : 'ok') }, el('span', { className: 'dot' }), life.paused ? '主动活动已暂停' : '正常运行中')
           : null),
@@ -29,31 +191,20 @@ export function renderMemoryTab(state, actions) {
             }, life.paused ? '恢复主动活动' : '暂停主动活动')
           : null,
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.refreshMemoryOverview }, '刷新概览'))),
-    el('div', { className: 'grid-2' },
-      el('div', { className: 'stat-tile' },
-        el('div', { className: 'stat-k' }, '今日分享 / 发言'),
-        el('div', { className: 'stat-v' }, `${st.shares ?? 0} / ${st.sharesMax ?? 3} 次分享 · ${st.commentsToday ?? 0} 条评论`)),
-      el('div', { className: 'stat-tile' },
-        el('div', { className: 'stat-k' }, '今日粉丝互动回复'),
-        el('div', { className: 'stat-v' }, `私信 ${fq.dmTotal ?? 0} 条 · 评论 ${fq.commentTotal ?? 0} 条`)),
-      el('div', { className: 'stat-tile' },
-        el('div', { className: 'stat-k' }, '今日作息计划'),
-        el('div', { className: 'stat-v' }, st.plan ? `${st.plan.action} · ${st.plan.atText || '-'}（已醒 ${st.plan.wakes} 次）` : '尚无今日计划')),
-      el('div', { className: 'stat-tile' },
-        el('div', { className: 'stat-k' }, '内容安全审核拦截'),
-        el('div', { className: 'stat-v' }, `近期拦截 ${st.safetyBlockedCount ?? 0} 次`))),
+    summaryBlock,
+    el('div', { className: 'cal-layout' }, calendarPanel, detailPanel),
     st.scheduler?.lastError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, '最近调度异常：' + st.scheduler.lastError.message) : null)
 
   const memoryCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
         el('h2', {}, '大鲸鱼的长期记忆'),
-        life ? el('span', { className: 'pill' }, `活跃记忆 ${activeMemories.length} 条 · 近期经历 ${life.events ?? 0} 条`) : null),
+        life ? el('span', { className: 'pill' }, `活跃记忆 ${activeMemoriesCount} 条 · 近期经历 ${life.events ?? 0} 条`) : null),
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('status') }, '刷新记忆'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('export') }, state.busy === 'life' ? '导出中…' : '导出记忆备份'))),
-    el('p', { className: 'card-sub' }, '所有长期记忆均由 Antigravity 内置模型根据大鲸鱼的真实观看与互动经历自动归纳。你可以检索过往经历、固定保护或删除记忆，或导出带时间戳的备份文件。'),
-    row('搜索她的过往经历', '输入关键词检索她看过哪些视频、聊过哪些话题。',
+    el('p', { className: 'card-sub' }, '所有长期记忆均由 Antigravity 内置模型自动归纳维护并在后台生效；页面不平铺展示记忆条目，可通过下方搜索过往经历或导出带时间戳的备份文件查看。'),
+    row('搜索她的过往经历', '输入关键词检索她看过哪些视频、聊过哪些话题（默认最多显示 20 条，可按需切换至 50 / 100 条）。',
       el('div', { className: 'inline' },
         el('input', {
           className: 'input',
@@ -62,58 +213,33 @@ export function renderMemoryTab(state, actions) {
           onInput: e => { state.lifeQuery = e.target.value },
           onKeydown: e => { if (e.key === 'Enter') { e.preventDefault(); void actions.searchExperiences() } },
         }),
+        selectCtrl(String(state.lifeLimit || 20), [
+          ['20', '最多 20 条（默认）'],
+          ['50', '最多 50 条'],
+          ['100', '最多 100 条'],
+        ], v => {
+          state.lifeLimit = Number(v) || 20
+          if (state.lifeSearchItems !== null) void actions.searchExperiences()
+          else actions.rerender()
+        }),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.searchExperiences }, '搜索'))),
     renderExportResult(state.memoryExport, actions),
     state.lifeError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.lifeError) : null,
     searchResults
       ? el('div', { style: { marginTop: '12px' } },
           el('div', { className: 'inline', style: { justifyContent: 'space-between', marginBottom: '6px' } },
-            el('strong', {}, `检索结果（共 ${searchResults.length} 条）`),
+            el('strong', {}, `检索结果（共 ${searchResults.length} 条 · 当前上限 ${state.lifeSearchLimitUsed || state.lifeLimit || 20} 条）`),
             el('button', { type: 'button', className: 'btn sm', onClick: () => { state.lifeSearchItems = null; actions.rerender() } }, '收起结果')),
           searchResults.length === 0
             ? el('div', { className: 'row-hint' }, '未找到与该关键词相关的经历记录。')
-            : el('div', {}, ...searchResults.slice(0, 15).map(item => el('div', { className: 'item-card' },
+            : el('div', {}, ...searchResults.map(item => el('div', { className: 'item-card' },
                 el('div', {}, item.text || item.summary || JSON.stringify(item).slice(0, 200)),
                 el('div', { className: 'row-hint mono', style: { marginTop: '4px' } },
                   `${item.kind || 'event'}${item.target ? ' · ' + item.target : ''}${item.at ? ' · ' + new Date(item.at).toLocaleString('zh-CN') : ''}`)))))
       : null,
-    el('div', { className: 'model-section-title', style: { marginTop: '16px' } }, `她目前记住的事（${activeMemories.length} 条活跃记忆）`),
-    activeMemories.length === 0
-      ? el('div', { className: 'row-hint', style: { padding: '8px 0' } }, '目前还没有形成长期记忆；大鲸鱼开始看片或和你互动后会自动提炼到这里。')
-      : el('div', {}, ...activeMemories.map(m => {
-          const suppressed = m.recallEnabled === false
-          const protectedMem = m.protected === true || m.retentionProtected === true
-          return el('div', { className: 'item-card' },
-            el('div', { className: 'inline', style: { justifyContent: 'space-between', marginBottom: '4px' } },
-              el('div', { className: 'inline' },
-                el('span', { className: 'pill' }, m.type || '记忆'),
-                protectedMem ? el('span', { className: 'pill ok' }, '已固定保护') : null,
-                suppressed ? el('span', { className: 'pill warn' }, '已暂停回忆') : null),
-              el('span', { className: 'row-hint mono' }, `v${m.version ?? 1}`)),
-            el('div', { style: { margin: '4px 0 8px' } }, m.text),
-            el('div', { className: 'inline' },
-              el('button', {
-                type: 'button',
-                className: 'btn sm',
-                disabled: !!state.busy,
-                onClick: () => actions.runLife('memory-retention', { id: m.id, protect: !protectedMem, reason: '主人在控制台调整记忆保护' }),
-              }, protectedMem ? '取消保护' : '固定保护'),
-              el('button', {
-                type: 'button',
-                className: 'btn sm',
-                disabled: !!state.busy,
-                onClick: () => actions.runLife('suppress', { id: m.id, value: !suppressed }),
-              }, suppressed ? '恢复回忆' : '暂停回忆'),
-              el('button', {
-                type: 'button',
-                className: 'btn danger sm',
-                disabled: !!state.busy,
-                onClick: () => actions.runLife('revoke', { id: m.id }),
-              }, '删除记忆')))
-        })),
     (life?.pending ?? []).length > 0
       ? el('div', { className: 'item-card', style: { marginTop: '14px', borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' } },
-          el('strong', {}, `⚠ 未确认发送核查（${life.pending.length} 条）`),
+          el('strong', {}, `未确认发送核查（${life.pending.length} 条）`),
           el('div', { className: 'row-hint', style: { marginTop: '4px' } }, '以下发送因网络超时结果未知；请到 B 站确认是否已发出后再手动结案，避免重复发送。'),
           el('div', { className: 'inline', style: { marginTop: '8px' } },
             el('label', { className: 'switch' },

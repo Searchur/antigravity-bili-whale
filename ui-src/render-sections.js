@@ -620,52 +620,38 @@ export function renderInteractTab(state, actions) {
   return el('div', {}, mod1Card, mod2Card, mod3Card, mod4Card, mod5Card)
 }
 
-function renderDepCard(card, state, actions) {
+function renderEnvRow(card, state, actions) {
   const statusMap = {
     ok: { cls: 'ok', label: '正常' },
     optional: { cls: 'warn', label: '可选未装' },
     error: { cls: 'err', label: '需处理' },
   }
   const st = statusMap[card.status] || statusMap.error
-  const installingFfmpeg = state.busy === 'ffmpeg'
+  const desc = card.fix && card.fix !== card.detail
+    ? `${card.detail ? card.detail + ' · ' : ''}${card.fix}`
+    : (card.detail || '')
+  const verText = card.version || '-'
+  const verTitle = card.location ? `${verText}（${card.location}）` : verText
 
-  let actionBtn = null
-  if (card.action === 'install_ffmpeg') {
-    actionBtn = el('button', {
-      type: 'button',
-      className: 'btn primary sm',
-      disabled: !!state.busy,
-      onClick: () => actions.installFfmpeg(false),
-    }, installingFfmpeg ? '下载校验 ffmpeg 中（约 1 分钟）…' : '一键安装 ffmpeg')
-  } else if (card.action === 'update_ffmpeg') {
-    actionBtn = el('button', {
-      type: 'button',
-      className: 'btn sm',
-      disabled: !!state.busy,
-      onClick: () => actions.installFfmpeg(true),
-    }, installingFfmpeg ? '正在重新下载更新 ffmpeg…' : '安装 / 更新 ffmpeg')
-  } else if (card.action === 'goto_login') {
-    actionBtn = el('button', {
-      type: 'button',
-      className: 'btn primary sm',
-      disabled: !!state.busy,
-      onClick: () => actions.switchTab('account'),
-    }, '前往扫码登录')
-  }
-
-  return el('div', { className: `dep-card ${card.status || 'error'}` },
-    el('div', { className: 'dep-head' },
-      el('span', { className: 'dep-name' }, card.name),
-      el('span', { className: `pill ${st.cls}` }, el('span', { className: 'dot' }), st.label)),
-    card.version ? el('div', { className: 'dep-ver' }, card.version) : null,
-    card.location ? el('div', { className: 'dep-path', title: card.location }, card.location) : null,
-    card.detail ? el('div', { className: 'dep-detail' }, card.detail) : null,
-    card.fix ? el('div', { className: 'dep-fix' }, card.fix) : null,
-    actionBtn ? el('div', { className: 'dep-actions' }, actionBtn) : null)
+  return el('div', { className: 'env-row' },
+    el('div', { className: 'env-row-main' },
+      el('div', { className: 'env-row-title' }, card.name),
+      el('div', { className: 'env-row-hint', title: desc }, desc || '运行正常')),
+    el('div', { className: 'env-row-right' },
+      el('span', { className: 'env-ver-chip mono', title: verTitle }, verText),
+      card.action === 'goto_login'
+        ? el('button', {
+            type: 'button',
+            className: 'btn primary sm',
+            disabled: !!state.busy,
+            onClick: () => actions.switchTab('account'),
+          }, '前往扫码登录')
+        : null,
+      el('span', { className: `pill ${st.cls}` }, el('span', { className: 'dot' }), st.label)))
 }
 
 /**
- * Tab 7：环境与依赖（纯模块化健康卡片 + 带时间戳脱敏诊断日志本地导出，绝不直接堆裸日志）
+ * Tab 7：环境与依赖（等高单行列表 + 带时间戳脱敏诊断日志本地导出）
  */
 export function renderEnvTab(state, actions) {
   const deps = state.depsData
@@ -686,12 +672,11 @@ export function renderEnvTab(state, actions) {
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: actions.runDeps }, state.busy === 'deps' ? '检测中…' : '重新检测'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.exportDiagnostics }, state.busy === 'export_diag' ? '生成中…' : '导出诊断日志'))),
-    el('p', { className: 'card-sub' }, '模块化展示后台守护进程、Node.js、ffmpeg、B 站登录态及接口保护状态。排查问题时可点击右上角「导出诊断日志」生成带时间戳的脱敏文件（不含任何 Cookie/凭据）。'),
-    state.ffmpegMsg ? el('div', { className: `banner ${state.ffmpegMsg.kind}` }, state.ffmpegMsg.text) : null,
+    el('p', { className: 'card-sub' }, '逐行展示后台守护进程、Node.js、ffmpeg、B 站登录态及接口保护状态（悬停版本可查看完整路径）。排查问题时可点击「导出诊断日志」生成带时间戳的脱敏文件。'),
     renderExportResult(state.diagExport, actions),
     state.diagErr ? el('div', { className: 'banner err' }, state.diagErr) : null,
     state.depsError ? el('div', { className: 'banner err' }, state.depsError) : null,
     cards.length > 0
-      ? el('div', { className: 'deps-grid' }, ...cards.map(c => renderDepCard(c, state, actions)))
+      ? el('div', { className: 'env-list' }, ...cards.map(c => renderEnvRow(c, state, actions)))
       : el('div', { className: 'row-hint', style: { padding: '14px 0' } }, state.busy === 'deps' ? '正在逐项检测运行环境与依赖版本…' : '点击「重新检测」查看各项环境模块状态。'))
 }

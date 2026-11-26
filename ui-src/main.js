@@ -39,7 +39,6 @@ const state = {
   depsData: null,
   depsLoaded: false,
   depsError: '',
-  ffmpegMsg: null,
   diagExport: null,
   diagErr: '',
   about: null,
@@ -48,9 +47,13 @@ const state = {
   updateResult: null,
   updateError: '',
   copiedKey: '',
+  calMonth: '',
+  calSelectedDate: '',
   lifeState: null,
   lifeLoaded: false,
   lifeQuery: '',
+  lifeLimit: 20,
+  lifeSearchLimitUsed: 20,
   lifeReceipt: '',
   lifeVerified: false,
   lifeSearchItems: null,
@@ -453,35 +456,26 @@ const actions = {
     }
   },
 
-  async installFfmpeg(force = false) {
-    state.busy = 'ffmpeg'
-    state.ffmpegMsg = {
-      kind: 'warn',
-      text: force
-        ? '正在重新下载 Windows 便携版 ffmpeg 并校验更新（约 30–90 秒，请勿关闭页面）…'
-        : '正在下载 Windows 便携版 ffmpeg 并校验（约 30–90 秒，请勿关闭页面）…',
-    }
+  selectCalDay(dayStr) {
+    if (!dayStr) return
+    state.calSelectedDate = dayStr
+    state.calMonth = dayStr.slice(0, 7)
     render()
-    let installedOk = false
-    try {
-      const res = await bridge.callTool('whale_app_ops', { action: 'install_ffmpeg', force: force === true })
-      installedOk = true
-      state.ffmpegMsg = {
-        kind: 'ok',
-        text: res.alreadyInstalled
-          ? `本机已可用 ffmpeg（${res.version || '已就绪'}），路径：${res.path}`
-          : `ffmpeg 安装/更新完成（${res.version || '已就绪'}），路径：${res.path}`,
-      }
-    } catch (e) {
-      state.ffmpegMsg = {
-        kind: 'err',
-        text: '一键安装 ffmpeg 失败：' + e.message + '。也可在 Windows 终端手动运行：winget install -e --id Gyan.FFmpeg',
-      }
-    } finally {
-      state.busy = ''
-      render()
-    }
-    if (installedOk) void actions.runDeps()
+  },
+
+  shiftCalMonth(delta) {
+    const base = state.calMonth || state.status?.calendar?.today?.slice(0, 7) || new Date().toLocaleDateString('sv-SE').slice(0, 7)
+    const [y, m] = base.split('-').map(n => Number.parseInt(n, 10))
+    const d = new Date(y, (m || 1) - 1 + delta, 1)
+    state.calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    render()
+  },
+
+  jumpCalToday() {
+    const today = state.status?.calendar?.today || new Date().toLocaleDateString('sv-SE')
+    state.calSelectedDate = today
+    state.calMonth = today.slice(0, 7)
+    render()
   },
 
   async refreshStatus() {
@@ -515,8 +509,10 @@ const actions = {
     state.lifeError = ''
     render()
     try {
-      const res = await bridge.callTool('whale_app_life', { action: 'search', params: { query: state.lifeQuery } })
+      const limit = [20, 50, 100].includes(Number(state.lifeLimit)) ? Number(state.lifeLimit) : 20
+      const res = await bridge.callTool('whale_app_life', { action: 'search', params: { query: state.lifeQuery, limit } })
       if (res.state) state.lifeState = res.state
+      state.lifeSearchLimitUsed = Number(res.limit) || limit
       const raw = res.result
       state.lifeSearchItems = Array.isArray(raw) ? raw : (Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw?.events) ? raw.events : []))
     } catch (e) {
