@@ -1,0 +1,21 @@
+{
+  "name": "antigravity-bili-whale",
+  "version": "1.0.0",
+  "description": "Windows Antigravity App B站鲸鱼插件：自主作息浏览、动态长期记忆、心情与分享欲、双本日记与左侧栏养鱼控制台。",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.13.0 || >=23.4.0"
+  },
+  "scripts": {
+    "build:ui": "node scripts/build-ui.mjs",
+    "test": "node --test test/*.test.mjs",
+    "selftest": "node tools/bili.mjs selftest",
+    "deps": "node tools/bili.mjs deps"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.0.0",
+    "esbuild": "^0.25.0"
+  }
+}

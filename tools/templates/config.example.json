@@ -1,0 +1,88 @@
+{
+  "_readme": "可选参考模板：实际运行配置由左侧栏「哔哩哔哩大鲸鱼」控制台自动生成并保存在 %USERPROFILE%\\.antigravity-bili-whale\\config.json。",
+  "models": {
+    "main": "flash",
+    "worker": "flash_lite"
+  },
+  "persona": {
+    "name": "",
+    "ownerTitle": "主人",
+    "selfClaim": "我",
+    "diaryTitle": "今日摘要"
+  },
+  "preferences": {
+    "like": [
+      "AI 工具与插件",
+      "猫咪",
+      "鬼畜与怀旧剪辑",
+      "Live2D/模型"
+    ],
+    "dislike": [
+      "带货",
+      "擦边",
+      "标题党",
+      "纯搬运"
+    ]
+  },
+  "owner": {
+    "mid": "",
+    "name": ""
+  },
+  "self": {
+    "mid": "",
+    "name": ""
+  },
+  "quota": {
+    "shareDaily": 3
+  },
+  "diary": {
+    "enabled": true,
+    "push": true
+  },
+  "share": {
+    "enabled": true,
+    "via": "dm",
+    "minScore": 13,
+    "silentAfterDays": 3,
+    "aiCommentGuard": false
+  },
+  "risk": {
+    "minGapMs": 1500,
+    "readHourly": 600,
+    "readDaily": 3000,
+    "writeHourly": 12,
+    "writeDaily": 30,
+    "writeGapSec": 120,
+    "dmGapSec": 60
+  },
+  "listen": {
+    "comment": false,
+    "commentIntervalSec": 60,
+    "scope": "both",
+    "oncePerPerson": true,
+    "allDay": false,
+    "dm": true,
+    "dmIntervalSec": 60
+  },
+  "night": {
+    "windows": [
+      {
+        "start": "20:00",
+        "end": "24:00",
+        "wakes": 1
+      }
+    ],
+    "skipChance": 0.3,
+    "minGapMin": 10,
+    "maxVideos": 5
+  },
+  "notify": {
+    "type": "none",
+    "url": "",
+    "template": "text",
+    "cmd": "",
+    "args": []
+  },
+  "sessionRotateDays": 0,
+  "personaOncePerSession": true
+}

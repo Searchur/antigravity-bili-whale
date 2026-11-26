@@ -1,0 +1,224 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { PLUGIN_ROOT, WHALE_HOME, configPath, shotsPath, workDirPath } from '../tools/lib/paths.mjs'
+import { resolveNodeRuntime, nodeEnv } from '../lib/node-runtime.js'
+
+const MAX_OUTPUT_CHARS = 120_000
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+const IMAGE_MIMES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }
+
+const GROUPS = [
+  {
+    name: 'bili_browse',
+    title: 'B站选片与检索',
+    description: '只读浏览与选题工具。支持命令：feed（按口味选题）、discover（按新鲜度选片）、round（批量找片深读汇总）、search（WBI 关键词搜索）、whois（按 mid 查昵称）、covers（抓取封面图）。',
+    commands: ['feed', 'discover', 'round', 'search', 'whois', 'covers'],
+    timeoutMs: 180_000,
+  },
+  {
+    name: 'bili_inspect',
+    title: 'B站视频深读与画面抽帧',
+    description: '视频内容与评论深读工具。支持命令：debrief（一条龙：封面+简介+字幕+弹幕热区+热评+抽帧，自动附带画面图）、watch-video（抽帧拼九宫格并附带画面图）、subtitles（官方字幕）、comments（热评/最新评论）、video（纯文字还原）、batch-debrief（有限并发深读）、ai-share（分享前评论抽样与评估）、read-shot（按路径读取 shots 缓存内的封面或抽帧图）。',
+    commands: ['debrief', 'watch-video', 'subtitles', 'comments', 'video', 'batch-debrief', 'ai-share', 'read-shot'],
+    timeoutMs: 300_000,
+  },
+  {
+    name: 'bili_interact',
+    title: 'B站公开互动写操作（强制 --dry/--go）',
+    description: '评论、草稿、动态、点赞、收藏、关注工具。支持命令：comment、comment-del、reply-draft、dynamic、dynamic-image、dynamic-edit、like、fav、follow。所有写操作必须先显式传 --dry 预览，再传 --go 发送；严禁跳过 --dry。',
+    commands: ['comment', 'comment-del', 'reply-draft', 'dynamic', 'dynamic-image', 'dynamic-edit', 'like', 'fav', 'follow'],
+    timeoutMs: 360_000,
+  },
+  {
+    name: 'bili_dm',
+    title: 'B站主人私信专属通道（强制 --dry/--go）',
+    description: '私信收发工具。支持命令：dm（单条私信，只发主人且必须互关）、dm-batch（多段私信）、dm-await（查看待确认/检查新私信）。发送类命令必须先 --dry 再 --go。',
+    commands: ['dm', 'dm-batch', 'dm-await'],
+    timeoutMs: 360_000,
+  },
+  {
+    name: 'bili_inbox',
+    title: 'B站收件箱与发送复核',
+    description: '只读收件箱与发后回读复核工具。支持命令：comment-digest（回复+@ 汇总）、likes（收到的赞）、thread（评论楼中楼结构）、check-comment（按 rpid 核实评论存在）、check-dynamic（查动态结构）、check-mention（核查动态 @ 提及）、recon（评论区侦查）。',
+    commands: ['comment-digest', 'likes', 'thread', 'check-comment', 'check-dynamic', 'check-mention', 'recon'],
+    timeoutMs: 120_000,
+  },
+  {
+    name: 'bili_life',
+    title: '鲸鱼长期记忆、日记与作息状态',
+    description: '长期生命状态、表达草稿、双本日记与作息工具。支持命令：life（记忆/提案/线程/决策/活动/上下文检索）、expression（prepare/revise/finalize/discard/references）、diary（show/log/tail）、corpus（语料参考）、quota（分享额度）、night（plan/status/trigger）、traffic（请求保护状态）。',
+    commands: ['life', 'expression', 'diary', 'corpus', 'quota', 'night', 'traffic'],
+    timeoutMs: 120_000,
+  },
+  {
+    name: 'bili_stickers',
+    title: '鲸鱼表情包目录（42 张随包内置）',
+    description: '查询随插件内置的 42 张表情包路径（无需手动复制）。支持命令：list（分页列出目录）、get（按 ID 或情绪名取本地图片绝对路径，供 dm/comment --pic 使用）。',
+    commands: ['list', 'get'],
+    timeoutMs: 30_000,
+  },
+  {
+    name: 'bili_ops',
+    title: '鲸鱼运维、规范阅读与通知推送',
+    description: '运维与行为规范工具。支持命令：deps（依赖体检）、selftest（启动自检）、session（确认当前登录账号）、notify（向主人发送报备/摘要）、behavior（list/read <章节>/reload）、config（show/set）、read-prompt（读取超长唤醒上下文文件）。',
+    commands: ['deps', 'selftest', 'session', 'notify', 'behavior', 'config', 'read-prompt'],
+    timeoutMs: 120_000,
+  },
+]
+
+const GROUP_MAP = new Map(GROUPS.map(g => [g.name, g]))
+
+function isInsideDir(baseDir, targetFile) {
+  try {
+    const realBase = fs.realpathSync(baseDir)
+    const realTarget = fs.realpathSync(targetFile)
+    const rel = path.relative(realBase, realTarget)
+    return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel)
+  } catch {
+    return false
+  }
+}
+
+function readShotImageBlock(shotsDir, filePath) {
+  if (!filePath || !isInsideDir(shotsDir, filePath)) return null
+  const ext = path.extname(filePath).toLowerCase()
+  const mimeType = IMAGE_MIMES[ext]
+  if (!mimeType) return null
+  const st = fs.statSync(filePath)
+  if (!st.isFile() || st.size <= 0 || st.size > MAX_IMAGE_BYTES) return null
+  return {
+    type: 'image',
+    data: fs.readFileSync(filePath).toString('base64'),
+    mimeType,
+  }
+}
+
+function extractInlineShotBlocks(shotsDir, text) {
+  const blocks = []
+  const seen = new Set()
+  for (const match of String(text ?? '').matchAll(/^\s*(?:SHEET|SUBS)\s*:\s*(.+?)\s*$/gm)) {
+    const candidate = match[1].trim()
+    if (!candidate || seen.has(candidate)) continue
+    seen.add(candidate)
+    const block = readShotImageBlock(shotsDir, candidate)
+    if (block) blocks.push(block)
+    if (blocks.length >= 2) break
+  }
+  return blocks
+}
+
+export function modelToolDefinitions() {
+  return GROUPS.map(g => ({
+    name: g.name,
+    title: g.title,
+    description: g.description,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: {
+          type: 'string',
+          enum: g.commands,
+          description: `要执行的子命令：${g.commands.join(' / ')}`,
+        },
+        args: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '透传给该命令的参数数组，例如 ["BV1xx...", "--no-frames"] 或 ["--dry"]',
+          default: [],
+        },
+      },
+      required: ['command'],
+      additionalProperties: false,
+    },
+    _meta: {
+      ui: { visibility: ['model'] },
+    },
+  }))
+}
+
+export function createModelToolRunner({
+  whaleHome = WHALE_HOME,
+  cfgFile = configPath,
+  biliMjs = path.join(PLUGIN_ROOT, 'tools', 'bili.mjs'),
+} = {}) {
+  const nodeExe = resolveNodeRuntime(whaleHome)
+  const baseEnv = { ...nodeEnv(whaleHome), BILI_WHALE_HOME: whaleHome, BILI_WHALE_CONFIG: cfgFile }
+  const shotsDir = whaleHome === WHALE_HOME ? shotsPath : path.join(whaleHome, 'shots')
+  const promptsDir = path.join(whaleHome === WHALE_HOME ? workDirPath : path.join(whaleHome, 'whale-work'), '.prompts')
+
+  function runCli(argv, timeoutMs) {
+    return new Promise((resolve) => {
+      execFile(nodeExe, [biliMjs, ...argv], {
+        windowsHide: true,
+        timeout: timeoutMs,
+        maxBuffer: 16 * 1024 * 1024,
+        env: baseEnv,
+      }, (err, stdout, stderr) => {
+        const out = String(stdout ?? '')
+        const errText = String(stderr ?? '')
+        const code = err ? (Number.isInteger(err.code) ? err.code : 1) : 0
+        resolve({ ok: !err, code, stdout: out, stderr: errText })
+      })
+    })
+  }
+
+  return async function invokeModelTool(toolName, rawArgs = {}) {
+    const group = GROUP_MAP.get(toolName)
+    if (!group) return null
+    const command = String(rawArgs?.command ?? '').trim()
+    if (!group.commands.includes(command)) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `不支持的命令 "${command}"；${toolName} 仅允许：${group.commands.join(', ')}` }],
+      }
+    }
+    const extra = Array.isArray(rawArgs?.args) ? rawArgs.args.map(v => String(v)) : []
+
+    // Portable built-in helper: read oversized prompt materialized in whale-work/.prompts/
+    if (toolName === 'bili_ops' && command === 'read-prompt') {
+      const name = path.basename(String(extra[0] ?? ''))
+      if (!name || !/^[a-zA-Z0-9._-]+\.md$/.test(name)) {
+        return { isError: true, content: [{ type: 'text', text: 'read-prompt 需要合法的 .md 文件名' }] }
+      }
+      const target = path.join(promptsDir, name)
+      if (!isInsideDir(promptsDir, target)) {
+        return { isError: true, content: [{ type: 'text', text: '未找到指定提示文件' }] }
+      }
+      return { isError: false, content: [{ type: 'text', text: fs.readFileSync(target, 'utf8') }] }
+    }
+
+    // Portable built-in helper: read cover / frame image strictly inside shots/
+    if (toolName === 'bili_inspect' && command === 'read-shot') {
+      const rawPath = String(extra[0] ?? '').trim()
+      const resolved = path.isAbsolute(rawPath) ? rawPath : path.join(shotsDir, rawPath)
+      const img = readShotImageBlock(shotsDir, resolved)
+      if (!img) {
+        return { isError: true, content: [{ type: 'text', text: '未找到或无权读取指定 shots 图片（仅限独立数据目录 shots/ 下的 2MiB 以内图片）' }] }
+      }
+      return {
+        isError: false,
+        content: [{ type: 'text', text: `已读取图片：${resolved}` }, img],
+      }
+    }
+
+    const cliArgv = toolName === 'bili_stickers' ? ['stickers', command, ...extra] : [command, ...extra]
+    const res = await runCli(cliArgv, group.timeoutMs)
+    const parts = []
+    if (res.stdout.trim()) parts.push(res.stdout.trim())
+    if (res.stderr.trim()) parts.push('[stderr]\n' + res.stderr.trim())
+    if (!parts.length) parts.push(res.ok ? '(执行完成，无输出)' : `(命令退出码 ${res.code})`)
+    let text = parts.join('\n\n')
+    if (text.length > MAX_OUTPUT_CHARS) {
+      text = text.slice(0, MAX_OUTPUT_CHARS) + `\n\n...(输出已截断，总长 ${text.length} 字符)`
+    }
+    const content = [{ type: 'text', text }]
+    if (res.ok && toolName === 'bili_inspect' && ['debrief', 'watch-video'].includes(command)) {
+      content.push(...extractInlineShotBlocks(shotsDir, res.stdout))
+    }
+    return {
+      isError: !res.ok,
+      content,
+    }
+  }
+}

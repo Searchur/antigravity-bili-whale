@@ -1,0 +1,13 @@
+node_modules/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+# Never commit runtime user data, credentials, diaries, or downloaded binaries
+bin/
+data/
+shots/
+whale-life/
+credentials.json
+config.json
+persona.md
