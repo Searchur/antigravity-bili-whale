@@ -16,6 +16,7 @@ import { createSafetyReviewer } from '../lib/safety-worker.js'
 import { startSidecarIpc, callSidecarIpc } from '../lib/sidecar-ipc.js'
 import { buildActivityCalendar } from '../lib/activity-stats.js'
 import { makePlan, normalizeTimeText } from '../tools/lib/night-plan.mjs'
+import { evaluateModelQuota, createModelQuotaGuard } from '../lib/model-quota-guard.js'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -360,7 +361,17 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(bundle.includes('她目前记住的事'), false)
     assert.equal(bundle.includes('.about-hero {'), false)
     assert.equal(bundle.includes('点击任意日期查看分类统计'), false)
+    assert.equal(bundle.includes('model-desc'), false)
+    assert.equal(bundle.includes('悬停版本可查看完整路径'), false)
+    assert.ok(bundle.includes('模型剩余配额低于多少不再活动'))
+    assert.ok(bundle.includes('配额保护与会话轮换'))
     assert.ok(bundle.includes('活动统计与日历查看'))
+
+    // Zero native browser hover tooltips (title:) across all UI source files
+    for (const uiFile of ['ui-src/main.js', 'ui-src/render-sections.js', 'ui-src/render-models.js', 'ui-src/render-watch.js', 'ui-src/render-memory.js', 'ui-src/render-about.js']) {
+      const uiSrc = fs.readFileSync(path.resolve(uiFile), 'utf8')
+      assert.equal(/\btitle\s*:/.test(uiSrc), false, `${uiFile} must not set native hover title attribute`)
+    }
     assert.ok(bundle.includes('马上唤醒她'))
     assert.ok(bundle.includes('路径：'))
     assert.ok(bundle.includes('cal-nav-group'))
@@ -544,6 +555,84 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
   } finally {
     api.dispose()
     await ipc.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns structured UI cards on failure, and comment share prompt has no rule conflict', async () => {
+  const sampleCatalog = {
+    ok: true,
+    source: 'live',
+    models: [
+      { id: 'gemini-4-hydrogen-medium', groupKey: 'gemini-4-hydrogen', groupName: 'Gemini 4 Hydrogen', thinkingLabel: 'Medium', remainingFraction: 0.15 },
+      { id: 'gemini-4-neon-high', groupKey: 'gemini-4-neon', groupName: 'Gemini 4 Neon', thinkingLabel: 'High', remainingFraction: 0.6 },
+    ],
+  }
+  assert.equal(evaluateModelQuota(sampleCatalog, { main: 'gemini-4-hydrogen-medium', minQuotaPercent: 0 }).paused, false)
+  const low = evaluateModelQuota(sampleCatalog, { main: 'gemini-4-hydrogen-medium', minQuotaPercent: 20 })
+  assert.equal(low.paused, true)
+  assert.equal(low.remainingPercent, 15)
+  assert.ok(low.reason.includes('低于保护阈值 20%'))
+
+  const okQuota = evaluateModelQuota(sampleCatalog, { main: 'gemini-4-neon-high', minQuotaPercent: 20 })
+  assert.equal(okQuota.paused, false)
+  assert.equal(okQuota.remainingPercent, 60)
+
+  let rpcCalls = 0
+  let curThreshold = 0
+  const guard = createModelQuotaGuard({
+    rpc: {
+      available: () => true,
+      getModelCatalog: async () => { rpcCalls++; return sampleCatalog },
+    },
+    config: () => ({ models: { main: 'gemini-4-hydrogen-medium', minQuotaPercent: curThreshold } }),
+  })
+  assert.equal((await guard.check()).paused, false)
+  assert.equal(rpcCalls, 0, 'zero RPC calls when minQuotaPercent === 0')
+  curThreshold = 20
+  assert.equal((await guard.check({ fresh: true })).paused, true)
+  assert.equal(rpcCalls, 1)
+
+  // checkDeps with missing/broken bili.mjs still returns structured cards (never raw error log with empty cards)
+  const dir = mkTmp('ag-whale-v15-')
+  const api = createApiHandlers({
+    whaleHome: dir,
+    cfgFile: path.join(dir, 'config.json'),
+    credFile: path.join(dir, 'credentials.json'),
+    personaFile: path.join(dir, 'persona.md'),
+    pendingFile: path.join(dir, 'pending-replies.json'),
+    biliMjs: path.join(dir, 'nonexistent-bili.mjs'),
+    ipcClient: async () => ({ running: false }),
+    rpc: { available: () => false },
+  })
+  try {
+    const saved = await api.saveSettings({ models: { main: 'gemini-4-hydrogen-medium', minQuotaPercent: 30 } })
+    assert.equal(saved.config.models.minQuotaPercent, 30)
+
+    const failedDeps = await api.checkDeps()
+    assert.equal(failedDeps.ok, false)
+    assert.equal(failedDeps.error, undefined)
+    assert.ok(Array.isArray(failedDeps.cards) && failedDeps.cards.length >= 6)
+    assert.ok(failedDeps.cards.some(c => c.key === 'node' && c.location))
+    assert.ok(failedDeps.cards.some(c => c.key === 'ffmpeg'))
+    assert.ok(failedDeps.cards.some(c => c.key === 'sidecar' && c.status === 'error'))
+
+    // Comment share prompt explicitly allows @ owner top-level comment without conflicting blanket ban
+    const commentPrompt = wakePrompt(
+      { atText: '2026-11-26 20:00', window: '00:00–24:00' },
+      '',
+      5,
+      'comment',
+      'direct',
+      {},
+      { share: { enabled: true, via: 'comment' }, chat: { dynamic: false } },
+      2,
+    )
+    assert.ok(commentPrompt.includes('允许直接在该视频评论区发顶层评论并 @ 主人分享'))
+    assert.ok(commentPrompt.includes('除上述在视频评论区「@ 主人」主动分享'))
+    assert.equal(commentPrompt.includes('绝不主动给其他人的视频发顶层独白评论'), false)
+  } finally {
+    api.dispose()
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })

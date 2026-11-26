@@ -40,6 +40,7 @@ export const SAFETY_DEFAULTS = Object.freeze({
 export const MODEL_DEFAULTS = Object.freeze({
   main: 'flash',
   worker: 'flash_lite',
+  minQuotaPercent: 0,
 })
 
 const WATCH_MODE_BASE = Object.freeze({
@@ -119,6 +120,11 @@ export function withoutRetiredListening(cfg) {
   return { ...cfg, listen }
 }
 
+const clampInt = (v, min, max, fallback) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback
+}
+
 const VALID_MODEL_RE = /^[a-zA-Z0-9._:-]{2,128}$/
 export function normalizeModels(raw) {
   const src = raw && typeof raw === 'object' ? raw : {}
@@ -129,12 +135,8 @@ export function normalizeModels(raw) {
   return {
     main: pick(src.main, MODEL_DEFAULTS.main),
     worker: pick(src.worker, MODEL_DEFAULTS.worker),
+    minQuotaPercent: clampInt(src.minQuotaPercent, 0, 80, MODEL_DEFAULTS.minQuotaPercent),
   }
-}
-
-const clampInt = (v, min, max, fallback) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.floor(n))) : fallback
 }
 
 function normalizeWatchView(src, defaults) {

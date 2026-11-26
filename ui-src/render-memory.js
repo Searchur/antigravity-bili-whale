@@ -52,7 +52,7 @@ function metricTile(label, value, sub = '') {
   return el('div', { className: 'metric-tile' },
     el('div', { className: 'metric-k' }, label),
     el('div', { className: 'metric-v' }, value),
-    sub ? el('div', { className: 'metric-sub', title: sub }, sub) : null)
+    sub ? el('div', { className: 'metric-sub' }, sub) : null)
 }
 
 function ownerSubText(s) {
@@ -119,13 +119,9 @@ export function renderMemoryTab(state, actions) {
         c.dayStr === selectedDay ? 'selected' : '',
         lvl,
       ].filter(Boolean).join(' ')
-      const tip = count > 0
-        ? `${c.dayStr}：共 ${count} 项活动（看片 ${info.watched} · 分享 ${info.shares} · 主人 ${info.ownerInteract} · 粉丝 ${info.fanInteract}）`
-        : `${c.dayStr}：暂无活动记录`
       return el('button', {
         type: 'button',
         className: cls,
-        title: tip,
         onClick: () => actions.selectCalDay(c.dayStr),
       },
       el('span', { className: 'cal-day-num' }, String(c.dayNum)),
@@ -168,7 +164,7 @@ export function renderMemoryTab(state, actions) {
         : el('div', { className: 'day-events' }, ...dayEvents.map(ev => el('div', { className: 'day-event-item' },
             el('span', { className: 'day-event-time mono' }, ev.time || '--:--'),
             el('span', { className: `pill ${ev.kind === 'safety' ? 'warn' : ev.kind === 'owner' ? 'info' : ''}` }, ev.label),
-            el('span', { className: 'day-event-text', title: ev.text }, ev.text || '-'))))))
+            el('span', { className: 'day-event-text' }, ev.text || '-'))))))
 
   const activityCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
@@ -176,6 +172,9 @@ export function renderMemoryTab(state, actions) {
         el('h2', {}, '活动统计与日历查看'),
         life
           ? el('span', { className: 'pill ' + (life.paused ? 'warn' : 'ok') }, el('span', { className: 'dot' }), life.paused ? '主动活动已暂停' : '正常运行中')
+          : null,
+        st.modelQuota?.paused
+          ? el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), `配额保护已暂停（剩余 ${st.modelQuota.remainingPercent}% < ${st.modelQuota.threshold}%）`)
           : null),
       el('div', { className: 'inline' },
         life

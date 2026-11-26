@@ -24,7 +24,7 @@ function renderQuota(fraction) {
   if (typeof fraction !== 'number' || Number.isNaN(fraction)) return null
   const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)))
   const fillCls = pct <= 20 ? 'low' : pct <= 50 ? 'mid' : ''
-  return el('span', { className: 'quota-wrap', title: `当前剩余配额约 ${pct}%` },
+  return el('span', { className: 'quota-wrap' },
     el('span', { className: 'quota-bar' },
       el('span', { className: `quota-fill ${fillCls}`.trim(), style: { width: `${pct}%` } })),
     `剩余 ${pct}%`)
@@ -42,15 +42,12 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
       el('div', { className: 'model-title-wrap' },
         el('span', { className: 'model-name' }, group.name),
         group.tagTitle
-          ? el('span', { className: `model-tag ${tagClass(group.tagTitle)}`.trim(), title: group.tagDescription || '' }, group.tagTitle)
+          ? el('span', { className: `model-tag ${tagClass(group.tagTitle)}`.trim() }, group.tagTitle)
           : null,
         !isAuto && group.supportsImages
           ? el('span', { className: 'model-tag ok' }, '支持看图')
           : null),
       !isAuto ? renderQuota(group.remainingFraction) : null),
-    group.tagDescription
-      ? el('div', { className: 'model-desc' }, group.tagDescription)
-      : null,
     el('div', { className: 'effort-row' },
       el('span', { className: 'effort-label' }, isAuto ? '选择档位：' : 'Thinking 强度 / 规格：'),
       ...(group.variants ?? []).map((v) => {
@@ -60,7 +57,6 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
         return el('button', {
           type: 'button',
           className: cls,
-          title: `${v.label}（${v.id}）`,
           onClick: () => onPick(activeRole, v.id),
         },
         v.thinkingLabel || v.label,
@@ -69,13 +65,16 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
 }
 
 /**
- * Tab 3：模型选择（含会话轮换周期）
+ * Tab 3：模型选择（含剩余配额保护阈值与会话轮换周期）
  */
 export function renderModelsTab(state, actions) {
   const cfg = state.cfg
   const catalog = state.modelCatalog
   const mainId = getPath(cfg, ['models', 'main']) || 'flash'
   const workerId = getPath(cfg, ['models', 'worker']) || 'flash_lite'
+  const minQuotaChoices = [0, 10, 20, 30, 40, 50]
+  const rawMinQuota = Number(getPath(cfg, ['models', 'minQuotaPercent']) ?? 0)
+  const minQuotaVal = minQuotaChoices.includes(rawMinQuota) ? rawMinQuota : 0
   const activeRole = state.modelRole === 'worker' ? 'worker' : 'main'
   const isLive = catalog?.source === 'live'
   const groups = catalog?.groups ?? []
@@ -87,6 +86,21 @@ export function renderModelsTab(state, actions) {
   const curRotate = Number(getPath(cfg, ['sessionRotateDays']) ?? 0)
   const rotateChoices = [0, 3, 7, 14, 30]
   const rotateVal = rotateChoices.includes(curRotate) ? curRotate : 0
+
+  const mainModelObj = findModel(catalog, mainId)
+  const mainQuotaPct = typeof mainModelObj?.remainingFraction === 'number'
+    ? Math.max(0, Math.min(100, Math.round(mainModelObj.remainingFraction * 100)))
+    : null
+  const serverQuota = state.status?.modelQuota
+  const quotaPausedNow = Boolean(
+    serverQuota?.paused
+    || (minQuotaVal > 0 && mainQuotaPct !== null && mainQuotaPct < minQuotaVal),
+  )
+  const quotaBannerText = serverQuota?.paused && serverQuota.reason
+    ? serverQuota.reason
+    : (quotaPausedNow
+      ? `当前前台主线模型剩余配额 ${mainQuotaPct}% 低于保护阈值 ${minQuotaVal}%，保存后将暂停全部自动后台活动，待配额恢复后自动解除。`
+      : '')
 
   const roleCard = (role, title, desc, modelId) => {
     const selected = activeRole === role
@@ -104,8 +118,23 @@ export function renderModelsTab(state, actions) {
   }
 
   const sessionCard = el('div', { className: 'card' },
-    el('h2', {}, '会话轮换周期'),
-    el('p', { className: 'card-sub' }, '长对话累积过多历史会增加模型上下文开销；定期在空闲时自动开启新会话可省配额，旧会话保留不删，长期记忆无缝续接。'),
+    el('h2', {}, '配额保护与会话轮换'),
+    el('p', { className: 'card-sub' }, '设置剩余配额保护红线避免把 Antigravity 额度耗尽；定期轮换新会话可控制长对话上下文开销，长期记忆无缝续接。'),
+    row(
+      '模型剩余配额低于多少不再活动',
+      '当所选模型剩余配额低于设定比例时，自动暂停看视频、私信/评论自动回复及后台归纳等全部活动，配额恢复后自动恢复运行。',
+      selectCtrl(
+        String(minQuotaVal),
+        [
+          ['0', '不限制（默认）'],
+          ['10', '低于 10% 时暂停全部活动'],
+          ['20', '低于 20% 时暂停全部活动（推荐）'],
+          ['30', '低于 30% 时暂停全部活动'],
+          ['40', '低于 40% 时暂停全部活动'],
+          ['50', '低于 50% 时暂停全部活动'],
+        ],
+        v => actions.setCfg(['models', 'minQuotaPercent'], Number(v), true),
+      )),
     row(
       '自动轮换新会话周期',
       '每过指定天数趁大鲸鱼空闲时自动开一个干净新会话；选「不自动轮换」则持续复用同一会话。',
@@ -128,7 +157,10 @@ export function renderModelsTab(state, actions) {
           el('h2', {}, 'Antigravity 内置模型选择'),
           isLive
             ? el('span', { className: 'pill ok' }, el('span', { className: 'dot' }), `已读取 ${catalog.liveCount} 个实时模型档位`)
-            : el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '自适应档位模式')),
+            : el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '自适应档位模式'),
+          quotaPausedNow
+            ? el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '配额保护已暂停活动')
+            : null),
         el('button', {
           type: 'button',
           className: 'btn',
@@ -136,6 +168,7 @@ export function renderModelsTab(state, actions) {
           onClick: actions.refreshModels,
         }, state.busy === 'models' ? '读取中…' : '刷新模型列表')),
       el('p', { className: 'card-sub' }, '全程仅使用当前 Antigravity 内置模型，无需外部 API Key。先点选上方要配置的角色，再在下方直接点击模型档位即可（记得点右上角「保存配置」）。'),
+      quotaBannerText ? el('div', { className: 'banner warn' }, quotaBannerText) : null,
       el('div', { className: 'role-grid' },
         roleCard('main', '前台主线模型', '负责刷视频、看画面、聊私信与评论互动（建议均衡或高表现模型）', mainId),
         roleCard('worker', '后台 Worker 模型', '负责记忆归纳与外发内容安全语义复审，运行完自动归档（建议省配额轻量模型）', workerId)),

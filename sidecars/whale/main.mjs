@@ -66,6 +66,7 @@ const ipc = await startSidecarIpc({
     socialWorker: sched?.socialStatus?.() ?? { status: 'unavailable' },
     formationWorker: sched?.formationStatus?.() ?? { status: 'unavailable' },
     safetyWorker: safetyReviewer.status(),
+    modelQuota: sched?.modelQuotaStatus?.() ?? { enabled: false, paused: false, threshold: 0, remainingPercent: null },
   }),
   getModels: () => rpc.getModelCatalog(),
   onSafetyCheck: (payload) => safetyReviewer.review(payload),

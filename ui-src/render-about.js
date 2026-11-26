@@ -96,7 +96,7 @@ export function renderAboutTab(state, actions) {
     label,
     hint,
     el('div', { className: 'path-row-ctrl' },
-      el('span', { className: 'path-chip mono', title: fullPath }, fullPath),
+      el('span', { className: 'path-chip mono' }, fullPath),
       el('button', {
         type: 'button',
         className: 'btn sm',

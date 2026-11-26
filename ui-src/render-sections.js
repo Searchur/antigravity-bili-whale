@@ -142,7 +142,6 @@ export function tagEditorCtrl({
             el('button', {
               type: 'button',
               className: 'tag-chip-rm',
-              title: `移除「${tag}」`,
               'aria-label': `移除 ${tag}`,
               onClick: () => removeTag(tag),
             }, '×')))),
@@ -647,18 +646,14 @@ function renderEnvRow(card, state, actions) {
     ? `${card.detail ? card.detail + ' · ' : ''}${card.fix}`
     : (card.detail || '')
   const hintText = showPath ? `路径：${card.location}` : (detailText || '运行正常')
-  const hintTitle = showPath
-    ? `${card.location}${detailText ? ' · ' + detailText : ''}`
-    : detailText
   const verText = card.version || '-'
-  const verTitle = card.location ? `${verText}（${card.location}）` : verText
 
   return el('div', { className: 'env-row' },
     el('div', { className: 'env-row-main' },
       el('div', { className: 'env-row-title' }, card.name),
-      el('div', { className: showPath ? 'env-row-hint mono' : 'env-row-hint', title: hintTitle }, hintText)),
+      el('div', { className: showPath ? 'env-row-hint mono' : 'env-row-hint' }, hintText)),
     el('div', { className: 'env-row-right' },
-      el('span', { className: 'env-ver-chip mono', title: verTitle }, verText),
+      el('span', { className: 'env-ver-chip mono' }, verText),
       card.action === 'goto_login'
         ? el('button', {
             type: 'button',
@@ -671,7 +666,7 @@ function renderEnvRow(card, state, actions) {
 }
 
 /**
- * Tab 7：环境与依赖（等高单行列表 + 带时间戳脱敏诊断日志本地导出）
+ * Tab 7：环境与依赖（完整路径逐行展示 + 带时间戳脱敏诊断日志本地导出）
  */
 export function renderEnvTab(state, actions) {
   const deps = state.depsData
@@ -692,10 +687,9 @@ export function renderEnvTab(state, actions) {
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: actions.runDeps }, state.busy === 'deps' ? '检测中…' : '重新检测'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.exportDiagnostics }, state.busy === 'export_diag' ? '生成中…' : '导出诊断日志'))),
-    el('p', { className: 'card-sub' }, '逐行展示后台守护进程、Node.js、ffmpeg、B 站登录态及接口保护状态（悬停版本可查看完整路径）。排查问题时可点击「导出诊断日志」生成带时间戳的脱敏文件。'),
+    el('p', { className: 'card-sub' }, '逐行展示后台守护进程、Node.js、ffmpeg、B 站登录态及接口保护状态。排查问题时可点击「导出诊断日志」生成带时间戳的脱敏文件。'),
     renderExportResult(state.diagExport, actions),
     state.diagErr ? el('div', { className: 'banner err' }, state.diagErr) : null,
-    state.depsError ? el('div', { className: 'banner err' }, state.depsError) : null,
     cards.length > 0
       ? el('div', { className: 'env-list' }, ...cards.map(c => renderEnvRow(c, state, actions)))
       : el('div', { className: 'row-hint', style: { padding: '14px 0' } }, state.busy === 'deps' ? '正在逐项检测运行环境与依赖版本…' : '点击「重新检测」查看各项环境模块状态。'))

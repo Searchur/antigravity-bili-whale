@@ -39,7 +39,6 @@ const state = {
   status: null,
   depsData: null,
   depsLoaded: false,
-  depsError: '',
   diagExport: null,
   diagErr: '',
   about: null,
@@ -100,7 +99,10 @@ function switchTab(id) {
   state.tab = id
   render()
   if (id === 'persona') void actions.refreshStatus()
-  if (id === 'models' && state.modelCatalog?.source !== 'live') void actions.refreshModels()
+  if (id === 'models') {
+    void actions.refreshStatus()
+    if (state.modelCatalog?.source !== 'live') void actions.refreshModels()
+  }
   if (id === 'memory') {
     void actions.refreshStatus()
     if (!state.lifeLoaded) void actions.runLife('status')
@@ -435,19 +437,48 @@ const actions = {
 
   async runDeps() {
     state.busy = 'deps'
-    state.depsError = ''
     render()
     try {
       const j = await bridge.callTool('whale_app_ops', { action: 'deps' })
-      state.depsData = j
+      if (Array.isArray(j?.cards) && j.cards.length > 0) {
+        state.depsData = j
+      } else {
+        state.depsData = {
+          ok: false,
+          cards: [
+            {
+              key: 'deps-probe',
+              name: '环境与依赖检测',
+              ok: false,
+              status: 'error',
+              version: '检测异常',
+              detail: '本次环境检测未能返回完整结果，请稍后点击「重新检测」',
+              action: null,
+            },
+          ],
+        }
+      }
       state.depsLoaded = true
-      if (j.error) state.depsError = j.error
-      if (j.self && state.cfg) {
+      if (j?.self && state.cfg) {
         state.cfg.self = j.self
         state.savedJson = JSON.stringify(state.cfg)
       }
-    } catch (e) {
-      state.depsError = '环境检测失败：' + e.message
+    } catch {
+      state.depsData = {
+        ok: false,
+        cards: [
+          {
+            key: 'deps-probe',
+            name: '环境与依赖检测服务',
+            ok: false,
+            status: 'error',
+            version: '暂不可用',
+            detail: '未能连接到插件环境检测接口，请确认插件正在运行后点击「重新检测」',
+            action: null,
+          },
+        ],
+      }
+      state.depsLoaded = true
     } finally {
       state.busy = ''
       render()

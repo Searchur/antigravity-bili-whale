@@ -495,12 +495,6 @@ html, body {
 .quota-fill.mid { background: var(--warn); }
 .quota-fill.low { background: var(--err); }
 
-.model-desc {
-  font-size: 12px;
-  color: var(--fg-3);
-  margin: -2px 0 8px;
-}
-
 .effort-row {
   display: flex;
   align-items: center;
@@ -554,7 +548,7 @@ html, body {
   background: color-mix(in srgb, currentColor 14%, transparent);
 }
 
-/* Environment Equal-Height Rows */
+/* Environment Clean Rows (full path wrapping, no truncation) */
 .env-list {
   display: flex;
   flex-direction: column;
@@ -566,9 +560,8 @@ html, body {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  height: 60px;
   min-height: 60px;
-  padding: 0 2px;
+  padding: 10px 2px;
   border-bottom: 1px solid var(--border-2);
 }
 
@@ -582,22 +575,19 @@ html, body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
 }
 
 .env-row-title {
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .env-row-hint {
   font-size: 12px;
   color: var(--fg-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .env-row-right {
@@ -614,10 +604,7 @@ html, body {
   border-radius: 6px;
   padding: 3px 9px;
   color: var(--fg-2);
-  max-width: 240px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Activity Calendar & Categorized Stats */
