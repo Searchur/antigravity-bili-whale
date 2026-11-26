@@ -133,7 +133,7 @@ export function renderMemoryTab(state, actions) {
       el('span', { className: 'cal-legend-item' }, el('span', { className: 'cal-dot lvl-2' }), '3–6'),
       el('span', { className: 'cal-legend-item' }, el('span', { className: 'cal-dot lvl-3' }), '7+')))
 
-  const dayEvents = Array.isArray(dayStat.items) ? dayStat.items : []
+  const dayEvents = Array.isArray(dayStat.items) ? dayStat.items.slice(0, 5) : []
   const detailPanel = el('div', { className: 'cal-detail' },
     el('div', { className: 'cal-section-head' },
       el('div', { className: 'inline' },

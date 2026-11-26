@@ -459,39 +459,58 @@ export function renderPersonaTab(state, actions) {
 function pollIntervalOptions(cur) {
   const base = [
     ['30', '每 30 秒检查一次（响应较快）'],
-    ['60', '每 60 秒检查一次（默认推荐）'],
+    ['60', '每 60 秒检查一次'],
     ['120', '每 120 秒（2 分钟）检查一次'],
-    ['300', '每 300 秒（5 分钟）检查一次（更省请求）'],
+    ['300', '每 300 秒（5 分钟）检查一次（默认）'],
   ]
-  const s = String(cur ?? 60)
+  const s = String(cur ?? 300)
   if (!base.some(([v]) => v === s)) base.unshift([s, `每 ${s} 秒检查一次（当前）`])
   return base
 }
 
 /**
- * Tab 5：分享与监听（五大清晰模块；模块 1–4 默认全不勾选，模块 5 合规安全审核默认开启）
+ * Tab 5：分享与监听（五大清晰模块；模块 1–4 对外互动开关默认关闭，自主评论默认开启，模块 5 合规安全审核默认开启）
  */
 export function renderInteractTab(state, actions) {
   const cfg = state.cfg
   const browseEnabled = getPath(cfg, ['browse', 'enabled']) === true
+  const autoCommentEnabled = getPath(cfg, ['chat', 'autoComment']) !== false
+  const autoCommentDailyMax = Math.min(10, Math.max(1, Number(getPath(cfg, ['chat', 'autoCommentDailyMax']) ?? 3) || 3))
   const dynamicEnabled = getPath(cfg, ['chat', 'dynamic']) === true
   const dynamicDailyMax = Math.min(2, Math.max(1, Number(getPath(cfg, ['chat', 'dynamicDailyMax']) ?? 1) || 1))
   const shareEnabled = getPath(cfg, ['share', 'enabled']) === true
   const dmOwner = getPath(cfg, ['listen', 'dmOwner']) === true
   const dmFan = getPath(cfg, ['listen', 'dmFan']) === true
-  const dmIntervalSec = Number(getPath(cfg, ['listen', 'dmIntervalSec']) ?? 60)
+  const dmIntervalSec = Number(getPath(cfg, ['listen', 'dmIntervalSec']) ?? 300)
   const commentOwner = getPath(cfg, ['listen', 'commentOwner']) === true
   const commentFan = getPath(cfg, ['listen', 'commentFan']) === true
-  const commentIntervalSec = Number(getPath(cfg, ['listen', 'commentIntervalSec']) ?? 60)
+  const commentIntervalSec = Number(getPath(cfg, ['listen', 'commentIntervalSec']) ?? 300)
   const safetyEnabled = getPath(cfg, ['safety', 'enabled']) !== false
   const limits = getPath(cfg, ['fanLimits']) ?? {}
 
+  const autoCommentMaxOpts = [
+    ['1', '每天最多 1 条'],
+    ['2', '每天最多 2 条'],
+    ['3', '每天最多 3 条（默认）'],
+    ['5', '每天最多 5 条'],
+  ]
+  if (!autoCommentMaxOpts.some(([v]) => v === String(autoCommentDailyMax))) {
+    autoCommentMaxOpts.unshift([String(autoCommentDailyMax), `每天最多 ${autoCommentDailyMax} 条（当前）`])
+  }
+
   const mod1Card = el('div', { className: 'card' },
     el('h2', {}, '一、主动看视频与发 B 站公开动态'),
-    el('p', { className: 'card-sub' }, '控制大鲸鱼是否按「人设与作息」的时间窗自主刷 B 站，以及看完后是否允许发公开动态（默认不勾选）。'),
-    row('允许按作息主动看视频', '勾选后大鲸鱼会在你设定的作息时间窗内自己醒来逛 B 站；不勾选则只被动响应你开启的私信/评论互动。',
+    el('p', { className: 'card-sub' }, '控制大鲸鱼是否按「人设与作息」的时间窗自主刷 B 站，以及看完后是否允许自主发表评论或发公开动态。'),
+    row('允许按作息主动看视频', '勾选后大鲸鱼会在你设定的作息时间窗内自己醒来逛 B 站；不勾选则只被动响应你开启的私信/评论互动（默认不勾选）。',
       switchCtrl('允许主动看视频', browseEnabled, v => actions.setCfg(['browse', 'enabled'], v, true))),
-    row('允许看完视频后发 B 站公开动态', '本轮看过视频且确有公开感想时允许发公开动态（须通过外发安全审核）。',
+    row('允许看完视频后自主发表评论（不 @ 主人）', '大鲸鱼看完视频后根据自己的判断，确有想法时可以直接在该视频评论区留一条普通评论，不必 @ 分享给主人（须通过外发安全审核，同一视频 7 天内不重复评；默认开启）。',
+      switchCtrl('允许自主发表评论', autoCommentEnabled, v => actions.setCfg(['chat', 'autoComment'], v, true))),
+    autoCommentEnabled
+      ? el('div', { className: 'sub-block' },
+          row('每日最多自主发表评论条数', '限制大鲸鱼每天自主发表普通视频评论的上限，防止刷屏与风控。',
+            selectCtrl(String(autoCommentDailyMax), autoCommentMaxOpts, v => actions.setCfg(['chat', 'autoCommentDailyMax'], Number(v), true))))
+      : null,
+    row('允许看完视频后发 B 站公开动态', '本轮看过视频且确有公开感想时允许发公开动态（须通过外发安全审核；默认不勾选）。',
       switchCtrl('允许发公开动态', dynamicEnabled, v => actions.setCfg(['chat', 'dynamic'], v, true))),
     dynamicEnabled
       ? el('div', { className: 'sub-block' },
@@ -505,20 +524,20 @@ export function renderInteractTab(state, actions) {
   const mod2Card = el('div', { className: 'card' },
     el('h2', {}, '二、主动分享视频给主人'),
     el('p', { className: 'card-sub' }, '大鲸鱼看到觉得值得推荐的视频时，仅主动分享给主人，绝不向其他人主动推视频。'),
-    row('允许主动分享视频给主人', '默认不勾选；开启后可在下方选择通过私信或评论区 @ 分享给你。',
+    row('允许主动分享视频给主人', '默认不勾选；开启后可在下方选择通过评论区 @ 或私信分享给你。',
       switchCtrl('允许主动分享给主人', shareEnabled, v => actions.setCfg(['share', 'enabled'], v, true))),
     shareEnabled
       ? el('div', { className: 'sub-block' },
           row('分享给主人的方式', '私信需与主人互关；评论区会在对应视频下方 @ 主人。',
-            selectCtrl(getPath(cfg, ['share', 'via']) ?? 'dm', [
+            selectCtrl(getPath(cfg, ['share', 'via']) ?? 'comment', [
               ['dm', 'B 站私信（需互关）'],
-              ['comment', '视频评论区 @ 主人'],
+              ['comment', '视频评论区 @ 主人（默认）'],
             ], v => actions.setCfg(['share', 'via'], v, true))),
           row('每日分享上限', '建议 ≤ 3 条，避免触发 B 站限流。',
             selectCtrl(String(getPath(cfg, ['quota', 'shareDaily']) ?? 3), [
               ['1', '每天最多 1 条'],
               ['2', '每天最多 2 条'],
-              ['3', '每天最多 3 条（推荐）'],
+              ['3', '每天最多 3 条（默认）'],
               ['5', '每天最多 5 条'],
             ], v => actions.setCfg(['quota', 'shareDaily'], Number(v), true))))
       : null)
@@ -553,22 +572,15 @@ export function renderInteractTab(state, actions) {
             ], v => actions.setCfg(['fanLimits', 'dmTotalDaily'], Number(v), true))))
       : null,
     (dmOwner || dmFan)
-      ? row('私信轮询时间间隔', '后台守护每隔多久检查一次新私信；无新私信时零模型消耗，建议 60 秒以上以减少接口请求。',
+      ? row('私信轮询时间间隔', '后台守护每隔多久检查一次新私信；无新私信时零模型消耗，默认每 300 秒（5 分钟）检查一次。',
           selectCtrl(String(dmIntervalSec), pollIntervalOptions(dmIntervalSec), v => actions.setCfg(['listen', 'dmIntervalSec'], Number(v), true)))
       : null)
 
   const mod4Card = el('div', { className: 'card' },
-    el('h2', {}, '四、评论区互动（仅被动回复，绝不主动评论他人）'),
-    el('p', { className: 'card-sub' }, '仅回复来找大鲸鱼的评论与 @；普通互动时大鲸鱼会根据评论内容自己决定要不要看视频（能直接聊就不强行看片）。所有回复经安全审核通过后直接发出。'),
+    el('h2', {}, '四、评论区互动（被动回复评论与 @）'),
+    el('p', { className: 'card-sub' }, '仅回复来找大鲸鱼的评论与 @；主人 @ 她时是否根据提问自主决定看视频，可在「视频观看设置 -> 一、大鲸鱼自主看视频设置」中开关。所有回复经安全审核通过后直接发出。'),
     row('回复主人的评论与 @', '自动回复你在评论区里对大鲸鱼的回复和 @。',
       switchCtrl('回复主人评论', commentOwner, v => actions.setCfg(['listen', 'commentOwner'], v, true))),
-    commentOwner
-      ? el('div', { className: 'sub-block' },
-          row('响应主人在视频评论区的 @ 看片 / 总结请求', '你在视频下 @ 她总结时，按「视频观看设置 -> 主人 @ 规则」执行。',
-            el('div', { className: 'inline' },
-              switchCtrl('主人 @ 看片总结', getPath(cfg, ['listen', 'mentionSummaryOwner']) === true, v => actions.setCfg(['listen', 'mentionSummaryOwner'], v, true)),
-              el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('watch') }, '设置观看规则'))))
-      : null,
     row('回复粉丝的评论与 @（仅限已关注大鲸鱼的粉丝）', '实时校验对方是否已关注大鲸鱼，未关注路人评论一律忽略；经安全审核通过后直接回复。',
       switchCtrl('回复粉丝评论', commentFan, v => actions.setCfg(['listen', 'commentFan'], v, true))),
     commentFan

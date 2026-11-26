@@ -24,6 +24,7 @@ import crypto from 'node:crypto'
 import { execFileSync } from '../lib/capture.mjs'
 import { fileURLToPath } from 'node:url'
 import { config } from '../lib/config.mjs'
+import { chatConfig } from '../lib/chat-config.mjs'
 import { validateShare } from '../lib/share-policy.mjs'
 import { NODE_EXE } from '../lib/nodebin.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
@@ -270,8 +271,11 @@ if (parent && root) {
     }
   }
 } else if (!SHARE) {
-  console.error('✗ 已禁止主动向他人视频发顶层评论（仅允许主动分享给主人，或回复主人/粉丝的评论）。')
-  process.exit(4)
+  const autoCommentEnabled = chatConfig(cfgNow.chat).autoComment === true
+  if (!AUTO || !autoCommentEnabled) {
+    console.error('✗ 未开启自主评论或缺少 --auto 参数（请在「分享与监听」开启允许自主发表评论，或带 --share 主动分享给主人）。')
+    process.exit(4)
+  }
 }
 
 const safetyCheck = await enforceOutboundSafety({

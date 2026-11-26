@@ -212,7 +212,7 @@ const activeInterests=[...new Set((explicitKeywords.length?explicitKeywords:pref
 const sharing=config().share?.via==='comment'&&config().share?.enabled!==false?affectInterestOrder(preferenceSnapshot.affect,activeInterests,Date.now(),{...life.policy.affect,enabled:life.policy.enabled&&!life.policy.paused&&!preferenceSnapshot.settings.paused&&life.policy.affect.enabled}):{keywords:activeInterests,shareReady:false,shareInterests:[]}
 browsing.shareReady=sharing.shareReady;browsing.shareInterests=sharing.shareInterests
 const annotate=x=>{const evidence=interestEvidence(x,activeInterests);return {...x,interestMatches:evidence.map(e=>e.preference),interestEvidence:evidence}}
-const preliminary={...pipeline,minDuration:0,maxDuration:Number.MAX_SAFE_INTEGER}
+const preliminary={...pipeline,minDuration:Math.max(0,pipeline.minDuration-5),maxDuration:pipeline.maxDuration+5}
 const scoreOf = x=>densityOf(x)*3+hitsOf(x.t).length*4+boostOf(x.t)+life.preferences({title:x.t,author:x.mid,bvid:x.bv},'watch',preferenceSnapshot).boost
 const verified=[],metadataSeen=new Set(),metadataGroups=new Map(),exploratory=[],trace=[],warnings=[]
 const selected=()=>chooseVideos(verified,{n:N,per:PER,config:pipeline,keywords:sharing.keywords,browsing})
@@ -234,7 +234,7 @@ async function verifyCandidate(x){
  const response=await apiGet('https://api.bilibili.com/x/web-interface/view?bvid='+x.bv,H)
  if(response.code!==0){warnings.push(x.bv+' 元信息核验失败：'+String(response.message??response.code));return}
  const v=response.data
- const row=annotate({...x,t:String(v.title??x.t),description:String(v.desc??x.description??''),mid:String(v.owner?.mid??x.mid),up:v.owner?.name??x.up,parts:Number(v.videos??v.pages?.length??1),d:Number(v.pages?.[0]?.duration??v.duration??x.d),pubdate:Number(v.pubdate??x.pubdate),region:String(v.tname??''),tid:v.tid??null,sources:[x.source??'search']})
+ const row=annotate({...x,t:String(v.title??x.t),description:String(v.desc??x.description??''),mid:String(v.owner?.mid??x.mid),up:v.owner?.name??x.up,parts:Number(v.videos??v.pages?.length??1),d:Number(v.duration??v.pages?.[0]?.duration??x.d),pubdate:Number(v.pubdate??x.pubdate),region:String(v.tname??''),tid:v.tid??null,sources:[x.source??'search']})
  if(!allowedCandidate(row)||!eligibleVideo(row,pipeline))return
  row._hits=hitsOf(row.t);row._score=scoreOf(row);verified.push(row)
 }

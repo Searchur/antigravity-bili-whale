@@ -1,14 +1,13 @@
 import { HOME, dataPath } from '../lib/paths.mjs'
+import { config } from '../lib/config.mjs'
 import { downloadVideo } from '../lib/video-download.mjs'
 import { segmentFrames } from '../lib/video-frames.mjs'
-import { watchOptions, gridForFrameCount } from '../lib/watch-options.mjs'
+import { watchOptions, resolveWatchProfile, checkWatchDuration, planIntervalFrames } from '../lib/watch-options.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
-// 让 agent 真"看"视频：取直链 → 下载 → ffmpeg 抽帧拼成一张九宫格 → 输出图片路径（再交给 read_file 看）
+// 让 agent 真"看"视频：取直链 → 按固定间隔抽帧 → 按固定拼图格数分片生成多张拼图 → 输出图片路径（再交给 read_file 看）
 //
-// 用法: node bili-watch.mjs <BV号> [列x行，默认 3x3] [outDir]
-//   例: node bili-watch.mjs BV1iLYm6VET3            → 3x3 九宫格
-//       node bili-watch.mjs BV1iLYm6VET3 4x4        → 16 格，看得更细
+// 用法: node bili-watch.mjs <BV号> [列x行，默认按配置] [outDir] [--every 秒] [--max-frames 帧数] [--profile auto|owner|fan] [--confirmed]
 //
 // 依赖：ffmpeg（查找顺序见 lib/ffmpeg.mjs：$FFMPEG → PATH → bin/ → ~/.dsh/bili-whale/bin → 本机剪映）
 import fs from 'node:fs'
@@ -22,11 +21,13 @@ let FFMPEG
 try { FFMPEG = requireFfmpeg() } catch (e) { console.error(String(e.message)); process.exit(2) }
 let parsed
 try { parsed = watchOptions(process.argv.slice(2), dshPath('shots','video')) } catch(e) { console.error(e.message); process.exit(2) }
-const { bvid, grid, outDir, tile: TILE, everySec, maxFrames } = parsed
+const { bvid, outDir, tile: TILE } = parsed
 if (!bvid) { console.error('用法: node bili-watch.mjs <BV号> [列x行] [outDir]'); process.exit(2) }
-let [cols, rows] = grid.split('x').map(Number)
-if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols * rows > 64) { console.error('格子格式应是 3x3 这样'); process.exit(2) }
-let N = cols * rows
+
+const watchResolved = resolveWatchProfile(config(), parsed.profile ?? 'auto')
+const everySec = parsed.everySec ?? Number(watchResolved.settings.frameEverySec ?? 15)
+const maxFrames = parsed.maxFrames ?? Number(watchResolved.settings.maxFrames ?? 16)
+const grid = parsed.grid ?? String(watchResolved.settings.frameGrid ?? '3x3')
 
 const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -36,17 +37,32 @@ const view = await apiGet(`https://api.bilibili.com/x/web-interface/view?bvid=${
 if (view.code !== 0) { console.error(`view 失败 code=${view.code} ${view.message}`); process.exit(3) }
 const { title, owner } = { ...view.data, owner: view.data.owner?.name }
 const cid = view.data.pages?.[0]?.cid ?? view.data.cid
+const totalDuration = Number(view.data.duration ?? view.data.pages?.[0]?.duration)
 const duration = Number(view.data.pages?.[0]?.duration ?? view.data.duration)
 if (!Number.isFinite(duration) || duration <= 0) { console.error('视频时长无效'); process.exit(3) }
-if (everySec) {
-  const cap = maxFrames ?? 16
-  const computed = gridForFrameCount(Math.min(cap, Math.max(4, Math.ceil(duration / everySec))))
-  cols = computed.cols
-  rows = computed.rows
-  N = computed.count
+
+const durCheck = checkWatchDuration(totalDuration, {
+  profile: watchResolved.profile,
+  settings: watchResolved.settings,
+  confirmed: parsed.confirmed,
+})
+if (!durCheck.ok) {
+  console.error(durCheck.reason)
+  process.exit(4)
 }
+
+let plan
+try {
+  plan = planIntervalFrames({ durationSec: duration, everySec, maxFrames, grid })
+} catch (e) {
+  console.error(e.message)
+  process.exit(2)
+}
+const { cols, rows, perSheet, frameCount: N, sheetCount, times } = plan
+const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+
 console.log(`标题: ${title}`)
-console.log(`UP: ${owner}   时长: ${duration}s   cid=${cid}${everySec ? `   按每 ${everySec}s 抽帧（共 ${N} 帧，拼图 ${cols}x${rows}）` : ''}`)
+console.log(`UP: ${owner}   时长: ${duration}s   cid=${cid}   按每 ${everySec}s 抽帧（共 ${N} 帧${plan.capped ? `，受上限 ${maxFrames} 帧封顶` : ''}，固定拼图 ${cols}x${rows}，共 ${sheetCount} 张图）`)
 
 // 画质实测（2026-10-14）：html5 + qn=32 会被压到 360p（返回 quality=16，界面小字全糊）；
 // 改 platform=pc + qn=80 可拿到 720p（返回 quality=64），依旧是普通 mp4 直链，不必碰 dash。
@@ -59,102 +75,75 @@ console.log(`实际画质: ${QN[p.data.quality] ?? p.data.quality}`)
 fs.mkdirSync(outDir, { recursive: true })
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 const mp4 = path.join(outDir, `${bvid}-${stamp}.mp4`)
-const sheet = path.join(outDir, `${bvid}-${stamp}-${cols}x${rows}.jpg`)
 
 const tmp = path.join(outDir, '.frames-' + stamp)
-fs.mkdirSync(tmp, {recursive:true})
-const uniform = Array.from({length:N}, (_, i) => ((i + 0.5) * duration) / N)
-let times = uniform
+fs.mkdirSync(tmp, { recursive: true })
 let segmented = false
 if (!parsed.fullDownload) {
   try {
-    await segmentFrames({ffmpeg:FFMPEG,url,times:uniform,directory:tmp,duration,uniform:process.argv.includes('--uniform')})
+    await segmentFrames({ ffmpeg: FFMPEG, url, times, directory: tmp, duration, uniform: true })
     segmented = true
-    console.log('取帧方式: 分段直取，覆盖第一分 P 的 ' + N + ' 个时间位置')
+    console.log(`取帧方式: 固定间隔分段直取（首帧 ${fmt(times[0])}，步长 ${plan.effectiveStep.toFixed(1)}s，共 ${N} 帧，${cols}x${rows} 共 ${sheetCount} 张）`)
   } catch {
     console.log('分段抽帧未完成，尝试完整下载后抽帧')
   }
 }
 if (!segmented) {
   try {
-    const result = await downloadVideo(p.data.durl[0], mp4, {headers:{'user-agent':UA,referer:'https://www.bilibili.com/'}})
+    const result = await downloadVideo(p.data.durl[0], mp4, { headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/' } })
     console.log('已下载: ' + mp4 + ' (' + (result.size / 1024 / 1024).toFixed(2) + ' MB)')
-  } catch(error) {
-    fs.rmSync(tmp,{recursive:true,force:true})
+  } catch (error) {
+    fs.rmSync(tmp, { recursive: true, force: true })
     console.error(error.message); process.exit(5)
   }
-
-  // ── 取帧方式：优先"画面变化点"，不够再退回等间隔（2026-10-14 参考 K3 的做法）
-  // 画面变化由 ffmpeg 的 scene 过滤器给出：空跑一次，把 pts_time 抓出来，再从中均匀挑 N 个。
-  // 好处：等间隔会漏掉"只出现一两秒的关键画面"，画面变化点天然落在场景切换处。
-  function sceneTimes(file, th) {
-    try {
-      const out = execFileSync(FFMPEG, ['-hide_banner', '-i', file, '-vf',
-        `select='gt(scene,${th})',metadata=print:file=-`, '-an', '-f', 'null', '-'],
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024, timeout: 600_000 })
-      const ts = [...out.matchAll(/pts_time:([0-9.]+)/g)].map((m) => Number(m[1]))
-      return [...new Set(ts)].filter((t) => t > 0.2)
-    } catch { return [] }
-  }
-  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`
-  const pickEvenly = (list, n) =>
-    n <= 1 ? [list[0]] : Array.from({ length: n }, (_, i) => list[Math.round((i * (list.length - 1)) / (n - 1))])
-
-  let how = `等间隔（每 ${(duration / N).toFixed(1)} 秒一帧）`
-  if (!process.argv.includes('--uniform')) {
-    // 阈值阶梯：录屏/讲解类画面变化平缓，0.3 常只检出几处 → 逐级放宽
-    let st = [], used = 0.3
-    for (const th of [0.3, 0.15, 0.08]) { used = th; st = sceneTimes(mp4, th); if (st.length >= N) break }
-
-    if (st.length > 0) {
-      // 关键设计（2026-10-14 踩过两次才定）：
-      //   ① 只按"变化点里均匀挑"会出事——转场全挤在开头，中段 50 秒一帧没有，叙事线直接断
-      //   ② 只按等间隔会漏掉"只闪一两秒的关键画面"
-      //   ⇒ 用**等间隔当骨架保证覆盖**，再把每帧**吸附到 ±半格内最近的变化点**（吸不到就保持等间隔）
-      const half = duration / N / 2
-      let snapped = 0
-      times = uniform.map((u) => {
-        const near = st.filter((s) => Math.abs(s - u) <= half)
-        if (!near.length) return u
-        snapped += 1
-        return near.reduce((b, s) => (Math.abs(s - u) < Math.abs(b - u) ? s : b), near[0])
-      })
-      how = `等间隔骨架（保覆盖）+ 吸附画面变化点（阈值 ${used} 检出 ${st.length} 处；${snapped}/${N} 帧吸到了变化点）`
-    } else {
-      how = `纯等间隔（阈值 0.08 也未检出变化 → 每 ${(duration / N).toFixed(1)} 秒一帧）`
-    }
-  }
-  console.log(`取帧方式: ${how}`)
+  console.log(`取帧方式: 固定间隔抽帧（首帧 ${fmt(times[0])}，步长 ${plan.effectiveStep.toFixed(1)}s，共 ${N} 帧，${cols}x${rows} 共 ${sheetCount} 张）`)
   console.log(`时间点  : ${times.map((t, i) => `${i + 1}=${fmt(t)}`).join('  ')}`)
-
 }
 
-// 抽帧：每个时间点各抽一张原始分辨率，再拼图——这样 SHEET 与 SUBS 干净地共用同一批帧
+// 抽帧：每个时间点各抽一张原始分辨率，再按固定拼图格数分片拼图（最后一张不足格数自动补黑留白）
+const sheets = []
 try {
   if (!segmented) times.forEach((t, i) => {
     execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-ss', t.toFixed(2), '-i', mp4,
       '-frames:v', '1', '-pix_fmt', 'yuvj420p', '-q:v', '2', path.join(tmp, `f${String(i).padStart(2, '0')}.jpg`)], { stdio: 'inherit' })
   })
-  execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', path.join(tmp, 'f%02d.jpg'), '-vf',
-    `scale=${TILE}:-1,format=yuvj420p,tile=${cols}x${rows}`, '-frames:v', '1', sheet], { stdio: 'inherit' })
-  if (!fs.existsSync(sheet)) throw new Error('九宫格没生成')
-  console.log(`\nSHEET: ${sheet}`)
+  for (let s = 0; s < sheetCount; s += 1) {
+    const chunkDir = path.join(tmp, `chunk-${s}`)
+    fs.mkdirSync(chunkDir, { recursive: true })
+    const startIdx = s * perSheet
+    const endIdx = Math.min(N, startIdx + perSheet)
+    for (let idx = startIdx; idx < endIdx; idx += 1) {
+      fs.copyFileSync(
+        path.join(tmp, `f${String(idx).padStart(2, '0')}.jpg`),
+        path.join(chunkDir, `c${String(idx - startIdx).padStart(2, '0')}.jpg`),
+      )
+    }
+    const sheetFile = sheetCount === 1
+      ? path.join(outDir, `${bvid}-${stamp}-${cols}x${rows}.jpg`)
+      : path.join(outDir, `${bvid}-${stamp}-${cols}x${rows}-p${s + 1}.jpg`)
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', path.join(chunkDir, 'c%02d.jpg'), '-vf',
+      `scale=${TILE}:-1,format=yuvj420p,tile=${cols}x${rows}:color=black`, '-frames:v', '1', sheetFile], { stdio: 'inherit' })
+    if (!fs.existsSync(sheetFile)) throw new Error(`第 ${s + 1} 张拼图没生成`)
+    sheets.push(sheetFile)
+  }
+  console.log('')
+  for (const sheetFile of sheets) console.log(`SHEET: ${sheetFile}`)
 } catch (e) {
-  fs.rmSync(tmp,{recursive:true,force:true}); console.error('ffmpeg 抽帧失败：' + e.message); process.exit(6)
+  fs.rmSync(tmp, { recursive: true, force: true }); console.error('ffmpeg 抽帧失败：' + e.message); process.exit(6)
 }
 
-// 字幕条版：裁掉画面、只留底部字幕带再放大，竖着拼 N 条。
-// 依据（2026-10-14 实测）：这类"讲解型"视频字幕就是全部信息量，全画幅九宫格会把字幕压糊；
-// 同样预算下只留字幕带，9 条字幕能全部读清。用的是同一批帧。
-const subs = path.join(outDir, `${bvid}-${stamp}-subs.jpg`)
-try {
-  execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', path.join(tmp, 'f%02d.jpg'), '-vf',
-    `crop=iw:ih*0.17:0:ih*0.83,scale=1280:-1,format=yuvj420p,tile=1x${N}`, '-frames:v', '1', subs], { stdio: 'inherit' })
-  if (fs.existsSync(subs)) console.log(`SUBS:  ${subs}\n（同一批帧的底部字幕带，竖排 ${N} 条）`)
-} catch {
-  console.log('（字幕条版生成失败，忽略——不影响 SHEET）')
+// 字幕条版：仅在帧数 ≤ 16 时额外生成竖排字幕带，避免超长图占满尺寸上限
+if (N <= 16) {
+  const subs = path.join(outDir, `${bvid}-${stamp}-subs.jpg`)
+  try {
+    execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-i', path.join(tmp, 'f%02d.jpg'), '-vf',
+      `crop=iw:ih*0.17:0:ih*0.83,scale=1280:-1,format=yuvj420p,tile=1x${N}`, '-frames:v', '1', subs], { stdio: 'inherit' })
+    if (fs.existsSync(subs)) console.log(`SUBS:  ${subs}\n（同一批帧的底部字幕带，竖排 ${N} 条）`)
+  } catch {
+    console.log('（字幕条版生成失败，忽略——不影响 SHEET）')
+  }
 }
 fs.rmSync(tmp, { recursive: true, force: true })
-if (!segmented) console.log(`（原片留着: ${mp4}；换参数重抽不必重新下载。加 --uniform 可强制等间隔）`)
+if (!segmented) console.log(`（原片留着: ${mp4}；换参数重抽不必重新下载。）`)
 console.log('（提示：这条视频若有官方字幕，先跑 `node bili.mjs subtitles <BV>` 更省也更准——' +
   '抽帧是给"字幕没官方轨、或要看画面/界面"的情况用的）')

@@ -1,4 +1,7 @@
 import { dataPath } from '../lib/paths.mjs'
+import { config } from '../lib/config.mjs'
+import { videoDuration } from '../local/pipeline-config.mjs'
+import { formatDurationZh } from '../lib/watch-options.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 // 搜索 B 站视频（WBI 签名 + cookie）。用法: node search.mjs <关键词> [页码]
 import fs from 'node:fs'
@@ -35,7 +38,11 @@ function wbi(params) {
 const qs = wbi({ search_type: 'video', keyword: kw, page })
 const d = await jget(`https://api.bilibili.com/x/web-interface/wbi/search/type?${qs}`)
 const list = d.data?.result ?? d.data?.results ?? []
-console.log(`搜索「${kw}」 page=${page}  code=${d.code} ${d.message ?? ''}  结果数=${list.length}`)
+const autoWatch = config().watch?.auto ?? {}
+const minDurSec = Math.max(0, Number(autoWatch.minDurationSec ?? 60))
+const maxDurMin = Math.max(1, Number(autoWatch.maxDurationMin ?? 10))
+const maxDurSec = maxDurMin * 60
+console.log(`搜索「${kw}」 page=${page}  code=${d.code} ${d.message ?? ''}  结果数=${list.length}  （自主观看时长范围：${formatDurationZh(minDurSec)} – ${maxDurMin} 分钟）`)
 if (d.code !== 0 || !list.length) {
   console.log(`data 的字段: ${Object.keys(d.data ?? {}).join(', ') || '(空)'}`)
   if (!list.length) console.log(JSON.stringify(d).slice(0, 400))
@@ -48,7 +55,11 @@ if (d.code !== 0 || !list.length) {
 }
 for (const [i, r] of list.entries()) {
   const title = String(r.title ?? '').replace(/<[^>]+>/g, '')
-  console.log(`\n[${i + 1}] ${title}`)
+  const durSec = videoDuration(r.duration)
+  const durTag = durSec > 0 && durSec > maxDurSec
+    ? `  [超出自主观看上限 ${maxDurMin} 分钟]`
+    : (durSec > 0 && durSec < minDurSec ? `  [低于自主观看下限 ${formatDurationZh(minDurSec)}]` : '')
+  console.log(`\n[${i + 1}] ${title}${durTag}`)
   console.log(`    BV=${r.bvid}  UP=${r.author}  播放=${r.play}  弹幕=${r.video_review}  时长=${r.duration}  日期=${new Date((r.pubdate ?? 0) * 1000).toLocaleDateString('zh-CN')}`)
   if (r.description) console.log(`    简介: ${String(r.description).replace(/<[^>]+>/g, '').slice(0, 120)}`)
   if (r.tag) console.log(`    标签: ${String(r.tag).replace(/<[^>]+>/g, '').slice(0, 100)}`)

@@ -73,8 +73,8 @@ export function renderModelsTab(state, actions) {
   const mainId = getPath(cfg, ['models', 'main']) || 'flash'
   const workerId = getPath(cfg, ['models', 'worker']) || 'flash_lite'
   const minQuotaChoices = [0, 10, 20, 30, 40, 50]
-  const rawMinQuota = Number(getPath(cfg, ['models', 'minQuotaPercent']) ?? 0)
-  const minQuotaVal = minQuotaChoices.includes(rawMinQuota) ? rawMinQuota : 0
+  const rawMinQuota = Number(getPath(cfg, ['models', 'minQuotaPercent']) ?? 20)
+  const minQuotaVal = minQuotaChoices.includes(rawMinQuota) ? rawMinQuota : 20
   const activeRole = state.modelRole === 'worker' ? 'worker' : 'main'
   const isLive = catalog?.source === 'live'
   const groups = catalog?.groups ?? []
@@ -83,9 +83,9 @@ export function renderModelsTab(state, actions) {
 
   const activeId = activeRole === 'main' ? mainId : workerId
   const missingInCatalog = isLive && activeId && !findModel(catalog, activeId)
-  const curRotate = Number(getPath(cfg, ['sessionRotateDays']) ?? 0)
+  const curRotate = Number(getPath(cfg, ['sessionRotateDays']) ?? 7)
   const rotateChoices = [0, 3, 7, 14, 30]
-  const rotateVal = rotateChoices.includes(curRotate) ? curRotate : 0
+  const rotateVal = rotateChoices.includes(curRotate) ? curRotate : 7
 
   const mainModelObj = findModel(catalog, mainId)
   const mainQuotaPct = typeof mainModelObj?.remainingFraction === 'number'
@@ -126,9 +126,9 @@ export function renderModelsTab(state, actions) {
       selectCtrl(
         String(minQuotaVal),
         [
-          ['0', '不限制（默认）'],
+          ['0', '不限制'],
           ['10', '低于 10% 时暂停全部活动'],
-          ['20', '低于 20% 时暂停全部活动（推荐）'],
+          ['20', '低于 20% 时暂停全部活动（默认）'],
           ['30', '低于 30% 时暂停全部活动'],
           ['40', '低于 40% 时暂停全部活动'],
           ['50', '低于 50% 时暂停全部活动'],
@@ -141,9 +141,9 @@ export function renderModelsTab(state, actions) {
       selectCtrl(
         String(rotateVal),
         [
-          ['0', '不自动轮换（默认）'],
+          ['0', '不自动轮换'],
           ['3', '每 3 天轮换一次'],
-          ['7', '每 7 天轮换一次（省配额推荐）'],
+          ['7', '每 7 天轮换一次（默认）'],
           ['14', '每 14 天轮换一次'],
           ['30', '每 30 天轮换一次'],
         ],

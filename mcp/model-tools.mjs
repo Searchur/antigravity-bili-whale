@@ -116,16 +116,25 @@ function readShotImageBlock(shotsDir, filePath) {
   }
 }
 
+const MAX_INLINE_SHOT_BLOCKS = 16
+
 function extractInlineShotBlocks(shotsDir, text) {
   const blocks = []
   const seen = new Set()
-  for (const match of String(text ?? '').matchAll(/^\s*(?:SHEET|SUBS)\s*:\s*(.+?)\s*$/gm)) {
-    const candidate = match[1].trim()
+  const sheetMatches = []
+  const subsMatches = []
+  for (const match of String(text ?? '').matchAll(/^\s*(SHEET|SUBS)\s*:\s*(.+?)\s*$/gm)) {
+    const kind = match[1]
+    const candidate = match[2].trim()
     if (!candidate || seen.has(candidate)) continue
     seen.add(candidate)
+    if (kind === 'SHEET') sheetMatches.push(candidate)
+    else subsMatches.push(candidate)
+  }
+  for (const candidate of [...sheetMatches, ...subsMatches]) {
     const block = readShotImageBlock(shotsDir, candidate)
     if (block) blocks.push(block)
-    if (blocks.length >= 2) break
+    if (blocks.length >= MAX_INLINE_SHOT_BLOCKS) break
   }
   return blocks
 }

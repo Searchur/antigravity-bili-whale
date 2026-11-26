@@ -43,7 +43,7 @@ test('default models use Antigravity built-in flash + flash_lite', () => {
   assert.deepEqual(normalizeModels({ main: 'pro', worker: 'gemini-3.8-flash-high' }), {
     main: 'pro',
     worker: 'gemini-3.8-flash-high',
-    minQuotaPercent: 0,
+    minQuotaPercent: 20,
   })
   assert.deepEqual(normalizeModels({ main: 'bad model with spaces!', worker: '' }), MODEL_DEFAULTS)
 })

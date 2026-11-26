@@ -12,10 +12,10 @@ export const BROWSE_DEFAULTS = Object.freeze({
 export const LISTEN_DEFAULTS = Object.freeze({
   dmOwner: false,
   dmFan: false,
-  dmIntervalSec: 60,
+  dmIntervalSec: 300,
   commentOwner: false,
   commentFan: false,
-  commentIntervalSec: 60,
+  commentIntervalSec: 300,
   mentionSummaryOwner: false,
   mentionSummaryFan: false,
   allDay: false,
@@ -40,7 +40,7 @@ export const SAFETY_DEFAULTS = Object.freeze({
 export const MODEL_DEFAULTS = Object.freeze({
   main: 'flash',
   worker: 'flash_lite',
-  minQuotaPercent: 0,
+  minQuotaPercent: 20,
 })
 
 const WATCH_MODE_BASE = Object.freeze({
@@ -53,21 +53,22 @@ const WATCH_MODE_BASE = Object.freeze({
 
 export const WATCH_DEFAULTS = Object.freeze({
   auto: Object.freeze({
-    maxDurationMin: 15,
-    minDurationSec: 30,
+    maxDurationMin: 10,
+    minDurationSec: 60,
     ...WATCH_MODE_BASE,
+    mode: 'always_frames',
   }),
   ownerMention: Object.freeze({
-    autoMaxMin: 5,
-    confirmMaxMin: 10,
+    autoMaxMin: 10,
+    confirmMaxMin: 20,
     replyStyle: 'comment',
     ...WATCH_MODE_BASE,
   }),
   fanMention: Object.freeze({
-    autoMaxMin: 3,
+    autoMaxMin: 5,
     confirmMaxMin: 5,
     ...WATCH_MODE_BASE,
-    mode: 'text_only',
+    mode: 'auto',
   }),
 })
 
@@ -76,7 +77,7 @@ export const MAX_DISLIKE_TAGS = 12
 export const MAX_PERSONA_CHARS = 4000
 export const MAX_CUSTOM_SAFETY_WORDS = 50
 
-/** 中性默认值：仅使用 Antigravity 内置模型；所有对外分享/监听开关默认不勾选；安全审核默认开启。 */
+/** 中性默认值：使用 Antigravity 自适应模型；对外分享/监听开关默认关闭（自主评论除外）；安全审核默认开启。 */
 export const DEFAULTS = {
   browse: { ...BROWSE_DEFAULTS },
   chat: { ...CHAT_DEFAULTS },
@@ -89,7 +90,7 @@ export const DEFAULTS = {
   },
   fanLimits: { ...FAN_LIMITS_DEFAULTS },
   safety: { ...SAFETY_DEFAULTS, customWords: [] },
-  sessionRotateDays: 0,
+  sessionRotateDays: 7,
   personaOncePerSession: true,
   risk: { minGapMs: 1500, readHourly: 600, readDaily: 3000, writeHourly: 12, writeDaily: 30, writeGapSec: 120, dmGapSec: 60 },
   persona: {
@@ -98,7 +99,7 @@ export const DEFAULTS = {
     selfClaim: '我',
   },
   preferences: {
-    like: ['AI 工具', '科技新闻', '编程开发', '效率软件'],
+    like: ['AI 工具', '科技新闻', '编程开发', '数码评测'],
     dislike: ['带货', '擦边', '标题党', '纯搬运'],
     keywords: [],
   },
@@ -106,9 +107,9 @@ export const DEFAULTS = {
   owner: { mid: '', name: '' },
   self: { mid: '', name: '' },
   quota: { shareDaily: 3 },
-  share: { enabled: false, via: 'dm', minScore: 13, silentAfterDays: 3 },
+  share: { enabled: false, via: 'comment', minScore: 13, silentAfterDays: 3 },
   listen: { ...LISTEN_DEFAULTS },
-  night: { windows: [{ start: '20:00', end: '24:00', wakes: 1 }], skipChance: 0.2, minGapMin: 10, maxVideos: 5, deepWatchMax: 3 },
+  night: { windows: [{ start: '00:00', end: '24:00', wakes: 5 }], skipChance: 0.2, minGapMin: 10, maxVideos: 5, deepWatchMax: 3, maxWakesPerDay: 5 },
 }
 
 export function withoutRetiredListening(cfg) {
@@ -141,9 +142,9 @@ function normalizeWatchView(src, defaults) {
   const rawMode = s.mode ?? s.frameMode
   return {
     mode: ['text_only', 'auto', 'always_frames'].includes(rawMode) ? rawMode : defaults.mode,
-    frameStrategy: ['interval', 'grid'].includes(s.frameStrategy) ? s.frameStrategy : defaults.frameStrategy,
+    frameStrategy: 'interval',
     frameEverySec: clampInt(s.frameEverySec, 3, 120, defaults.frameEverySec),
-    maxFrames: clampInt(s.maxFrames, 4, 36, defaults.maxFrames),
+    maxFrames: clampInt(s.maxFrames, 4, 60, defaults.maxFrames),
     frameGrid: ['2x2', '3x3', '4x4'].includes(s.frameGrid) ? s.frameGrid : defaults.frameGrid,
   }
 }
@@ -157,14 +158,13 @@ export function normalizeWatch(raw) {
     : (src.mention && typeof src.mention === 'object' ? src.mention : {})
   const fm = src.fanMention && typeof src.fanMention === 'object' ? src.fanMention : {}
 
-  const maxDurationMin = clampInt(a.maxDurationMin, 1, 120, WATCH_DEFAULTS.auto.maxDurationMin)
+  const maxDurationMin = clampInt(a.maxDurationMin, 1, 30, WATCH_DEFAULTS.auto.maxDurationMin)
   const minDurationSec = Math.max(0, Math.min(maxDurationMin * 60 - 1, clampInt(a.minDurationSec, 0, 600, WATCH_DEFAULTS.auto.minDurationSec)))
 
   const ownerAutoMax = clampInt(om.autoMaxMin, 1, 60, WATCH_DEFAULTS.ownerMention.autoMaxMin)
   const ownerConfirmMax = Math.max(ownerAutoMax, clampInt(om.confirmMaxMin, 1, 120, WATCH_DEFAULTS.ownerMention.confirmMaxMin))
 
   const fanAutoMax = clampInt(fm.autoMaxMin, 1, 30, WATCH_DEFAULTS.fanMention.autoMaxMin)
-  const fanConfirmMax = Math.max(fanAutoMax, clampInt(fm.confirmMaxMin, 1, 60, WATCH_DEFAULTS.fanMention.confirmMaxMin))
 
   return {
     auto: {
@@ -180,7 +180,7 @@ export function normalizeWatch(raw) {
     },
     fanMention: {
       autoMaxMin: fanAutoMax,
-      confirmMaxMin: fanConfirmMax,
+      confirmMaxMin: fanAutoMax,
       ...normalizeWatchView(fm, WATCH_DEFAULTS.fanMention),
     },
   }
@@ -215,7 +215,7 @@ export function normalizeFanLimits(raw) {
   const commentPerUserDaily = clampInt(src.commentPerUserDaily, 1, 10, FAN_LIMITS_DEFAULTS.commentPerUserDaily)
   const commentTotalDaily = Math.max(commentPerUserDaily, clampInt(src.commentTotalDaily, 1, 100, FAN_LIMITS_DEFAULTS.commentTotalDaily))
   const mentionPerUserDaily = clampInt(src.mentionPerUserDaily, 1, 5, FAN_LIMITS_DEFAULTS.mentionPerUserDaily)
-  const mentionTotalDaily = Math.max(mentionPerUserDaily, clampInt(src.mentionTotalDaily, 1, 50, FAN_LIMITS_DEFAULTS.mentionTotalDaily))
+  const mentionTotalDaily = Math.max(mentionPerUserDaily, clampInt(src.mentionTotalDaily, 1, 10, FAN_LIMITS_DEFAULTS.mentionTotalDaily))
   return {
     dmPerUserDaily,
     dmTotalDaily,

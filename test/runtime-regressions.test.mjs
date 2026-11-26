@@ -87,7 +87,8 @@ test('fan summaries and ordinary replies have independent limits', async t => {
   assert.equal(summary.channel, 'mentionSummary')
   assert.equal(ordinary.channel, 'comment')
   assert.equal(fanCommentQuota(cfg, { mid: '123', kind: 'reply', text: '银行开着吗' }, dir).channel, 'comment')
-  assert.equal(fanCommentQuota(cfg, { mid: '123', kind: 'reply', text: '看吧！', quotedText: '确认要我看并总结吗？' }, dir).channel, 'mentionSummary')
+  // Fans no longer have a confirmation-reply tier; reply messages count as ordinary fan comments.
+  assert.equal(fanCommentQuota(cfg, { mid: '123', kind: 'reply', text: '看吧！', quotedText: '确认要我看并总结吗？' }, dir).channel, 'comment')
   const release = await lockFanReplyQuota(summary)
   await assert.rejects(lockFanReplyQuota(summary))
   recordFanReply(summary)
@@ -121,4 +122,52 @@ test('changed attachment is rejected before the upload transport', async t => {
   const attachment = path.join(dir, 'changed.png')
   fs.writeFileSync(attachment, 'synthetic new contents')
   await assert.rejects(uploadPic(attachment, 'fixture', {}, { expectedHash: '0'.repeat(64) }), /图片文件发生变化/)
+})
+
+test('debrief enforces configured duration limits per profile before fetching content', async t => {
+  const { dir, env } = fixture(t)
+  fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'test-session-only', bili_jct: 'a'.repeat(32), buvid3: 'b3' }))
+  fs.writeFileSync(env.BILI_WHALE_CONFIG, JSON.stringify({
+    self: { mid: '100', name: '大鲸鱼' },
+    owner: { mid: '300', name: '主人' },
+    watch: {
+      auto: { maxDurationMin: 10, minDurationSec: 60 },
+      ownerMention: { autoMaxMin: 10, confirmMaxMin: 20 },
+      fanMention: { autoMaxMin: 5 },
+    },
+  }))
+  const stub = `globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/x/web-interface/nav')) return Response.json({ code: 0, data: { wbi_img: { img_url: 'https://x/abcdef0123456789abcdef0123456789.png', sub_url: 'https://x/0123456789abcdef0123456789abcdef.png' } } });
+    if (u.includes('bvid=BV1long00001')) return Response.json({ code: 0, data: { bvid: 'BV1long00001', aid: 1, cid: 2, title: '长视频测试', duration: 900, owner: { mid: 9, name: 'UP' }, stat: {} } });
+    if (u.includes('bvid=BV1short0001')) return Response.json({ code: 0, data: { bvid: 'BV1short0001', aid: 2, cid: 3, title: '超短视频测试', duration: 20, owner: { mid: 9, name: 'UP' }, stat: {} } });
+    throw Error('Unexpected fetch after duration guard: ' + u);
+  };`
+  const preload = `data:text/javascript;base64,${Buffer.from(stub).toString('base64')}`
+  const runDebrief = (...args) => exec(process.execPath, ['--import', preload, cli, 'debrief', ...args], {
+    env: { ...env, NODE_OPTIONS: `--import=${preload}` },
+    timeout: 10_000,
+  })
+  await assert.rejects(runDebrief('BV1long00001', '--profile', 'auto', '--no-frames'), /超过自主观看最长时长限制（10 分钟）/)
+  await assert.rejects(runDebrief('BV1short0001', '--profile', 'auto', '--no-frames'), /低于自主观看最短时长限制/)
+  await assert.rejects(runDebrief('BV1long00001', '--profile', 'owner', '--no-frames'), /询问确认/)
+  await assert.rejects(runDebrief('BV1long00001', '--profile', 'fan', '--no-frames'), /超过粉丝 @ 观看上限（5 分钟）/)
+})
+
+test('quota enforces autoComment toggle, daily cap, and 7-day same-video dedup', async t => {
+  const { dir, env } = fixture(t)
+  const runQuota = (...args) => exec(process.execPath, [cli, 'quota', ...args], { env, timeout: 10_000 })
+
+  // Enabled with daily cap 2
+  fs.writeFileSync(env.BILI_WHALE_CONFIG, JSON.stringify({ chat: { autoComment: true, autoCommentDailyMax: 2 } }))
+  const ok1 = await runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000001', '--auto')
+  assert.match(ok1.stdout, /自主评论额度内（0\/2）/)
+  await runQuota('record', '--type', 'comment', '--target', 'BV:BV1aaa000001', '--auto', '--note', '第一条')
+  await assert.rejects(runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000001', '--auto'), err => /7 天内已经自主评论过了/.test(err.stdout))
+  await runQuota('record', '--type', 'comment', '--target', 'BV:BV1aaa000002', '--auto', '--note', '第二条')
+  await assert.rejects(runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000003', '--auto'), err => /今日自主评论额度已用完（2\/2）/.test(err.stdout))
+
+  // Disabled rejects immediately
+  fs.writeFileSync(env.BILI_WHALE_CONFIG, JSON.stringify({ chat: { autoComment: false, autoCommentDailyMax: 3 } }))
+  await assert.rejects(runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000004', '--auto'), /自主评论已关闭/)
 })

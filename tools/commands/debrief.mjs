@@ -34,6 +34,7 @@ import zlib from 'node:zlib'
 import { execFileSync } from '../lib/capture.mjs'
 import { fileURLToPath } from 'node:url'
 import { config } from '../lib/config.mjs'
+import { resolveWatchProfile, checkWatchDuration } from '../lib/watch-options.mjs'
 import { dshPath } from '../lib/paths.mjs'
 import { NODE_EXE } from '../lib/nodebin.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
 import { buildDebriefReport, parseFrameOutput } from '../local/report/debrief-data.mjs'
@@ -48,15 +49,14 @@ const opt = {}
 for (let i = 0; i < argv.length; i += 1) {
   if (argv[i].startsWith('--')) opt[argv[i].slice(2)] = argv[i + 1]?.startsWith('--') ? true : argv[++i] ?? true
 }
-const watchProfile = (() => {
+const watchResolved = (() => {
   try {
-    const w = config().watch ?? {}
-    const p = String(opt.profile ?? 'auto').toLowerCase()
-    if (p === 'owner' || p === 'owner-mention') return w.ownerMention ?? w.auto ?? {}
-    if (p === 'fan' || p === 'fan-mention') return w.fanMention ?? w.auto ?? {}
-    return w.auto ?? {}
-  } catch { return {} }
+    return resolveWatchProfile(config(), opt.profile ?? 'auto')
+  } catch {
+    return resolveWatchProfile({}, opt.profile ?? 'auto')
+  }
 })()
+const watchProfile = watchResolved.settings
 const BUCKET = Number(opt.bucket ?? 30)
 const TOP = Number(opt.top ?? 5)
 const GRID = String(opt.grid ?? watchProfile.frameGrid ?? '3x3')
@@ -131,7 +131,16 @@ fs.mkdirSync(path.join(shots, 'subs'), { recursive: true })
 // ── ① 元信息 ──
 const view = await jget(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`)
 if (view.code !== 0) { console.error(`view 失败 code=${view.code} ${view.message}`); process.exit(3) }
-const d = view.data, cid = d.cid, aid = d.aid, dur = d.duration
+const d = view.data, cid = d.cid, aid = d.aid, dur = Number(d.duration ?? d.pages?.[0]?.duration)
+const durCheck = checkWatchDuration(dur, {
+  profile: watchResolved.profile,
+  settings: watchProfile,
+  confirmed: Boolean(opt.confirmed),
+})
+if (!durCheck.ok) {
+  console.error(`✗ [时长限制] ${durCheck.reason}（视频：${d.title ?? bvid}）`)
+  process.exit(4)
+}
 if(lifeStore().preferences({title:d.title,author:String(d.owner?.mid??''),bvid},'watch').excluded||(config().preferences?.dislike??[]).some(p=>preferenceMatches(d.title,p)))throw Error('该视频在观看排除范围内')
 const metaData = { title: d.title, owner: d.owner.name, tname: d.tname, pubdate: d.pubdate, durSeconds: dur, desc: d.desc, stat: d.stat }
 
@@ -209,6 +218,7 @@ if (!SKIP_FRAMES) {
   let frameError = null
   let toolLines = []
   let sheet = null
+  let sheets = []
   try {
     // ⚠️ 必须用 fileURLToPath：用 URL.pathname 会把路径里的空格变成 %20（实测踩过）
     const watch = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bili-watch.mjs')
@@ -216,18 +226,18 @@ if (!SKIP_FRAMES) {
     //   capture 的默认超时是 120s，而「场景检测空跑 + 下载 + 抽帧」按时长线性长 ✗
     //   改成按时长算：120s + 每秒视频 1.5s（25 分钟 → 约 40 分钟余量 ✓）
     const framesTimeout = 120_000 + Math.round((Number(dur ?? 0) || 0) * 1.5) * 1000
-    const watchArgs = [watch, bvid, GRID]
-    if (!opt.grid && (opt.every !== undefined || watchProfile.frameStrategy === 'interval')) {
-      const everySec = opt.every !== undefined ? Number(opt.every) : Number(watchProfile.frameEverySec ?? 15)
-      const maxFrames = Number(watchProfile.maxFrames ?? 16)
-      if (Number.isFinite(everySec) && everySec >= 3) watchArgs.push('--every', String(Math.floor(everySec)))
-      if (Number.isInteger(maxFrames) && maxFrames >= 4) watchArgs.push('--max-frames', String(maxFrames))
-    }
+    const everySec = opt.every !== undefined ? Number(opt.every) : Number(watchProfile.frameEverySec ?? 15)
+    const maxFrames = opt['max-frames'] !== undefined ? Number(opt['max-frames']) : Number(watchProfile.maxFrames ?? 16)
+    const watchArgs = [watch, bvid, GRID, '--profile', watchResolved.profile]
+    if (opt.confirmed) watchArgs.push('--confirmed')
+    if (Number.isFinite(everySec) && everySec >= 3) watchArgs.push('--every', String(Math.floor(everySec)))
+    if (Number.isInteger(maxFrames) && maxFrames >= 4) watchArgs.push('--max-frames', String(maxFrames))
     if (opt.tile !== undefined) watchArgs.push('--tile', String(opt.tile))
     const out = execFileSync(NODE_EXE, watchArgs, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: framesTimeout })
     const parsed = parseFrameOutput(out)
     toolLines = parsed.toolLines
     sheet = parsed.sheet
+    sheets = parsed.sheets
   } catch (e) { frameError = String(e.message).slice(0, 200) }
 
   // ── ⑥b 字幕条拼图（--substrip [每N秒]）──────────────────────────────
@@ -255,7 +265,7 @@ if (!SKIP_FRAMES) {
       }
     } catch (e) { stripData = { enabled: true, error: String(e.message).slice(0, 200), noMp4: false } }
   }
-  framesData = { enabled: true, error: frameError, toolLines, sheet, strip: stripData }
+  framesData = { enabled: true, error: frameError, toolLines, sheet, sheets, strip: stripData }
 }
 
 // ── 输出层：先产出 report，再交给渲染器逐行 console.log ──────────────

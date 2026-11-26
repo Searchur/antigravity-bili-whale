@@ -21,8 +21,9 @@ export async function segmentFrames({ffmpeg, url, times, directory, duration, un
         for (const frame of [1,2]) fs.rmSync(prefix + '-' + frame + '.jpg', {force:true})
         try {
           const remaining = activityRemaining()
+          const seekAt = attempt > 0 ? Math.max(0, start - 1.5) : start
           await run(ffmpeg, ['-y','-loglevel','error','-headers','Referer: https://www.bilibili.com/\r\nUser-Agent: Mozilla/5.0\r\n',
-            '-ss',start.toFixed(2),'-t',uniform?'1':'10','-i',url,'-an','-vf',filter,
+            '-ss',seekAt.toFixed(2),'-t',uniform?'1':'10','-i',url,'-an','-vf',filter,
             '-frames:v',uniform?'1':'2','-q:v','2',prefix+'-%d.jpg'],
           {windowsHide:true, timeout:Math.min(20000, remaining ?? 20000), maxBuffer:1024*1024})
           const frame = fs.existsSync(prefix+'-2.jpg') ? prefix+'-2.jpg' : prefix+'-1.jpg'

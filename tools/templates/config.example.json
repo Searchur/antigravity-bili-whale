@@ -5,21 +5,22 @@
   },
   "models": {
     "main": "flash",
-    "worker": "flash_lite"
+    "worker": "flash_lite",
+    "minQuotaPercent": 20
   },
   "watch": {
     "auto": {
-      "maxDurationMin": 15,
-      "minDurationSec": 30,
-      "mode": "auto",
+      "maxDurationMin": 10,
+      "minDurationSec": 60,
+      "mode": "always_frames",
       "frameStrategy": "interval",
       "frameEverySec": 15,
       "maxFrames": 16,
       "frameGrid": "3x3"
     },
     "ownerMention": {
-      "autoMaxMin": 5,
-      "confirmMaxMin": 10,
+      "autoMaxMin": 10,
+      "confirmMaxMin": 20,
       "replyStyle": "comment",
       "mode": "auto",
       "frameStrategy": "interval",
@@ -28,12 +29,12 @@
       "frameGrid": "3x3"
     },
     "fanMention": {
-      "autoMaxMin": 3,
+      "autoMaxMin": 5,
       "confirmMaxMin": 5,
-      "mode": "text_only",
+      "mode": "auto",
       "frameStrategy": "interval",
       "frameEverySec": 15,
-      "maxFrames": 12,
+      "maxFrames": 16,
       "frameGrid": "3x3"
     }
   },
@@ -47,7 +48,7 @@
       "AI 工具",
       "科技新闻",
       "编程开发",
-      "效率软件"
+      "数码评测"
     ],
     "dislike": [
       "带货",
@@ -69,22 +70,24 @@
   },
   "share": {
     "enabled": false,
-    "via": "dm",
+    "via": "comment",
     "minScore": 13,
     "silentAfterDays": 3
   },
   "chat": {
     "followup": false,
     "dynamic": false,
-    "dynamicDailyMax": 1
+    "dynamicDailyMax": 1,
+    "autoComment": true,
+    "autoCommentDailyMax": 3
   },
   "listen": {
     "dmOwner": false,
     "dmFan": false,
-    "dmIntervalSec": 60,
+    "dmIntervalSec": 300,
     "commentOwner": false,
     "commentFan": false,
-    "commentIntervalSec": 60,
+    "commentIntervalSec": 300,
     "mentionSummaryOwner": false,
     "mentionSummaryFan": false,
     "allDay": false
@@ -103,18 +106,19 @@
     "scope": "all",
     "customWords": []
   },
-  "sessionRotateDays": 0,
+  "sessionRotateDays": 7,
   "night": {
     "windows": [
       {
-        "start": "20:00",
+        "start": "00:00",
         "end": "24:00",
-        "wakes": 1
+        "wakes": 5
       }
     ],
     "skipChance": 0.2,
     "minGapMin": 10,
     "maxVideos": 5,
-    "deepWatchMax": 3
+    "deepWatchMax": 3,
+    "maxWakesPerDay": 5
   }
 }

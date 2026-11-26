@@ -106,11 +106,12 @@ const q = load()
 
 if (cmd === 'status') {
   const used = usedToday(q)
-  const usedAuto = q.log.filter((x) => dayOf(x.at) === today() && x.auto && !x.share).length
+  const usedAutoComment = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'comment' && x.auto && !x.share).length
   const usedShare = q.log.filter((x) => dayOf(x.at) === today() && x.share).length
-  console.log(`今日对外发言: 共 ${used} 条（**分享型** ${usedShare}/${q.shareDaily ?? 3} · 自主发言不设条数上限 ✓ · 主人授权 ${used - usedAuto - usedShare} 条）   日期 ${today()}`)
-  console.log(`缰绳：分享 ≤${q.shareDaily ?? 3}/天 · 评分卡 ≥${config().share?.minScore ?? 13}/20 · 同一视频 7 天一次 · 署名复核 · 事后报备`)
-  console.log(`已删除（2026-10-18 主人定）：白名单 ✗ · 「自主 N 条」独立额度 ✗`)
+  const autoCommentMax = chatConfig(config().chat).autoCommentDailyMax
+  console.log(`今日对外发言: 共 ${used} 条（**分享型** ${usedShare}/${q.shareDaily ?? 3} · 自主评论 ${usedAutoComment}/${autoCommentMax} · 主人授权 ${Math.max(0, used - usedAutoComment - usedShare)} 条）   日期 ${today()}`)
+  console.log(`缰绳：分享 ≤${q.shareDaily ?? 3}/天 · 自主评论 ≤${autoCommentMax}/天 · 评分卡 ≥${config().share?.minScore ?? 13}/20 · 同一视频 7 天一次 · 署名复核 · 事后报备`)
+  console.log(`已删除（2026-10-18 主人定）：白名单 ✗`)
   if (!opt['summary-only']) {
     const recent = q.log.slice(-5)
     console.log(recent.length ? '最近记录:' : '最近记录: (无)')
@@ -173,11 +174,33 @@ if (cmd === 'check') {
     console.log(`通过：公开动态额度内（${usedDynamic}/${dynamicMax}）`)
     process.exit(0)
   }
+  if (opt.type === 'comment' && auto) {
+    const chat = chatConfig(config().chat)
+    if (chat.autoComment !== true) {
+      console.error('自主评论已关闭（chat.autoComment = false）')
+      process.exit(2)
+    }
+    const autoCommentMax = chat.autoCommentDailyMax
+    const usedAutoComment = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'comment' && x.auto && !x.share).length
+    if (usedAutoComment >= autoCommentMax) {
+      console.log(`✗ 今日自主评论额度已用完（${usedAutoComment}/${autoCommentMax}）—— 留到明天再发。`)
+      process.exit(2)
+    }
+    if (target) {
+      const dup = q.log.find((x) => x.type === 'comment' && x.auto && !x.share && String(x.target ?? '') === target && Date.now() - new Date(x.at).getTime() < SEVEN)
+      if (dup) {
+        console.log(`✗ 这个视频 7 天内已经自主评论过了：${dup.at}（${dup.target}）`)
+        process.exit(2)
+      }
+    }
+    console.log(`✓ 自主评论额度内（${usedAutoComment}/${autoCommentMax}）${target ? `，target=${target}` : ''}`)
+    process.exit(0)
+  }
   if (!auto) {
     console.log('（非自主发言：不拦截）主人授权的发言不受限，但照旧 dry→go→复核')
     process.exit(0)
   }
-  console.log(`✓ 通过（分享型额度另算；自主发言已不设每日条数上限 —— 2026-10-18 主人定）${target ? `· target=${target}` : ''}`)
+  console.log(`✓ 通过${target ? `· target=${target}` : ''}`)
   process.exit(0)
 }
 
@@ -185,9 +208,10 @@ if (cmd === 'record') {
   const type = typeof opt.type === 'string' ? opt.type : 'unknown'
   q.log.push({ at: new Date().toISOString(), type, auto: !!opt.auto || !!opt.share, share: !!opt.share, target: opt.target ?? null, note: opt.note ?? null })
   save(q)
-  const usedAuto = q.log.filter((x) => dayOf(x.at) === today() && x.auto && !x.share).length
+  const usedAutoComment = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'comment' && x.auto && !x.share).length
   const usedShare = q.log.filter((x) => dayOf(x.at) === today() && x.share).length
-  console.log(`已记账：${type}${opt.share ? '（分享型·@主人）' : opt.auto ? '（自主）' : '（主人授权）'}${opt.target ? ' → ' + opt.target : ''}   今日分享 ${usedShare}/${q.shareDaily ?? 3}（自主发言不设上限 ✓）`)
+  const autoCommentMax = chatConfig(config().chat).autoCommentDailyMax
+  console.log(`已记账：${type}${opt.share ? '（分享型·@主人）' : opt.auto ? '（自主）' : '（主人授权）'}${opt.target ? ' → ' + opt.target : ''}   今日分享 ${usedShare}/${q.shareDaily ?? 3} · 自主评论 ${usedAutoComment}/${autoCommentMax}`)
   process.exit(0)
 }
 

@@ -1,10 +1,10 @@
-export const CHAT_DEFAULTS=Object.freeze({multi:true,maxParts:6,followup:false,idle:false,chance:0.2,idleHours:3,dailyMax:3,dynamic:false,dynamicChance:0.3,dynamicDailyMax:1})
+export const CHAT_DEFAULTS=Object.freeze({multi:true,maxParts:6,followup:false,idle:false,chance:0.2,idleHours:3,dailyMax:3,dynamic:false,dynamicChance:0.3,dynamicDailyMax:1,autoComment:true,autoCommentDailyMax:3})
 export function chatConfig(input={}) {
   const out={...CHAT_DEFAULTS}
-  for(const key of ['multi','followup','idle','dynamic'])if(typeof input?.[key]==='boolean')out[key]=input[key]
-  for(const [key,min,max] of [['maxParts',1,6],['chance',0,1],['idleHours',3,168],['dailyMax',0,3],['dynamicChance',0,1],['dynamicDailyMax',1,2]]){
+  for(const key of ['multi','followup','idle','dynamic','autoComment'])if(typeof input?.[key]==='boolean')out[key]=input[key]
+  for(const [key,min,max] of [['maxParts',1,6],['chance',0,1],['idleHours',3,168],['dailyMax',0,3],['dynamicChance',0,1],['dynamicDailyMax',1,2],['autoCommentDailyMax',1,10]]){
     const n=Number(input?.[key]);if(input?.[key]!=null&&Number.isFinite(n))out[key]=Math.max(min,Math.min(max,n))
   }
-  for(const key of ['maxParts','dailyMax','dynamicDailyMax'])out[key]=Math.floor(out[key])
+  for(const key of ['maxParts','dailyMax','dynamicDailyMax','autoCommentDailyMax'])out[key]=Math.floor(out[key])
   return out
 }

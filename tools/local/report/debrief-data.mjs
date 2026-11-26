@@ -63,15 +63,19 @@ export function buildDebriefReport(input = {}) {
   }
 }
 
-/** 从抽帧子进程的 stdout 里挑出要原样打出去的行，并取出 SHEET 路径（--substrip 要用）。 */
+/** 从抽帧子进程的 stdout 里挑出要原样打出去的行，并取出全部 SHEET 路径（--substrip 要用首张）。 */
 export function parseFrameOutput(stdout) {
   const text = String(stdout ?? '')
   const toolLines = []
+  const sheets = []
   for (const line of text.split('\n')) {
     if (/^(SHEET|SUBS|实际画质|取帧方式)/.test(line)) toolLines.push(line)
+    if (line.startsWith('SHEET:')) {
+      const p = line.slice(6).trim()
+      if (p) sheets.push(p)
+    }
   }
-  const sheet = (text.split('\n').find((l) => l.startsWith('SHEET:')) || '').slice(6).trim() || null
-  return { toolLines, sheet }
+  return { toolLines, sheet: sheets[0] ?? null, sheets }
 }
 
 function normalizeMeta(m) {
@@ -222,11 +226,15 @@ function normalizeFrames(f) {
   const src = f ?? {}
   if (!src.enabled) return { enabled: false }
   const strip = src.strip ?? { enabled: false }
+  const sheets = Array.isArray(src.sheets) && src.sheets.length
+    ? src.sheets.filter(Boolean).map(String)
+    : (src.sheet ? [String(src.sheet)] : [])
   return {
     enabled: true,
     error: src.error ? String(src.error) : null,
     toolLines: (Array.isArray(src.toolLines) ? src.toolLines : []).map((l) => String(l)),
-    sheet: src.sheet ?? null,
+    sheet: src.sheet ?? sheets[0] ?? null,
+    sheets,
     strip: strip.enabled
       ? {
         enabled: true,

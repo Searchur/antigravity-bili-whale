@@ -9,7 +9,9 @@ import { createApiHandlers } from '../lib/api-handlers.js'
 import { wakePrompt } from '../lib/scheduler.js'
 import { mentionSummaryLines } from '../lib/mention-summary.js'
 import { pipelineConfig } from '../tools/local/pipeline-config.mjs'
-import { watchOptions, gridForFrameCount } from '../tools/lib/watch-options.mjs'
+import { watchOptions, gridForFrameCount, checkWatchDuration, planIntervalFrames } from '../tools/lib/watch-options.mjs'
+import { parseFrameOutput } from '../tools/local/report/debrief-data.mjs'
+import { createModelToolRunner } from '../mcp/model-tools.mjs'
 import { checkRelation, isFollowerOfWhale, clearRelationCache } from '../tools/lib/relation.mjs'
 import { checkFanQuota, recordFanReply, readFanQuotaSummary, readFanQuotaHistory } from '../tools/lib/fan-quota.mjs'
 import { checkLocalSafety, enforceOutboundSafety } from '../tools/lib/content-safety.mjs'
@@ -214,20 +216,29 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     },
   })
   try {
-    // 1. Defaults: interactions ALL false, safety ON, dynamicDailyMax=1, aiCommentGuard removed, 3 watch classes present
+    // 1. Defaults: interactions OFF (except autoComment ON, safety ON), polling 300s, share via comment, updated watch defaults
     const init = await api.getSettings()
     assert.equal(init.config.persona.name, '大鲸鱼')
+    assert.deepEqual(init.config.preferences.like, ['AI 工具', '科技新闻', '编程开发', '数码评测'])
+    assert.deepEqual(init.config.night.windows, [{ start: '00:00', end: '24:00', wakes: 5 }])
+    assert.equal(init.config.models.main, 'flash')
+    assert.equal(init.config.models.worker, 'flash_lite')
+    assert.equal(init.config.models.minQuotaPercent, 20)
+    assert.equal(init.config.sessionRotateDays, 7)
     assert.equal(init.config.browse.enabled, false)
     assert.equal(init.config.share.enabled, false)
+    assert.equal(init.config.share.via, 'comment')
     assert.equal('aiCommentGuard' in init.config.share, false)
     assert.equal(init.config.chat.dynamic, false)
     assert.equal(init.config.chat.dynamicDailyMax, 1)
+    assert.equal(init.config.chat.autoComment, true)
+    assert.equal(init.config.chat.autoCommentDailyMax, 3)
     assert.equal(init.config.listen.dmOwner, false)
     assert.equal(init.config.listen.dmFan, false)
-    assert.equal(init.config.listen.dmIntervalSec, 60)
+    assert.equal(init.config.listen.dmIntervalSec, 300)
     assert.equal(init.config.listen.commentOwner, false)
     assert.equal(init.config.listen.commentFan, false)
-    assert.equal(init.config.listen.commentIntervalSec, 60)
+    assert.equal(init.config.listen.commentIntervalSec, 300)
     assert.equal(init.config.listen.mentionSummaryOwner, false)
     assert.equal(init.config.listen.mentionSummaryFan, false)
     assert.equal(init.config.safety.enabled, true)
@@ -235,12 +246,15 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(Object.hasOwn(init.config, 'diary'), false)
     assert.equal(Object.hasOwn(init.config, 'notify'), false)
     assert.equal(init.config.life.autonomy, false)
-    assert.equal(init.config.watch.auto.maxDurationMin, 15)
-    assert.equal(init.config.watch.ownerMention.autoMaxMin, 5)
-    assert.equal(init.config.watch.ownerMention.confirmMaxMin, 10)
-    assert.equal(init.config.watch.fanMention.autoMaxMin, 3)
+    assert.equal(init.config.watch.auto.maxDurationMin, 10)
+    assert.equal(init.config.watch.auto.minDurationSec, 60)
+    assert.equal(init.config.watch.auto.mode, 'always_frames')
+    assert.equal(init.config.watch.auto.frameStrategy, 'interval')
+    assert.equal(init.config.watch.ownerMention.autoMaxMin, 10)
+    assert.equal(init.config.watch.ownerMention.confirmMaxMin, 20)
+    assert.equal(init.config.watch.fanMention.autoMaxMin, 5)
     assert.equal(init.config.watch.fanMention.confirmMaxMin, 5)
-    assert.equal(init.config.watch.fanMention.mode, 'text_only')
+    assert.equal(init.config.watch.fanMention.mode, 'auto')
 
     // 2. Owner check (no checkmark symbol)
     const ownerOk = await api.verifyOwner('12345', '测试主人')
@@ -626,12 +640,161 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
       'comment',
       'direct',
       {},
-      { share: { enabled: true, via: 'comment' }, chat: { dynamic: false } },
+      { share: { enabled: true, via: 'comment' }, chat: { dynamic: false, autoComment: false } },
       2,
     )
     assert.ok(commentPrompt.includes('允许直接在该视频评论区发顶层评论并 @ 主人分享'))
     assert.ok(commentPrompt.includes('除上述在视频评论区「@ 主人」主动分享'))
     assert.equal(commentPrompt.includes('绝不主动给其他人的视频发顶层独白评论'), false)
+
+    // Autonomous non-@ comment prompt when chat.autoComment=true
+    const autoCommentPrompt = wakePrompt(
+      { atText: '2026-11-26 20:00', window: '00:00–24:00' },
+      '',
+      5,
+      'comment',
+      'direct',
+      {},
+      { share: { enabled: false, via: 'comment' }, chat: { dynamic: false, autoComment: true, autoCommentDailyMax: 3 } },
+      2,
+    )
+    assert.ok(autoCommentPrompt.includes('允许看完视频后自主在评论区发表评论（不 @ 主人）'))
+    assert.ok(autoCommentPrompt.includes('每日上限 3 条'))
+  } finally {
+    api.dispose()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm, owner @ judgment, autoComment quota, UI invariants, and 5-item activity cap', async () => {
+  // 1. Duration hard check across auto / owner / fan profiles
+  assert.equal(checkWatchDuration(30, { profile: 'auto', settings: { minDurationSec: 60, maxDurationMin: 10 } }).code, 'too_short')
+  assert.equal(checkWatchDuration(601, { profile: 'auto', settings: { minDurationSec: 60, maxDurationMin: 10 } }).code, 'too_long')
+  assert.equal(checkWatchDuration(600, { profile: 'auto', settings: { minDurationSec: 60, maxDurationMin: 10 } }).ok, true)
+
+  assert.equal(checkWatchDuration(600, { profile: 'owner', settings: { autoMaxMin: 10, confirmMaxMin: 20 } }).ok, true)
+  assert.equal(checkWatchDuration(900, { profile: 'owner', settings: { autoMaxMin: 10, confirmMaxMin: 20 }, confirmed: false }).code, 'needs_confirm')
+  assert.equal(checkWatchDuration(900, { profile: 'owner', settings: { autoMaxMin: 10, confirmMaxMin: 20 }, confirmed: true }).ok, true)
+  assert.equal(checkWatchDuration(1201, { profile: 'owner', settings: { autoMaxMin: 10, confirmMaxMin: 20 }, confirmed: true }).code, 'too_long')
+
+  assert.equal(checkWatchDuration(300, { profile: 'fan', settings: { autoMaxMin: 5 } }).ok, true)
+  assert.equal(checkWatchDuration(301, { profile: 'fan', settings: { autoMaxMin: 5 }, confirmed: true }).code, 'too_long')
+
+  // 2. Interval multi-sheet frame planning (first frame = interval, ceil last frame, fixed grid tiling)
+  const p1 = planIntervalFrames({ durationSec: 600, everySec: 15, maxFrames: 60, grid: '2x2' })
+  assert.equal(p1.frameCount, 40)
+  assert.equal(p1.sheetCount, 10)
+  assert.equal(p1.capped, false)
+  assert.equal(p1.times[0], 15)
+  assert.equal(p1.times[1], 30)
+  assert.ok(p1.times.at(-1) > 590 && p1.times.at(-1) < 600)
+
+  const p2 = planIntervalFrames({ durationSec: 100, everySec: 15, maxFrames: 16, grid: '2x2' })
+  assert.equal(p2.frameCount, 7) // Math.ceil(100 / 15) === 7
+  assert.equal(p2.sheetCount, 2)
+  assert.equal(p2.lastSheetFrames, 3)
+  assert.equal(p2.times[0], 15)
+
+  const p3 = planIntervalFrames({ durationSec: 600, everySec: 15, maxFrames: 16, grid: '3x3' })
+  assert.equal(p3.capped, true)
+  assert.equal(p3.frameCount, 16)
+  assert.equal(p3.effectiveStep, 37.5)
+  assert.equal(p3.times[0], 37.5)
+  assert.equal(p3.sheetCount, 2)
+  assert.equal(p3.lastSheetFrames, 7)
+
+  assert.equal(watchOptions(['BV1xx411c7mD', '2x2', '--every', '15', '--max-frames', '60', '--profile', 'owner', '--confirmed'], '.').maxFrames, 60)
+
+  // 3. parseFrameOutput collects all multi-sheet SHEET lines
+  const parsedOut = parseFrameOutput('SHEET: /tmp/a-p1.jpg\nSHEET: /tmp/a-p2.jpg\nSHEET: /tmp/a-p3.jpg\n')
+  assert.equal(parsedOut.sheet, '/tmp/a-p1.jpg')
+  assert.deepEqual(parsedOut.sheets, ['/tmp/a-p1.jpg', '/tmp/a-p2.jpg', '/tmp/a-p3.jpg'])
+
+  // 4. Config clamps auto.maxDurationMin <= 30, mentionTotalDaily <= 10, fan confirmMaxMin === autoMaxMin, frameStrategy === interval
+  const dir = mkTmp('ag-whale-v16-')
+  const api = createApiHandlers({
+    whaleHome: dir,
+    cfgFile: path.join(dir, 'config.json'),
+    credFile: path.join(dir, 'credentials.json'),
+    personaFile: path.join(dir, 'persona.md'),
+    ipcClient: async () => ({ running: false }),
+    rpc: { available: () => false },
+  })
+  try {
+    const saved = await api.saveSettings({
+      owner: { mid: '12345', name: '主人' },
+      listen: { commentOwner: true, mentionSummaryOwner: true, commentFan: true, mentionSummaryFan: true },
+      fanLimits: { mentionTotalDaily: 20 },
+      chat: { autoComment: true, autoCommentDailyMax: 5 },
+      watch: {
+        auto: { maxDurationMin: 60, frameStrategy: 'grid', maxFrames: 48, frameGrid: '2x2' },
+        fanMention: { autoMaxMin: 5, confirmMaxMin: 15, frameStrategy: 'grid', maxFrames: 60 },
+      },
+    })
+    assert.equal(saved.config.watch.auto.maxDurationMin, 30)
+    assert.equal(saved.config.watch.auto.frameStrategy, 'interval')
+    assert.equal(saved.config.watch.auto.maxFrames, 48)
+    assert.equal(saved.config.watch.auto.frameGrid, '2x2')
+    assert.equal(saved.config.watch.fanMention.confirmMaxMin, 5)
+    assert.equal(saved.config.watch.fanMention.frameStrategy, 'interval')
+    assert.equal(saved.config.watch.fanMention.maxFrames, 60)
+    assert.equal(saved.config.fanLimits.mentionTotalDaily, 10)
+    assert.equal(saved.config.chat.autoComment, true)
+    assert.equal(saved.config.chat.autoCommentDailyMax, 5)
+
+    // 5. Owner @ ANY question (even without summary keywords) triggers self-judgment prompt; fan has no confirm tier
+    const ownerAtLines = mentionSummaryLines(saved.config, [
+      { kind: 'at', mid: '12345', isFollower: true, source: '@大鲸鱼 你觉得这个方案靠谱吗？', oid: '1', root: '0', parent: '2' },
+      { kind: 'at', mid: '88888', who: '铁粉', isFollower: true, source: '@大鲸鱼 总结一下', oid: '2', root: '0', parent: '3' },
+    ], { whaleHome: dir }).join('\n')
+    assert.ok(ownerAtLines.includes('由你自己判断回答主人的问题是否需要先看视频内容'))
+    assert.ok(ownerAtLines.includes('--confirmed'))
+    assert.ok(ownerAtLines.includes('无询问确认档'))
+    assert.ok(ownerAtLines.includes('固定 3x3 拼图'))
+
+    // 6. Activity calendar caps daily items to at most 5 while preserving full totals
+    const dayMs = Date.parse('2026-11-26T15:00:00+08:00')
+    fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'offline-v16-fixture', bili_jct: 'a'.repeat(32) }))
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '999', name: '大鲸鱼' }, owner: { mid: '12345', name: '主人' } }))
+    const { lifeStore } = await import('../tools/lib/life-runtime.mjs')
+    const store = lifeStore((await api.getSettings()).config, { dshHome: dir, now: () => dayMs })
+    for (let i = 1; i <= 13; i++) {
+      await store.record('video-read', { target: `BV1test0000${String(i).padStart(2, '0')}`, text: `视频 ${i}`, data: { title: `视频 ${i}` } })
+    }
+    const cal = buildActivityCalendar({ whaleHome: dir, cfg: (await api.getSettings()).config, store, now: () => dayMs })
+    assert.equal(cal.days['2026-11-26'].watched, 13)
+    assert.equal(cal.days['2026-11-26'].items.length, 5)
+
+    // 7. Multi-sheet inline images in model-tools return >2 sheets
+    const shotsDir = path.join(dir, 'shots', 'video')
+    fs.mkdirSync(shotsDir, { recursive: true })
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const sheetPaths = [1, 2, 3, 4].map(n => {
+      const p = path.join(shotsDir, `sheet-p${n}.png`)
+      fs.writeFileSync(p, pngBytes)
+      return p
+    })
+    const fakeBili = path.join(dir, 'fake-bili.mjs')
+    fs.writeFileSync(fakeBili, `for (const p of ${JSON.stringify(sheetPaths)}) console.log('SHEET: ' + p)\n`)
+    const runner = createModelToolRunner({ whaleHome: dir, cfgFile: path.join(dir, 'config.json'), biliMjs: fakeBili })
+    const res = await runner('bili_inspect', { command: 'watch-video', args: ['BV1xx411c7mD'] })
+    assert.equal(res.isError, false)
+    assert.equal(res.content.filter(c => c.type === 'image').length, 4)
+
+    // 8. UI bundle invariants for all requested UI changes
+    const bundle = fs.readFileSync(path.resolve('mcp/dist/app.html'), 'utf8')
+    assert.equal(bundle.includes('45 分钟以内'), false)
+    assert.equal(bundle.includes('60 分钟以内'), false)
+    assert.equal(bundle.includes('120 分钟以内'), false)
+    assert.equal(bundle.includes('每天最多 20 次'), false)
+    assert.equal(bundle.includes('需先回复粉丝确认的时长上限'), false)
+    assert.equal(bundle.includes('画面抽帧策略'), false)
+    assert.ok(bundle.includes('固定拼图格数'))
+    assert.ok(bundle.includes('16,24,36,48,60'))
+    assert.ok(bundle.includes('允许看完视频后自主发表评论（不 @ 主人）'))
+    assert.ok(bundle.includes('每日最多自主发表评论条数'))
+    assert.ok(bundle.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
+    assert.ok(bundle.includes('每 300 秒（5 分钟）检查一次（默认）'))
   } finally {
     api.dispose()
     fs.rmSync(dir, { recursive: true, force: true })
