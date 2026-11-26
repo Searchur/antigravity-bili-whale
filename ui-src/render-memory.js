@@ -64,6 +64,59 @@ function fanSubText(s) {
   return (s.fanMention ?? 0) > 0 ? `${base} · @总结 ${s.fanMention}` : base
 }
 
+const PLAN_ACTION_LABELS = {
+  done: '今日已完成',
+  wake: '待唤醒',
+  skip: '本次按概率跳过',
+}
+
+function formatPlanStatus(plan) {
+  if (!plan) return '尚无今日计划'
+  const wakes = Number(plan.wakes ?? 0)
+  const label = PLAN_ACTION_LABELS[plan.action] || '待排期'
+  const timePart = plan.action === 'done' || !plan.atText ? '' : ` · ${plan.atText}`
+  return `${label}${timePart}（已醒 ${wakes} 次）`
+}
+
+const EVENT_KIND_LABELS = {
+  'video-read': '观看视频',
+  sent: '已发送',
+  received: '收到消息',
+  reflection: '自我反思',
+  observed: '观察记录',
+  'activity-result': '活动结果',
+  'activity-started': '开始活动',
+  'memory-accepted': '记忆入库',
+  'memory-revoked': '撤销记忆',
+  'visibility-checked': '评论回读',
+  'thread-closed': '会话结束',
+  'thread-reopened': '恢复会话',
+  'send-rejected': '发送未通过',
+  'wake-delivery-accepted': '作息唤醒',
+  'wake-delivery-failed': '唤醒失败',
+  'wake-delivery-unconfirmed': '唤醒未确认',
+  'wake-delivery-forced-release': '唤醒超时释放',
+  'session-delivery-accepted': '会话投递',
+  'session-delivery-failed': '投递失败',
+  'session-delivery-unconfirmed': '投递未确认',
+  'night-triggered': '手动唤醒',
+  'night-trigger-rejected': '手动唤醒未执行',
+}
+
+const CHANNEL_LABELS = {
+  comment: '评论',
+  dm: '私信',
+  dynamic: '动态',
+}
+
+function eventKindLabel(kind) {
+  return EVENT_KIND_LABELS[kind] || '活动记录'
+}
+
+function channelLabel(ch) {
+  return CHANNEL_LABELS[ch] || '外发消息'
+}
+
 /**
  * Tab 6：动态与记忆
  * - 上半区：累计总计 + 今日/任意日期互动统计日历（看片/分享/动态/主人互动/粉丝互动/唤醒/安全拦截）。
@@ -146,7 +199,7 @@ export function renderMemoryTab(state, actions) {
     isToday
       ? el('div', { className: 'cal-plan-line' },
           el('span', { className: 'row-hint' }, '今日作息计划：'),
-          el('span', {}, st.plan ? `${st.plan.action} · ${st.plan.atText || '-'}（已醒 ${st.plan.wakes} 次）` : '尚无今日计划'))
+          el('span', {}, formatPlanStatus(st.plan)))
       : null,
     el('div', { className: 'day-stat-grid' },
       metricTile('观看视频', `${dayStat.watched} 条`),
@@ -230,7 +283,7 @@ export function renderMemoryTab(state, actions) {
             : el('div', {}, ...searchResults.map(item => el('div', { className: 'item-card' },
                 el('div', {}, item.text || item.summary || JSON.stringify(item).slice(0, 200)),
                 el('div', { className: 'row-hint mono', style: { marginTop: '4px' } },
-                  `${item.kind || 'event'}${item.target ? ' · ' + item.target : ''}${item.at ? ' · ' + new Date(item.at).toLocaleString('zh-CN') : ''}`)))))
+                  `${eventKindLabel(item.kind)}${item.target ? ' · ' + item.target : ''}${item.at ? ' · ' + new Date(item.at).toLocaleString('zh-CN') : ''}`)))))
       : null,
     (life?.pending ?? []).length > 0
       ? el('div', { className: 'item-card', style: { marginTop: '14px', borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' } },
@@ -242,7 +295,7 @@ export function renderMemoryTab(state, actions) {
               el('span', {}, '我已到 B 站核查')),
             el('input', { className: 'input', value: state.lifeReceipt, placeholder: '已发出请填回执 ID', onInput: e => { state.lifeReceipt = e.target.value; actions.rerender() } })),
           ...life.pending.map(p => el('div', { className: 'inline', style: { justifyContent: 'space-between', marginTop: '8px' } },
-            el('span', {}, `${p.channel} → ${p.target}`),
+            el('span', {}, `${channelLabel(p.channel)} → ${p.target}`),
             el('div', { className: 'inline' },
               el('button', { type: 'button', className: 'btn sm primary', disabled: !!state.busy || !state.lifeVerified || !state.lifeReceipt, onClick: () => actions.runLife('resolve', { id: p.id, status: 'sent', receipt: state.lifeReceipt, confirmed: state.lifeVerified }) }, '确认已发出'),
               el('button', { type: 'button', className: 'btn sm', disabled: !!state.busy || !state.lifeVerified, onClick: () => actions.runLife('resolve', { id: p.id, status: 'not-sent', confirmed: state.lifeVerified }) }, '确认未发出')))))

@@ -901,3 +901,48 @@ test('v1.6.2 removes artificial short-comment limits so whale freely chooses sho
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('v1.6.3 localizes Memory tab plan/events/channels, exposes behavior folder in About, and relaxes behavior autonomy', async () => {
+  const dir = mkTmp('ag-whale-v163-')
+  const opened = []
+  const api = createApiHandlers({
+    whaleHome: dir,
+    cfgFile: path.join(dir, 'config.json'),
+    credFile: path.join(dir, 'credentials.json'),
+    personaFile: path.join(dir, 'persona.md'),
+    ipcClient: async () => ({ running: false }),
+    rpc: { available: () => false },
+    openPathImpl: (target, opts) => opened.push({ target, opts }),
+  })
+  try {
+    const about = await api.getAbout()
+    assert.ok(about.paths.behaviorDir.endsWith(path.join('behavior')))
+    const openRes = await api.openLocalPath('behavior_dir')
+    assert.equal(openRes.ok, true)
+    assert.equal(openRes.key, 'behavior_dir')
+    assert.equal(openRes.openedPath, about.paths.behaviorDir)
+    assert.equal(opened.length, 1)
+
+    const bundle = fs.readFileSync(path.resolve('mcp/dist/app.html'), 'utf8')
+    assert.ok(bundle.includes('今日已完成'))
+    assert.ok(bundle.includes('待唤醒'))
+    assert.ok(bundle.includes('本次按概率跳过'))
+    assert.ok(bundle.includes('行为规范目录（behavior）'))
+
+    const memSrc = fs.readFileSync(path.resolve('ui-src/render-memory.js'), 'utf8')
+    assert.equal(memSrc.includes('${st.plan.action}'), false)
+    assert.ok(memSrc.includes('eventKindLabel'))
+    assert.ok(memSrc.includes('channelLabel'))
+
+    const browseMd = fs.readFileSync(path.resolve('behavior/browse.md'), 'utf8')
+    assert.equal(browseMd.includes('先 deps 检查'), false)
+    assert.ok(browseMd.includes('由你自己判断'))
+    const toolsMd = fs.readFileSync(path.resolve('behavior/tools.md'), 'utf8')
+    assert.equal(toolsMd.includes('三个月后还想看'), false)
+    const indexMd = fs.readFileSync(path.resolve('behavior/BEHAVIOR.md'), 'utf8')
+    assert.ok(indexMd.includes('自己判断做出选择'))
+  } finally {
+    api.dispose()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})

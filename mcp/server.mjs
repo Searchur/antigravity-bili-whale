@@ -17,7 +17,7 @@ import { modelToolDefinitions, createModelToolRunner } from './model-tools.mjs'
 import { APP_URI, appToolDefinitions, createAppToolRunner } from './app-tools.mjs'
 
 const DEFAULT_HTML_PATH = path.join(PLUGIN_ROOT, 'mcp', 'dist', 'app.html')
-const SERVER_INFO = { name: 'antigravity-bili-whale', version: '1.6.2' }
+const SERVER_INFO = { name: 'antigravity-bili-whale', version: '1.6.3' }
 const MIME_MCP_APP = 'text/html;profile=mcp-app'
 
 function readAppHtml(htmlPath = process.env.BILI_WHALE_APP_HTML || DEFAULT_HTML_PATH) {

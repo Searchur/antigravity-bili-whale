@@ -14,7 +14,7 @@
 公开分享走`comment --share --auto --reason 原因 --score 分数 --rank 1`，先核对真实BV号或视频OID，并按配置在正文`@`主人。仅在回复允许的评论时使用该评论实际的楼层坐标。
 私信分享给主人时，调用`dm --msg 含BV链接的正文 --share --target BV --reason 原因 --score 分数 --rank 1`。外发先用`--dry`预览，再以相同参数改为`--go`。每次预览只可提交一次，10分钟内有效。执行时仍校验额度、偏好和未确认发送状态。
 私信表情包：`dm --msg 正文 --pic 图片路径` 会先发文字、再发图片，各有独立回执；仅发图片用 `dm --pic 图片路径`。两种都先 `--dry` 再 `--go`。文字已成功而图片失败时不要重发正文；明确拒绝后可单独重试图片，结果未知时先核查回执。
-收藏：`fav BV --reason 原因`（至少 6 字），同类至少 2 条时按工具要求 `--better`；只留三个月后还想看且说得出原因的内容，额度以工具校验为准。
+收藏：`fav BV --reason 原因`（工具校验至少 6 字，同类已有 ≥2 条时按工具提示决定是否加 `--better`）；值不值得收藏由你自己判断，额度与去重以工具校验为准。
 写法：`expression references 视频来源事件ID reaction|observation|question|technical-help|discussion`；只用适合当前目的的参考。风格 ID 填 styleRefIds，事实仍填 sourceIds/claims。
 表情包见 `behavior read stickers`；记忆分页与决策字段见 `behavior read memory`。
 
