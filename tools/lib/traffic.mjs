@@ -1,6 +1,6 @@
-import { resolveHome } from './home.mjs'
-import {diagnose} from './diagnostics.mjs'
-import { activityFetch } from './activity.mjs'
+import { diagnose } from './diagnostics.mjs'
+import { localDay } from './local-date.mjs'
+import { renameWithRetry } from './life-persistence.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -13,26 +13,15 @@ export function riskSettings() {
   let cfg = {}
   try { cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')).risk ?? {} } catch(e) { if(e.code!=='ENOENT'){diagnose('traffic-config-read',e);throw new TrafficError('请求保护配置无法读取，已停止网络请求')} }
   const result = { ...RISK_DEFAULTS }
+  const GAP_KEYS = new Set(['dmGapSec', 'writeGapSec', 'minGapMs'])
   for (const key of Object.keys(result)) {
     const n = Number(cfg[key])
-    // 2026-10-23 改：dmGapSec 允许 0（主人要求「私信冷却不要」✗）
-    //   其他预算类仍然是 >0 才生效 ✓（0 会被当成没填 ✓ 防手滑关掉闸门）
-    // 2026-10-29 测试期（主人要求）：三个冷却键都允许显式 0
-    //   原来是 n>0 才生效 ✗ → 写 0 会被当成"没填"，回落到默认 120 秒
-    const GAP_KEYS = new Set(['dmGapSec', 'writeGapSec', 'minGapMs'])
     if (Number.isFinite(n) && (n > 0 || GAP_KEYS.has(key))) result[key] = Math.max(0, Math.floor(n))
   }
-  // 2026-10-29 测试期：minGapMs 也允许 0（原先是 Math.max(500, ...)）
-  //   正式使用时应改回 Math.max(500, ...)
-  result.minGapMs = Math.max(0, Number(result.minGapMs) || 0)
-  // 2026-10-29 测试期（主人要求）：writeGapSec 允许 0，不再强制最低 30 秒
-  //   原先是 Math.max(30, ...) ✗ → 带图评论要 上传(1写)+评论(1写) 两次冷却，测不动
-  //   正式使用时应改回 Math.max(30, ...)
-  result.writeGapSec = Math.max(0, Number(result.writeGapSec) || 0)
-  // 2026-10-23 改（主人要求）：私信冷却先不要 ✗
-//   原来是 Math.max(30, ...) → 最低 30 秒，改不了 0 ✗
-//   现在允许 0 = 不冷却（私信本来就一天只锁一个收信人 + 条数不限 ✓）
-result.dmGapSec = Math.max(0, Number(result.dmGapSec) || 0)
+  const inTest = Boolean(process.env.NODE_TEST_CONTEXT)
+  result.minGapMs = Math.max(inTest ? 0 : 300, Number(result.minGapMs) || 0)
+  result.writeGapSec = Math.max(inTest ? 0 : 5, Number(result.writeGapSec) || 0)
+  result.dmGapSec = Math.max(0, Number(result.dmGapSec) || 0)
   return result
 }
 const isBili = u => u.hostname === 'bilibili.com' || u.hostname.endsWith('.bilibili.com')
@@ -68,11 +57,14 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
     }
     try {
       const s = read(), result = fn(s)
-      const temp = stateFile + '.' + process.pid + '.tmp'
-      try { fs.writeFileSync(temp, JSON.stringify(s)); fs.renameSync(temp, stateFile) }
-      finally { fs.rmSync(temp, { force: true }) }
+      const temp = stateFile + '.' + process.pid + '.' + crypto.randomUUID() + '.tmp'
+      try { fs.writeFileSync(temp, JSON.stringify(s), { mode: 0o600 }); renameWithRetry(temp, stateFile) }
+      finally { try { fs.rmSync(temp, { force: true }) } catch {} }
       return result
-    } finally { fs.closeSync(fd); fs.unlinkSync(lockFile) }
+    } finally {
+      try { fs.closeSync(fd) } catch {}
+      try { fs.unlinkSync(lockFile) } catch (e) { if (e?.code !== 'ENOENT') diagnose('traffic-lock-cleanup', e) }
+    }
   }
   function blocked(s, account) {
     if (s.manual?.[account]) throw new TrafficError('账号需要人工处理登录或验证码；处理后运行 traffic resume --go')
@@ -119,7 +111,7 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
       blocked(s, account)
       s.accounts ??= {}; s.operations ??= {}
       const a = s.accounts[account] ??= {}
-      const date = new Date(timestamp).toLocaleDateString('sv-SE')
+      const date = localDay(timestamp)
       if (a.date !== date) Object.assign(a, { date, readDay: 0, writeDay: 0 })
       if (!a.hourAt || timestamp - a.hourAt >= 3600000) Object.assign(a, { hourAt: timestamp, readHour: 0, writeHour: 0 })
       for (const [key, item] of Object.entries(s.operations)) if (item.status !== 'unknown' && item.status !== 'pending' && timestamp - item.at > 86400000) delete s.operations[key]
@@ -195,7 +187,7 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
           s.riskEndpoint = url.pathname
         } else if (code === 0 && s.riskEndpoint === url.pathname && now() >= Number(s.until??0)) s.streak = 0
         if (manual) { s.manual ??= {}; s.manual[account] = {at:now(),code:Number.isFinite(code)?code:response.status} }
-        if (id) {
+        if (id && s.operations?.[id]) {
           if (response.ok && code === 0) s.operations[id].status = 'confirmed'
           else if (payload && Number.isFinite(code) && code !== 0) delete s.operations[id]
           else s.operations[id].status = 'unknown'
@@ -204,7 +196,9 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
       })
       return response
     } catch (e) {
-      await locked(s => { s.last={at:now(),endpoint:url.pathname,method,phase,elapsedMs:now()-startedAt,...timing,errorCode:String(e.code??e.name??'error').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,60)}; if(s.active?.token===requestToken)delete s.active; if (id) { if (!dispatched) delete s.operations[id]; else if (s.operations[id]) s.operations[id].status='unknown' } })
+      try {
+        await locked(s => { s.last={at:now(),endpoint:url.pathname,method,phase,elapsedMs:now()-startedAt,...timing,errorCode:String(e.code??e.name??'error').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,60)}; if(s.active?.token===requestToken)delete s.active; if (id) { if (!dispatched) delete s.operations[id]; else if (s.operations[id]) s.operations[id].status='unknown' } })
+      } catch (lockErr) { diagnose('traffic-catch-commit', lockErr) }
       if (dispatched && writing) throw new TrafficError(`发送结果不确定，已禁止自动重发。请回读核查；操作 ID：${id}`)
       throw e
     }
@@ -227,7 +221,6 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
 let singleton
 export function trafficGuard() { return singleton ??= createTrafficGuard({ directory: WHALE_HOME }) }
 export function guardedFetch(...args) {
-  args[1]=activityFetch(args[0],args[1])
   // Legacy fixture suites replace fetch and opt out explicitly. Production
   // BILI_NO_CACHE does NOT disable traffic protection.
   if (process.env.BILI_TRAFFIC_TEST === '1' && process.env.NODE_TEST_CONTEXT) {const {dispatch,...options}=args[1]??{};const invoke=()=>globalThis.fetch(args[0],options);return dispatch?dispatch(invoke):invoke()}

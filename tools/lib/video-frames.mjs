@@ -2,11 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { activityRemaining } from './activity.mjs'
 
 const execute = promisify(execFile)
 
-export async function segmentFrames({ffmpeg, url, times, directory, duration, uniform=false, run=execute}) {
+export async function segmentFrames({ ffmpeg, url, times, directory, duration, run = execute }) {
   let next = 0
   const errors = []
   const concurrency = duration < 300 ? 1 : 3
@@ -14,27 +13,27 @@ export async function segmentFrames({ffmpeg, url, times, directory, duration, un
     while (next < times.length) {
       const index = next++
       const prefix = path.join(directory, 'segment-' + index)
-      const start = uniform ? times[index] : Math.max(0, times[index] - 5)
-      const filter = uniform ? 'format=yuvj420p' : "select='eq(n,0)+gt(scene,0.1)',format=yuvj420p"
+      const start = Math.max(0, Number(times[index]) || 0)
       let success = false
-      for (let attempt=0; attempt<2 && !success; attempt++) {
-        for (const frame of [1,2]) fs.rmSync(prefix + '-' + frame + '.jpg', {force:true})
+      for (let attempt = 0; attempt < 2 && !success; attempt++) {
+        fs.rmSync(prefix + '-1.jpg', { force: true })
         try {
-          const remaining = activityRemaining()
           const seekAt = attempt > 0 ? Math.max(0, start - 1.5) : start
-          await run(ffmpeg, ['-y','-loglevel','error','-headers','Referer: https://www.bilibili.com/\r\nUser-Agent: Mozilla/5.0\r\n',
-            '-ss',seekAt.toFixed(2),'-t',uniform?'1':'10','-i',url,'-an','-vf',filter,
-            '-frames:v',uniform?'1':'2','-q:v','2',prefix+'-%d.jpg'],
-          {windowsHide:true, timeout:Math.min(20000, remaining ?? 20000), maxBuffer:1024*1024})
-          const frame = fs.existsSync(prefix+'-2.jpg') ? prefix+'-2.jpg' : prefix+'-1.jpg'
+          await run(ffmpeg, [
+            '-y', '-loglevel', 'error',
+            '-headers', 'Referer: https://www.bilibili.com/\r\nUser-Agent: Mozilla/5.0\r\n',
+            '-ss', seekAt.toFixed(2), '-t', '1', '-i', url, '-an',
+            '-vf', 'format=yuvj420p', '-frames:v', '1', '-q:v', '2', prefix + '-%d.jpg',
+          ], { windowsHide: true, timeout: 20000, maxBuffer: 1024 * 1024 })
+          const frame = prefix + '-1.jpg'
           if (!fs.existsSync(frame) || fs.statSync(frame).size === 0) throw Error('没有生成帧')
-          fs.renameSync(frame, path.join(directory, 'f'+String(index).padStart(2,'0')+'.jpg'))
+          fs.renameSync(frame, path.join(directory, 'f' + String(index).padStart(2, '0') + '.jpg'))
           success = true
-        } catch { /* Retry this read once, then let the caller use the complete download. */ }
+        } catch { /* Retry once, then fall back to full download. */ }
       }
       if (!success) errors.push(index)
     }
   }
-  await Promise.all(Array.from({length:Math.min(concurrency,times.length)}, worker))
+  await Promise.all(Array.from({ length: Math.min(concurrency, times.length) }, worker))
   if (errors.length) throw Error('分段抽帧失败 ' + errors.length + '/' + times.length)
 }

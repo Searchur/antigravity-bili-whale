@@ -70,9 +70,7 @@
   },
   "share": {
     "enabled": false,
-    "via": "comment",
-    "minScore": 13,
-    "silentAfterDays": 3
+    "via": "comment"
   },
   "chat": {
     "followup": false,

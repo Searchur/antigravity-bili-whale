@@ -106,7 +106,7 @@ export function makePlan(cfg, state = {}, now = Date.now(), random = Math.random
   //     · 窗口里放不下就跳过这个窗口，看下一个 ✓
   const lastWoke = Number.isFinite(Date.parse(state.wokeAt ?? '')) ? Date.parse(state.wokeAt) : 0
   const minGapMs = Math.max(
-    60_000,
+    10 * 60_000,
     Math.floor((Number.isFinite(Number(cfg.minGapMin)) ? Number(cfg.minGapMin) : 10) * 60_000),
   )
   let picked = null
@@ -137,7 +137,7 @@ export function makePlan(cfg, state = {}, now = Date.now(), random = Math.random
     window: w.label, windowKey: w.key, startsAt: w.startsAt, endsAt: w.endsAt,
     withinWindow: `${w.label} 第 ${(history.usedCount[w.key] ?? 0) + 1}/${w.wakes} 次`,
     maxVideos, deepWatchMax, createdAt: new Date(now).toISOString(),
-    ...(skip ? { reason: '本次计划跳过看视频，仍写日记' } : { roll: 'watch' }) }
+    ...(skip ? { reason: '本次计划按概率跳过看视频' } : { roll: 'watch' }) }
 }
 export function completePlan(state, now = Date.now()) {
   if (state.fired) return state

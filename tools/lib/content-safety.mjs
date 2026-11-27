@@ -31,20 +31,28 @@ const BUILTIN_RULES = [
   },
 ]
 
+const MAX_SAFETY_LOG_BYTES = 2 * 1024 * 1024
+const KEEP_SAFETY_LOG_LINES = 1000
+
 function normalizeForMatch(text) {
   return String(text ?? '')
     .normalize('NFKC')
-    .replace(/[\u200b-\u200f\ufeff]/g, '')
+    .replace(/[\u00ad\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufeff]/g, '')
     .trim()
+}
+
+function compactForMatch(clean) {
+  return clean.replace(/[\s\p{P}\p{S}_·•・]+/gu, '')
 }
 
 export function checkLocalSafety(text, rawSafetyCfg) {
   const safety = normalizeSafety(rawSafetyCfg)
   const clean = normalizeForMatch(text)
   if (!clean) return { ok: true, blocked: false, category: '', reason: '', layer: 'local' }
+  const compact = compactForMatch(clean)
 
   for (const rule of BUILTIN_RULES) {
-    const m = clean.match(rule.re)
+    const m = clean.match(rule.re) || compact.match(rule.re)
     if (m) {
       return {
         ok: false,
@@ -58,9 +66,11 @@ export function checkLocalSafety(text, rawSafetyCfg) {
   }
 
   const lower = clean.toLowerCase()
+  const compactLower = compact.toLowerCase()
   for (const word of safety.customWords) {
     const w = normalizeForMatch(word).toLowerCase()
-    if (w && lower.includes(w)) {
+    const wc = compactForMatch(w)
+    if ((w && lower.includes(w)) || (wc && compactLower.includes(wc))) {
       return {
         ok: false,
         blocked: true,
@@ -87,7 +97,14 @@ export function logSafetyBlock(entry, whaleHome = WHALE_HOME) {
       reason: String(entry.reason || '').slice(0, 200),
       preview: String(entry.text || '').slice(0, 60),
     }) + '\n'
-    fs.appendFileSync(file, line, 'utf8')
+    fs.appendFileSync(file, line, { encoding: 'utf8', mode: 0o600 })
+    try {
+      const st = fs.statSync(file)
+      if (st.size > MAX_SAFETY_LOG_BYTES) {
+        const kept = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).slice(-KEEP_SAFETY_LOG_LINES)
+        fs.writeFileSync(file, kept.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 })
+      }
+    } catch {}
   } catch {}
 }
 
@@ -105,7 +122,8 @@ export function readRecentSafetyBlocks(whaleHome = WHALE_HOME, limit = 20) {
 /**
  * 统一外发内容安全审核闸门（供 comment / dm / dm-batch / dynamic 等写操作强制调用）。
  * 1) 先跑第一层本地红线规则与自定义词库（零延迟、绝不可绕过）。
- * 2) 当 mode === 'dual' 且后台守护 Sidecar 在线时，再调用内置模型独立语义复审（防隐喻、谐音、诱导触线）。
+ * 2) 当 mode === 'dual' 时，再调用后台守护 Sidecar 内置模型独立语义复审（fail-closed：
+ *    Sidecar 离线、超时、异常或返回非 pass 均拦截外发，避免双重审核被静默降级）。
  */
 export async function enforceOutboundSafety({
   text,
@@ -129,29 +147,49 @@ export async function enforceOutboundSafety({
   }
 
   if (safety.mode === 'dual') {
+    let remote = null
     try {
-      const remote = await ipcClient('/safety-check', {
+      remote = await ipcClient('/safety-check', {
         method: 'POST',
+        file: path.join(whaleHome, 'sidecar-ipc.json'),
         body: { text: String(text ?? ''), channel, context: String(context ?? '').slice(0, 600) },
         timeoutMs: 30_000,
       })
-      if (remote?.running && remote.checked) {
-        if (remote.decision === 'block') {
-          const out = {
-            ok: false,
-            blocked: true,
-            category: remote.category || '内置模型合规拦截',
-            reason: remote.reason || '内置模型安全复审未通过，疑似涉及违法违规或敏感风险内容',
-            layer: 'model',
-          }
-          logSafetyBlock({ channel, text, ...out }, whaleHome)
-          return out
-        }
-        return { ok: true, blocked: false, layer: 'dual', reason: '' }
+    } catch (err) {
+      const out = {
+        ok: false,
+        blocked: true,
+        category: '双重安全审核不可用',
+        reason: `双重安全审核（dual）调用后台守护失败（${String(err?.message ?? err).slice(0, 80)}），已拦截外发。请检查后台守护 Sidecar 是否正常运行，或在控制台「分享与监听」切换为仅本地规则（local_only）。`,
+        layer: 'model-unavailable',
       }
-    } catch {
-      // Sidecar 离线或审查超时时，已通过第一层本地红线保护，不误伤正常发送
+      logSafetyBlock({ channel, text, ...out }, whaleHome)
+      return out
     }
+    if (!remote?.running || !remote.checked) {
+      const detail = remote?.reason || (remote?.running ? '内置模型复审失败或超时' : '后台守护 Sidecar 未运行')
+      const out = {
+        ok: false,
+        blocked: true,
+        category: '双重安全审核不可用',
+        reason: `双重安全审核（dual）未完成复审（${detail}），已拦截外发。请检查后台守护与模型配额，或在控制台「分享与监听」切换为仅本地规则（local_only）。`,
+        layer: 'model-unavailable',
+      }
+      logSafetyBlock({ channel, text, ...out }, whaleHome)
+      return out
+    }
+    if (remote.decision === 'pass') {
+      return { ok: true, blocked: false, layer: 'dual', reason: '' }
+    }
+    const out = {
+      ok: false,
+      blocked: true,
+      category: remote.category || '内置模型合规拦截',
+      reason: remote.reason || '内置模型安全复审未通过，疑似涉及违法违规或敏感风险内容',
+      layer: 'model',
+    }
+    logSafetyBlock({ channel, text, ...out }, whaleHome)
+    return out
   }
 
   return { ok: true, blocked: false, layer: 'local', reason: '' }

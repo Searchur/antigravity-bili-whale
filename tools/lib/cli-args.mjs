@@ -5,9 +5,7 @@ const POSITIONAL_SPEC = {
   'check-dynamic': ['dyn'],
   'check-mention': ['dyn', 'mid', 'name'],
   'watch-video': ['bvid', 'grid', 'outDir'],
-  'dynamic-edit': ['dyn', 'textFile'],
   search: ['kw', 'page'],
-  video: ['bvid'],
 }
 export function translateNamed(cmd, args) {
   const spec = POSITIONAL_SPEC[cmd]

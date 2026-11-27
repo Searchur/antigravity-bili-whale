@@ -99,10 +99,18 @@ export function planIntervalFrames({ durationSec, everySec = 15, maxFrames = 36,
   const effectiveStep = capped ? dur / frameCount : every
   const safeEnd = dur > 1 ? Math.max(0, dur - Math.min(1.5, dur * 0.1)) : Math.max(0, dur * 0.5)
 
-  const times = Array.from({ length: frameCount }, (_, idx) => {
+  const times = []
+  for (let idx = 0; idx < frameCount; idx++) {
     const nominal = (idx + 1) * effectiveStep
-    return Math.min(nominal, safeEnd)
-  })
+    const clamped = Math.min(nominal, safeEnd)
+    // Avoid clamping the last frame onto the exact same timestamp as the previous frame
+    if (times.length > 0 && clamped <= times.at(-1) + 0.05) {
+      const mid = (times.at(-1) + dur) / 2
+      times.push(Math.min(dur > 0.2 ? dur - 0.1 : dur, mid))
+    } else {
+      times.push(clamped)
+    }
+  }
   const sheetCount = Math.ceil(frameCount / perSheet)
   const lastSheetFrames = frameCount % perSheet || perSheet
 
@@ -152,7 +160,7 @@ export function watchOptions(args, defaultDir) {
       confirmed = true
     } else if (!arg.startsWith('--')) {
       positional.push(arg)
-    } else if (!['--uniform', '--full-download'].includes(arg)) {
+    } else if (arg !== '--full-download') {
       throw Error('未知抽帧选项：' + arg)
     }
   }
@@ -167,11 +175,4 @@ export function watchOptions(args, defaultDir) {
     confirmed,
     ...(args.includes('--full-download') ? { fullDownload: true } : {}),
   }
-}
-
-export function gridForFrameCount(count) {
-  const n = Math.min(60, Math.max(4, Math.floor(Number(count) || 9)))
-  const cols = Math.ceil(Math.sqrt(n))
-  const rows = Math.ceil(n / cols)
-  return { cols, rows, count: n }
 }

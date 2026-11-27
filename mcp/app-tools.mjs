@@ -93,12 +93,12 @@ export function appToolDefinitions() {
     },
     {
       name: 'whale_app_life',
-      title: '长期记忆管理',
-      description: '查询、搜索、保护、删除或导出大鲸鱼的长期记忆与活动状态（仅 UI 调用）。',
+      title: '长期记忆与活动管理',
+      description: '查询记忆状态、暂停或恢复主动活动、搜索记忆、导出记忆或核查未确认发送（仅 UI 调用）。',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string' },
+          action: { type: 'string', enum: ['status', 'pause', 'search', 'export', 'resolve'] },
           params: { type: 'object' },
         },
         required: ['action'],
@@ -136,7 +136,7 @@ export function createAppToolRunner(api) {
           ])
           return okResult(
             { ok: true, settings, status, about },
-            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.6.3'}）。`,
+            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.6.4'}）。`,
           )
         }
         case 'whale_app_bootstrap': {

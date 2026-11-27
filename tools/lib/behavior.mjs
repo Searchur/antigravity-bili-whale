@@ -10,8 +10,10 @@ export function loadBehavior(ids,{root=BEHAVIOR_ROOT}={}){
   return {id,text:fs.readFileSync(file,'utf8'),path:file}
  })
 }
-export function behaviorSections(scene,role){
- const section=role==='browse-main'?'browse':({'private-reply':'private-reply','private-recommendation':'private-recommendation','public-comment':'public-comment','reply':'public-reply','public-recommendation':'public-comment'}[scene])
+export function behaviorSections(scene,role,taskKind){
+ if(taskKind==='fan-dm')return ['common']
+ if(role==='browse-main')return ['common','browse','public-comment']
+ const section=({'private-reply':'private-reply','private-recommendation':'private-recommendation','public-comment':'public-comment','reply':'public-reply','public-recommendation':'public-comment'}[scene])
  if(!section)throw Error('未知规范场景')
  return ['common',section]
 }

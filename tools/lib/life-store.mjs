@@ -7,7 +7,6 @@ import {attachDynamicMemory,applyDecisionUsage,validateDynamicState} from './dyn
 import {dynamicActive} from './dynamic-memory-config.mjs'
 import {recallEligibility,rankMemories} from './memory-lifecycle.mjs'
 import {attachCognition,observeEvent,cognitiveState,changeRevision,cognitionIndexes} from './cognition.mjs'
-import {LEGACY_NAMES,legacyRecall,legacySource} from './legacy-memory.mjs'
 import {atomicWriteJson as atomic,createLifePersistence} from './life-persistence.mjs'
 import {archiveDigest,archiveLifeState} from './life-archive.mjs'
 export {archiveDigest} from './life-archive.mjs'
@@ -17,12 +16,8 @@ import crypto from 'node:crypto'
 import { acquireProcessLock } from './process-lock.mjs'
 import { DSH_HOME } from './paths.mjs'
 import { LIFE_DEFAULTS, lifeConfig } from './life-config.mjs'
-import {checkHard,hardMessage} from './expression-hard.mjs'
 import {compileContext, visible, applicable, validatePolicy, digest, assertScene} from './memory-context.mjs'
 import {rebuildIndex, indexCandidates, terms} from './memory-index.mjs'
-import {draftForm} from './expression-delivery.mjs'
-import {chatConfig} from './chat-config.mjs'
-import {inWindow} from './night-plan.mjs'
 
 const DAY=86400000
 export const fingerprint = text => crypto.createHash('sha256').update(String(text).normalize('NFKC').replace(/\s+/g,' ').trim()).digest('hex')
@@ -95,12 +90,6 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
   function thread(s,key) {
     return s.threads[key]??={key,status:'open',count:0,day:date(now()),daily:0,lastAt:0,reason:null,until:0,reopenFor:null,handled:[]}
   }
-  function activityLease(s){
-    if(!cfg.enabled||!cfg.autonomy||cfg.paused||s.settings.paused)return null
-    if(s.leases.some(l=>l.expiresAt>now()&&l.status==='active')||s.leases.filter(l=>date(l.at)===date(now())).length>=cfg.autonomyDaily)return null
-    const l={id:id(),at:now(),expiresAt:now()+cfg.autonomyMinutes*60000,remaining:cfg.autonomyReads,status:'active'}
-    s.leases.push(l);event(s,'activity-started',{target:l.id,origin:'tool'});return l
-  }
   function inspect(s,request) {
     if(!['comment','dm','dynamic'].includes(request.channel)||!String(request.target??'').trim()||!String(request.text??'').trim()||(request.channel==='comment'&&!/^\d+:\d+:(?:\d+|top)$/.test(request.thread??'')))throw Error('发送坐标或正文无效')
     if(request.channel==='dynamic'&&(request.scene!=='public-comment'||request.target!==String(account)||request.thread||request.parent||request.share))throw Error('动态目标或场景不一致')
@@ -113,24 +102,16 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
         now()-parent.at>DAY||!attachmentAuthorization||attachmentAuthorization.hash!==request.dmImageHash||
         attachmentAuthorization.policyRevision!==(s.settings.policyRevision??0)||
         request.auto!==attachmentAuthorization.auto||request.scene!==attachmentAuthorization.scene||
-        (request.taskId??null)!==(parent.taskId??null)||request.share||request.draftId||request.affectPlanId||
+        (request.taskId??null)!==(parent.taskId??null)||request.share||request.affectPlanId||
         request.text!=='[图片 sha256:'+request.dmImageHash+']')return {allow:false,reason:'附图与已确认文字消息不匹配'}
     }
-    const hard=checkHard(request.text,request.scene,cfg)
-    if(!hard.ok)return {allow:false,reason:hardMessage(hard),hard}
     const currentFull=typeof fullConfig==='function'?fullConfig():fullConfig;
     if(request.auto&&currentFull&&(String(currentFull.self?.mid)!==String(account)||String(currentFull.owner?.mid)!==String(owner)||lifeConfig(currentFull.life).paused||s.settings.paused))return {allow:false,reason:'账号、主人或暂停设置已变化'}
-    if(request.auto&&currentFull&&lifeConfig(currentFull.life).requireDraft&&!request.draftId&&!attachmentAuthorization?.draftId)return {allow:false,reason:'自主发言需要 expression 草稿凭据；先 expression prepare <JSON文件> → finalize <ID>，再 comment/dm --draft <ID> --dry → --go'}
-    if(request.socialJobId){
-      const job=(s.settings.socialJobs??[]).find(j=>j.id===request.socialJobId),full=currentFull??{},chat=chatConfig(full.chat)
-      if(!request.auto||!job||job.status!=='sending'||job.draftId!==request.draftId||now()-job.at>300000||!inWindow(full.night??{},now())||!lifeConfig(full.life).enabled||s.settings.paused||lifeConfig(full.life).paused||job.ownerAt!==(s.affect?.lastOwnerAt??0)||
-        !(job.kind==='dynamic'&&chat.dynamic&&request.channel==='dynamic'&&chat.dynamicDailyMax>=1))return {allow:false,reason:'社交任务已取消、过期或设置变化'}
-    }
-    if(request.auto&&request.share&&currentFull&&(currentFull.share?.enabled===false||(request.affectShareRoute!==undefined&&String(currentFull.share?.via??'dm')!==request.affectShareRoute)||s.affect?.initiativeBlocked))return {allow:false,reason:'分享出口、开关或主动联系许可已变化'}
+    if(request.auto&&request.share&&currentFull&&(currentFull.share?.enabled!==true||(request.affectShareRoute!==undefined&&String(currentFull.share?.via??'comment')!==request.affectShareRoute)||s.affect?.initiativeBlocked))return {allow:false,reason:'分享出口、开关或主动联系许可已变化'}
     const affectReason=affectSendCheck(s,request,currentFull?lifeConfig(currentFull.life):cfg,currentFull??{},now());if(affectReason)return {allow:false,reason:affectReason}
     if(!cfg.enabled)return {allow:true}
     if(request.auto&&(cfg.paused||s.settings.paused)) return {allow:false,reason:'主动活动已暂停'}
-    const taskId=request.taskId??s.drafts.find(d=>d.id===request.draftId)?.taskId
+    const taskId=request.taskId ?? null
     const trace=taskId?s.cognition?.traces.findLast(t=>t.taskId===taskId):null
     if(dynamicActive(cfg.dynamicMemory)&&trace&&trace.refs.some(r=>{const m=s.memories.find(m=>m.id===r.id);return m&&(!recallEligibility(m,trace.scene,now(),{cfg:cfg.dynamicMemory,historical:trace.fetchedRefs?.some(f=>f.id===m.id&&f.historical)}).allowed||(m.version??1)!==r.version)}))return {allow:false,reason:'任务引用的记忆已失效，请重新判断'}
     if(trace?.decision?.action==='abstain'||(trace?.decision?.action==='postpone'&&(request.share||request.scene?.includes('recommendation'))))return {allow:false,reason:'本任务已决定不行动或推迟推荐；不能继续原发送'}
@@ -165,25 +146,22 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
       }
       if(t.count>=cfg.threadReplies&&!t.reopenFor)return {allow:false,reason:'连续回复预算已用完'}
     }
-    if(request.draftId){
-      const draft=s.drafts.find(d=>d.id===request.draftId)
-      if(draft&&draft.policyRevision!==(s.settings.policyRevision??0))return {allow:false,reason:'草稿使用旧策略，请重新生成'}
-      if(!draft||draft.status!=='pending'||now()-draft.at>DAY)return {allow:false,reason:'草稿不存在、未定稿、过期或已发送；请检查 finalize 输出的 ID'}
-      if(draft.delivery?.channel&&draft.delivery.channel!==request.channel)return {allow:false,reason:'草稿通道不一致'}
-      const expected=draftForm(draft,{share:!!request.share&&!request.affectPlanId,ownerName:request.ownerName??ownerName})
-      if(expected!==request.text)return {allow:false,reason:'草稿正文与最终发送正文不一致；使用 --draft <ID>，移除重复正文参数；修改请先 revise 一次'}
-      for(const [key,actual] of [['target',request.target],['scene',request.scene],['thread',request.thread??''],['parent',String(request.parent??'')]])if(draft[key]!==actual)return {allow:false,reason:'草稿 '+key+' 不一致；已固化为 '+String(draft[key])+'，请只用 --draft 读取坐标，或重新创建正确目标的草稿'}
-    }else if(cfg.requireDraft&&request.auto&&!attachmentAuthorization?.draftId)return {allow:false,reason:'自主发言需要 expression 草稿凭据；先 expression prepare <JSON文件> → finalize <ID>，再 comment/dm --draft <ID> --dry → --go'}
     return {allow:true,hash}
+  }
+  const findByKey=(s,key)=>{
+    const hot=cognitionIndexes(s).byKey.get(key)
+    if(hot)return hot
+    if((s.settings.archivedEventKeys??[]).includes(key))return {id:key,key,archived:true}
+    return null
   }
   const api={dir,file,read,tx,now,policy:cfg,identity:{owner:{mid:String(owner),name:String(ownerName)}},
     sources(ids){return sources(read(),ids)},
     checkpointStatus(){const s=checkpoint();return {schema:1,revision:s.revision,digest:digest(s),archives:s.archives.length}},
     replayCheck(){const s=checkpoint();for(const a of s.archives){if(archiveDigest(fs.readFileSync(path.join(dir,'archive',path.basename(a.name)),'utf8'))!==a.digest)throw Error('归档校验失败')}return {ok:true,revision:s.revision,memories:s.memories.length,pending:Object.keys(s.pending).length,networkEffects:0}},
     async record(kind,data={},dedupKey=''){
-      if(!['received','observed','reflection','video-read','activity-result'].includes(kind))throw Error('该事件只能由发送或控制工具写入')
+      if(!['received','observed','reflection','video-read'].includes(kind))throw Error('该事件只能由发送或控制工具写入')
       return tx(s=>{
-        if(dedupKey){const old=api.search(dedupKey,{archives:true,limit:100}).find(e=>e.key===dedupKey);if(old)return old}
+        if(dedupKey){const old=findByKey(s,dedupKey);if(old)return old}
         return event(s,kind,{text:str(data.text,12000),target:str(data.target,256),origin:str(data.origin||'model',40),actor:str(data.actor,64),key:str(dedupKey,256),data:data.data??null})
       })
     },
@@ -191,7 +169,7 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
       if(!['wake-delivery-forced-release','night-triggered','night-trigger-rejected'].includes(kind))throw Error('无效调度事件')
       const key=kind+':'+str(data.runId??data.id,128)
       return tx(s=>{
-        const old=api.search(key,{archives:true,limit:100}).find(e=>e.key===key);if(old)return old
+        const old=findByKey(s,key);if(old)return old
         return event(s,kind,{key,origin:'scheduler',target:str(data.requestId??data.id,256),text:str(data.error??data.reason??kind,300),data})
       })
     },
@@ -199,7 +177,7 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
       if(!['accepted','failed','unconfirmed'].includes(record.status)||!record.requestId||!record.attempt)throw Error('无效投递回执')
       const key=str(record.requestId+':'+record.attempt+':'+record.status,256)
       return tx(s=>{
-        const old=api.search(key,{archives:true,limit:100}).find(e=>e.key===key);if(old)return old
+        const old=findByKey(s,key);if(old)return old
         const kind=(record.channel==='wake'?'wake':'session')+'-delivery-'+record.status
         return event(s,kind,{key,origin:'scheduler',target:str(record.requestId,256),text:str(record.error??'宿主已接受投递；不代表 agent 已执行',300),data:{sessionId:record.sessionId,status:record.status,channel:record.channel}})
       })
@@ -216,7 +194,7 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
     reserve(request){return tx(s=>{
       const verdict=inspect(s,request);if(!verdict.allow)throw Error(verdict.reason)
       const token=id();s.pending[token]={...request,text:str(request.text,16000),hash:verdict.hash??fingerprint(request.text),at:now(),status:'uncertain',phase:'prepared',operationId:token,policyRevision:s.settings.policyRevision??0}
-      const full=typeof fullConfig==='function'?fullConfig():fullConfig;if(request.auto&&request.share&&full)s.pending[token].affectShareRoute=String(full.share?.via??'dm')
+      const full=typeof fullConfig==='function'?fullConfig():fullConfig;if(request.auto&&request.share&&full)s.pending[token].affectShareRoute=String(full.share?.via??'comment')
       bindAffectSend(s,s.pending[token],now())
       return token
     })},
@@ -230,15 +208,15 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
       if(status==='sent'&&!String(receipt))throw Error('成功必须有平台回执')
       if(status==='not-sent'&&!verified)throw Error('人工核查后才能解除不确定发送')
       if(status==='sent'){
-        const sentEvent=event(s,'sent',{operationId:token,phase:'apiAccepted',taskId:p.taskId??s.drafts.find(d=>d.id===p.draftId)?.taskId,channel:p.channel,target:p.target,thread:p.thread,parent:p.parent,hash:p.hash,text:p.text,receipt:String(receipt),origin:'tool'})
+        const sentEvent=event(s,'sent',{operationId:token,phase:'apiAccepted',taskId:p.taskId??null,channel:p.channel,target:p.target,thread:p.thread,parent:p.parent,hash:p.hash,text:p.text,receipt:String(receipt),origin:'tool'})
         if(p.share)sentEvent.data={share:true}
         if(p.affectPlanId)sentEvent.data={...sentEvent.data,initiative:true}
-        if(p.socialJobId)sentEvent.data={...sentEvent.data,initiative:true,socialJobId:p.socialJobId}
+        if(p.batchPartId)sentEvent.data={...sentEvent.data,batchPartId:p.batchPartId}
         if(p.channel==='dynamic')sentEvent.data={...sentEvent.data,visibility:'public'}
         if(p.dmImageHash){
           sentEvent.data={...sentEvent.data,contentKind:p.dmAttachmentOf||p.dmImageOnly?'image':'text',imageHash:p.dmImageHash}
           if(p.dmAttachmentOf)sentEvent.data.attachmentOf=p.dmAttachmentOf
-          else if(!p.dmImageOnly)sentEvent.data.dmAttachment={hash:p.dmImageHash,auto:p.auto,scene:p.scene,draftId:p.draftId,policyRevision:p.policyRevision}
+          else if(!p.dmImageOnly)sentEvent.data.dmAttachment={hash:p.dmImageHash,auto:p.auto,scene:p.scene,policyRevision:p.policyRevision}
         }
         affectSettled(s,p,sentEvent,now(),cfg)
         if(p.channel==='comment'){
@@ -248,9 +226,8 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
           if(t.count>=cfg.threadReplies){t.status='closed';t.closedAt=now();t.reason='budget';t.until=now()+cfg.cooldownMinutes*60000}
           if(p.thread.endsWith(':top')){const key=p.thread.slice(0,-3)+String(receipt);s.threads[key]={...t,key,handled:[...t.handled]}}
         }
-        const taskId=p.taskId??s.drafts.find(d=>d.id===p.draftId)?.taskId
+        const taskId=p.taskId??null
         const trace=s.cognition?.traces.findLast(t=>t.taskId===taskId);if(trace&&!p.dmAttachmentOf&&!p.dmImageOnly){trace.outcomes??=[];trace.outcomes.push({operationId:token,receipt:String(receipt),phase:'apiAccepted',at:now()});trace.stage='apiAccepted';if(!cfg.paused)applyDecisionUsage(s,trace,now(),cfg.dynamicMemory)}
-        if(p.draftId){const d=s.drafts.find(d=>d.id===p.draftId);if(d)d.status='sent'}
       }else {event(s,'send-rejected',{target:p.target,status,origin:'tool'});affectSettled(s,p,null,now(),cfg)}
       delete s.pending[token];return {status}
     })},
@@ -333,28 +310,8 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
           return {items:rows.slice(0,20),diagnostics,status:diagnostics.length?'degraded':'ok'}},
       })
     },
-    bindLegacy(name,visibility='private'){return tx(s=>{if(!LEGACY_NAMES.includes(name)||!['private','public'].includes(visibility)||(name.includes('-private')&&visibility==='public'))throw Error('旧来源绑定无效');(s.settings.legacyBindings??={})[name]={visibility,account,owner};return s.settings.legacyBindings})},
-    legacyRecall(scene,query={}){return legacyRecall(dshHome,read().settings.legacyBindings??{},scene,query)},
-    legacySource(scene,ref){return legacySource(dshHome,read().settings.legacyBindings??{},scene,ref)},
     rebuildIndex(){return rebuildIndex(dir,read())},
     suppress(memoryId,value=true){return tx(s=>{const m=s.memories.find(m=>m.id===memoryId);if(!m)throw Error('记忆不存在');m.recallEnabled=!value;if(m.lifecycle)m.lifecycle.recallControl=value?'owner_suppressed':'enabled';invalidatePolicies(s);return m})},
-    consolidate(input){return tx(s=>{
-      if(!input||input.expectedRevision!==s.revision)throw Error('整理版本冲突')
-      if(!Array.isArray(input.groups)||input.groups.length>20)throw Error('整理批次最多 20 组')
-      const allowed=new Map(s.memories.filter(m=>m.active).slice(-80).map(m=>[m.id,m]))
-      const output=[]
-      for(const g of input.groups){
-        if(!Array.isArray(g.ids)||g.ids.length<2||g.ids.length>20||new Set(g.ids).size!==g.ids.length)throw Error('合并需要 2–20 个不同 ID')
-        const rows=g.ids.map(id=>allowed.get(id));if(rows.some(x=>!x))throw Error('整理引用了窗口外或失效 ID')
-        if(rows.some(x=>x.type!=='memory'||x.visibility!==rows[0].visibility||JSON.stringify(x.scope)!==JSON.stringify(rows[0].scope)||x.expiresAt!==rows[0].expiresAt))throw Error('整理只能合并权限范围一致的普通记忆；策略需单独审核')
-        if(typeof g.text!=='string'||!g.text.trim()||g.text.length>4000)throw Error('合并正文无效')
-        const p={id:id(),at:now(),type:'memory',text:g.text,sourceIds:[...new Set(rows.flatMap(m=>m.sourceIds))],derivedFrom:g.ids,baseVersions:rows.map(m=>({id:m.id,version:m.version??1})),scope:rows[0].scope,visibility:rows[0].visibility,expiresAt:rows[0].expiresAt,status:'pending',origin:'model'}
-        if(p.sourceIds.length>20)throw Error('合并后的独立来源超过 20 条；请缩小批次')
-        output.push(p)
-      }
-      if(s.proposals.filter(p=>p.status==='pending').length+output.length>200)throw Error('待审提案过多')
-      s.proposals.push(...output);return {proposals:output}
-    })},
     search(query,{archives=false,limit=20,scene='local-management'}={}){
       limit=Math.max(1,Math.min(100,Number(limit)||20))
       const s=read(),q=String(query).toLowerCase(),matches=e=>visible(e,scene)&&JSON.stringify(e).toLowerCase().includes(q)
@@ -367,38 +324,8 @@ export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName=
     },
     archive(){return tx(s=>{archive(s,true);return {archives:s.archives.length,events:s.events.length,pending:Object.keys(s.pending).length}})},
     pause(value){return tx(s=>{if(s.settings.paused!==!!value)changeRevision(s,{permission:true,policy:true});s.settings.paused=!!value;if(!value&&s.affect){s.affect.initiativeBlocked=false;s.affect.resumeAfter=now()+1800000;s.affect.policyVersion++}return {paused:!!value}})},
-    agendaAdd(text){return tx(s=>{if(s.agenda.filter(a=>a.status==='open').length>=100)throw Error('议程已满');const item={id:id(),text:str(text,1000),at:now(),status:'open'};if(!item.text.trim())throw Error('议程为空');s.agenda.push(item);return item})},
-    agendaDone(agendaId,result){return tx(s=>{const a=s.agenda.find(x=>x.id===agendaId);if(!a)throw Error('议程不存在');a.status='done';a.result=str(result,2000);event(s,'activity-result',{target:a.id,text:a.result,origin:'model'});return a})},
-    beginActivity(){return tx(s=>{
-      return activityLease(s)
-    })},
-    scheduleActivity(trigger,dueAt){return tx(s=>{
-      if(!cfg.enabled||!cfg.autonomy)return null
-      if(!String(trigger)||!Number.isFinite(dueAt)||dueAt<now())throw Error('附加活动的触发来源或时间无效')
-      const queue=s.settings.activityQueue??=[]
-      const old=queue.find(a=>a.trigger===String(trigger));if(old)return old
-      const item={id:id(),trigger:String(trigger),at:now(),dueAt,status:'queued'}
-      queue.push(item);s.settings.activityQueue=queue.filter(a=>now()-a.at<7*DAY).slice(-100)
-      return item
-    })},
-    beginScheduledActivity(){return tx(s=>{
-      const item=(s.settings.activityQueue??[]).find(a=>a.status==='queued'&&a.dueAt<=now()&&now()-a.at<DAY)
-      if(!item)return null
-      const lease=activityLease(s);if(!lease)return null
-      item.status='dispatching';item.leaseId=lease.id
-      return {item,lease}
-    })},
-    finishScheduledActivity(activityId,delivered){return tx(s=>{
-      const item=(s.settings.activityQueue??[]).find(a=>a.id===activityId)
-      if(!item||item.status!=='dispatching')throw Error('附加活动投递状态已经变化')
-      item.status=delivered==='unconfirmed'?'delivery-unconfirmed':delivered?'delivered':'delivery-failed';item.finishedAt=now()
-      if(!delivered){const lease=s.leases.find(l=>l.id===item.leaseId);if(lease){lease.status='done';lease.expiresAt=now()}}
-      return item
-    })},
-    consumeActivity(leaseId){return tx(s=>{const l=s.leases.find(x=>x.id===leaseId);if(!l||l.expiresAt<=now()||l.remaining<=0||l.status!=='active'||cfg.paused||s.settings.paused)throw Error('自主活动已结束或预算耗尽');l.remaining--;return l})},
-    endActivity(leaseId){return tx(s=>{const l=s.leases.find(x=>x.id===leaseId);if(!l)throw Error('活动不存在');l.status='done';l.expiresAt=now();return l})},
     export(){const s=read();return {exportedAt:now(),...s,archiveContents:s.archives.map(a=>{const raw=fs.readFileSync(path.join(dir,'archive',path.basename(a.name)),'utf8');if(archiveDigest(raw)!==a.digest)throw Error('历史归档校验失败');return {name:a.name,...JSON.parse(raw)}})}},
-    status(){const s=read();return {schema:1,revision:s.revision,policyRevision:s.settings.policyRevision??0,recovery:fs.existsSync(checkpointFile)?'checkpoint':'legacy-state',learning:api.learningStatus(),affect:api.affectStatus(),dynamicMemory:api.dynamicStatus(),memoryRevision:s.settings.memoryRevision??0,capabilities:{formation:'session-file-two-stage',privateContinuity:'shared-main',externalIngress:'adapter-required',behaviorEvaluation:'not-live-validated',context:'ok',readFacade:'ok',hostToolIsolation:'unavailable',erase:'unavailable'},enabled:cfg.enabled,paused:cfg.paused||!!s.settings.paused,events:s.events.length,archives:s.archives.length,chat:{batches:(s.settings.dmBatches??[]).map(b=>({id:b.id,status:b.status,parts:b.parts.map(p=>p.status)})),jobs:(s.settings.socialJobs??[]).filter(j=>j.kind==='dynamic').map(j=>({id:j.id,kind:j.kind,status:j.status}))},pending:Object.entries(s.pending).map(([id,p])=>({id,channel:p.channel,target:p.target,at:p.at,status:p.status,phase:p.phase??'legacy-uncertain',operationId:p.operationId??id})),threads:Object.values(s.threads),memories:s.memories,proposals:s.proposals,agenda:s.agenda,leases:s.leases,activities:s.settings.activityQueue??[],lastArchiveAt:s.settings.lastArchiveAt??null}}
+    status(){const s=read();return {schema:1,revision:s.revision,policyRevision:s.settings.policyRevision??0,recovery:fs.existsSync(checkpointFile)?'checkpoint':'legacy-state',learning:api.learningStatus(),affect:api.affectStatus(),dynamicMemory:api.dynamicStatus(),memoryRevision:s.settings.memoryRevision??0,capabilities:{formation:'session-file-two-stage',privateContinuity:'shared-main',externalIngress:'adapter-required',behaviorEvaluation:'not-live-validated',context:'ok',readFacade:'ok',hostToolIsolation:'unavailable',erase:'unavailable'},enabled:cfg.enabled,paused:cfg.paused||!!s.settings.paused,events:s.events.length,archives:s.archives.length,chat:{batches:(s.settings.dmBatches??[]).map(b=>({id:b.id,status:b.status,parts:b.parts.map(p=>p.status)}))},pending:Object.entries(s.pending).map(([id,p])=>({id,channel:p.channel,target:p.target,at:p.at,status:p.status,phase:p.phase??'legacy-uncertain',operationId:p.operationId??id})),threads:Object.values(s.threads),memories:s.memories,proposals:s.proposals,lastArchiveAt:s.settings.lastArchiveAt??null}}
   }
   attachAffect(api,cfg)
   attachDynamicMemory(api,cfg)

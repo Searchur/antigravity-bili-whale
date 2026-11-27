@@ -42,7 +42,7 @@ export async function uploadPic(file, csrf, headers, { expectedHash } = {}) {
   const account=cookie.match(/(?:^|;)\s*SESSDATA=([^;]+)/i)?.[1]??cookie
   const key=crypto.createHash('sha256').update(account+'\n'+hash).digest('hex')
   const cacheFile=dataPath('picture-uploads.json')
-  const release=await acquireProcessLock(cacheFile)
+  const release=await acquireProcessLock(cacheFile,{retries:40,delayMs:50})
   try {
     let cache={}
     try { cache=JSON.parse(fs.readFileSync(cacheFile,'utf8')) } catch(error) {

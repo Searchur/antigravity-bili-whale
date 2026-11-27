@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import crypto from 'node:crypto'
 import { WHALE_HOME } from './paths.mjs'
 import { localDay } from './local-date.mjs'
 import { acquireProcessLock } from './process-lock.mjs'
+import { atomicWriteJson } from './life-persistence.mjs'
 
 const CHANNELS = ['dm', 'comment', 'mentionSummary']
 const MAX_HISTORY_DAYS = 365
@@ -15,6 +15,7 @@ function quotaFile(whaleHome = WHALE_HOME) {
 function emptyDay(date, history = {}) {
   return {
     date,
+    lastAt: 0,
     dm: { total: 0, byUid: {} },
     comment: { total: 0, byUid: {} },
     mentionSummary: { total: 0, byUid: {} },
@@ -29,6 +30,7 @@ function summarizeDay(state) {
     commentTotal: Math.max(0, Number(state?.comment?.total) || 0),
     commentUsers: Object.keys(state?.comment?.byUid ?? {}).length,
     mentionSummaryTotal: Math.max(0, Number(state?.mentionSummary?.total) || 0),
+    ...(Number.isFinite(Number(state?.lastAt)) && Number(state.lastAt) > 0 ? { lastAt: Number(state.lastAt) } : {}),
   }
 }
 
@@ -49,6 +51,7 @@ function sanitizeHistory(rawHistory) {
       commentTotal,
       commentUsers: Math.max(0, Number(v.commentUsers) || 0),
       mentionSummaryTotal,
+      ...(Number.isFinite(Number(v.lastAt)) && Number(v.lastAt) > 0 ? { lastAt: Number(v.lastAt) } : {}),
     }
   }
   return out
@@ -61,6 +64,7 @@ function readState(whaleHome = WHALE_HOME, now = Date.now) {
     const history = sanitizeHistory(raw?.history)
     if (raw && raw.date === today) {
       const base = emptyDay(today, history)
+      base.lastAt = Math.max(0, Number(raw.lastAt) || 0)
       for (const ch of CHANNELS) {
         if (raw[ch] && typeof raw[ch] === 'object') {
           base[ch] = {
@@ -71,7 +75,6 @@ function readState(whaleHome = WHALE_HOME, now = Date.now) {
       }
       return base
     }
-    // 跨天时自动将上一日计数归档到 history，避免历史统计丢失
     if (raw && /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date ?? ''))) {
       const prev = summarizeDay(raw)
       if (prev.dmTotal + prev.commentTotal + prev.mentionSummaryTotal > 0) {
@@ -86,15 +89,7 @@ function readState(whaleHome = WHALE_HOME, now = Date.now) {
 }
 
 function writeState(state, whaleHome = WHALE_HOME) {
-  const file = quotaFile(whaleHome)
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = `${file}.${crypto.randomUUID()}.tmp`
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', { mode: 0o600 })
-    fs.renameSync(tmp, file)
-  } finally {
-    fs.rmSync(tmp, { force: true })
-  }
+  atomicWriteJson(quotaFile(whaleHome), state)
 }
 
 /**
@@ -125,7 +120,9 @@ export async function lockFanReplyQuota(request, count = 1) {
   try {
     const quota = checkFanQuota(request)
     if (!quota.allowed) throw Error(quota.reason)
-    if (quota.userUsed + count > request.perUserDaily || quota.totalUsed + count > request.totalDaily) {
+    const perLimit = Math.max(0, Math.floor(Number(request.perUserDaily) || 0))
+    const totalLimit = Math.max(0, Math.floor(Number(request.totalDaily) || 0))
+    if (quota.userUsed + count > perLimit || quota.totalUsed + count > totalLimit) {
       throw Error('剩余粉丝回复额度不足以发送全部内容')
     }
     return release
@@ -142,9 +139,11 @@ export function recordFanReply({ channel, uid, whaleHome = WHALE_HOME, now = Dat
   if (!CHANNELS.includes(channel)) return
   const mid = String(uid ?? '').trim()
   if (!mid) return
-  const state = readState(whaleHome, now)
+  const at = typeof now === 'function' ? now() : Date.now()
+  const state = readState(whaleHome, () => at)
   state[channel].total = Number(state[channel].total ?? 0) + 1
   state[channel].byUid[mid] = Number(state[channel].byUid[mid] ?? 0) + 1
+  state.lastAt = Math.max(Number(state.lastAt) || 0, at)
   state.history = sanitizeHistory({ ...(state.history ?? {}), [state.date]: summarizeDay(state) })
   writeState(state, whaleHome)
 }

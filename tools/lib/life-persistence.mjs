@@ -3,6 +3,24 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 
 const id = () => crypto.randomUUID()
+const RETRYABLE_RENAME = new Set(['EPERM', 'EBUSY', 'EACCES'])
+const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4))
+
+function sleepSync(ms) {
+  try { Atomics.wait(SLEEP_BUF, 0, 0, ms) } catch {}
+}
+
+export function renameWithRetry(src, dest, { attempts = 8, baseDelayMs = 25 } = {}) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      fs.renameSync(src, dest)
+      return
+    } catch (err) {
+      if (!RETRYABLE_RENAME.has(err?.code) || i === attempts - 1) throw err
+      sleepSync(baseDelayMs * (i + 1))
+    }
+  }
+}
 
 export function initialLifeState() {
   return {
@@ -32,9 +50,9 @@ export function atomicWriteJson(file, value) {
     } finally {
       fs.closeSync(fd)
     }
-    fs.renameSync(tmp, file)
+    renameWithRetry(tmp, file)
   } finally {
-    fs.rmSync(tmp, { force: true })
+    try { fs.rmSync(tmp, { force: true }) } catch {}
   }
 }
 

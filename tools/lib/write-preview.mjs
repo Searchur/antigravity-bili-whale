@@ -6,13 +6,27 @@ import { credentialsPath, dataPath } from './paths.mjs'
 import { atomicWriteJson } from './life-persistence.mjs'
 
 const MAX_AGE_MS = 10 * 60_000
+const CLOCK_SKEW_MS = 5_000
 const digest = value => createHash('sha256').update(value).digest('hex')
+const cleanCred = v => String(v ?? '').replace(/^["'\s]+|["'\s]+$/g, '')
+
+function pruneExpired(dir, now, keepName = '') {
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (!/^[a-f0-9-]{64,101}\.json$/.test(name) || name === keepName) continue
+      const entry = path.join(dir, name)
+      try { if (now - fs.lstatSync(entry).mtimeMs > MAX_AGE_MS) fs.rmSync(entry, { force: true }) } catch {}
+    }
+  } catch {}
+}
 
 /** Record a validated preview or claim it once before making a remote write. */
 export function requireWritePreview(command, payload, { dry, credentials, attachment } = {}) {
   const current = config({ fresh: true })
-  const login = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-  if (!login?.sessdata || (credentials && (credentials.sessdata !== login.sessdata || credentials.bili_jct !== login.bili_jct))) {
+  const rawLogin = JSON.parse(fs.readFileSync(credentialsPath, 'utf8').replace(/^\uFEFF/, ''))
+  const login = { sessdata: cleanCred(rawLogin?.sessdata), bili_jct: cleanCred(rawLogin?.bili_jct) }
+  const expected = credentials ? { sessdata: cleanCred(credentials.sessdata), bili_jct: cleanCred(credentials.bili_jct) } : null
+  if (!login.sessdata || (expected && (expected.sessdata !== login.sessdata || expected.bili_jct !== login.bili_jct))) {
     throw Error('登录态已变化，请重新预览后再执行')
   }
   const attachmentHash = attachment ? digest(Buffer.isBuffer(attachment) ? attachment : fs.readFileSync(attachment)) : null
@@ -22,11 +36,7 @@ export function requireWritePreview(command, payload, { dry, credentials, attach
   const now = Date.now()
   if (dry) {
     atomicWriteJson(file, { at: now })
-    for (const name of fs.readdirSync(dir)) {
-      if (!/^[a-f0-9-]{64,101}\.json$/.test(name) || name === `${key}.json`) continue
-      const entry = path.join(dir, name)
-      try { if (now - fs.lstatSync(entry).mtimeMs > MAX_AGE_MS) fs.rmSync(entry, { force: true }) } catch {}
-    }
+    pruneExpired(dir, now, `${key}.json`)
     return
   }
 
@@ -38,8 +48,9 @@ export function requireWritePreview(command, payload, { dry, credentials, attach
   }
   try {
     const { at } = JSON.parse(fs.readFileSync(claimed, 'utf8'))
-    if (!Number.isFinite(at) || at > now || now - at > MAX_AGE_MS) throw Error('预览已过期，请重新执行 --dry')
+    if (!Number.isFinite(at) || at > now + CLOCK_SKEW_MS || now - at > MAX_AGE_MS) throw Error('预览已过期，请重新执行 --dry')
   } finally {
     fs.rmSync(claimed, { force: true })
+    pruneExpired(dir, now)
   }
 }

@@ -10,7 +10,11 @@ export function pipelineConfig(input=config()){
   if(Number.isFinite(Number(watchAuto.minDurationSec)))watchDur.minDuration=Math.max(0,Math.floor(Number(watchAuto.minDurationSec)))
   if(Number.isFinite(Number(watchAuto.maxDurationMin)))watchDur.maxDuration=Math.max(60,Math.floor(Number(watchAuto.maxDurationMin)*60))
  }
- const p={...PIPELINE_DEFAULTS,...watchDur,...migrated,...input.pipeline}
+ const nightDeep={}
+ if(input.night&&typeof input.night==='object'&&Number.isFinite(Number(input.night.deepWatchMax))){
+  nightDeep.deepReadMax=Math.min(3,Math.max(1,Math.floor(Number(input.night.deepWatchMax))))
+ }
+ const p={...PIPELINE_DEFAULTS,...migrated,...input.pipeline,...watchDur,...nightDeep}
  if(!Array.isArray(p.windows)||!p.windows.length||p.windows.length>8||p.windows.some((x,i)=>!Number.isInteger(x)||x<1||x>3650||(i&&x<=p.windows[i-1])))throw Error('pipeline.windows 必须是递增的天数数组（1–3650）')
  for(const [k,min,max] of [['perKeywordPool',1,50],['minPlay',0,1e9],['minDm',0,1e7],['minDuration',0,86400],['maxDuration',1,86400],['multiPartThreshold',1,1000],['multiPartPerRound',0,20],['concurrency',1,3],['relatedTakeMax',0,5],['relatedMinPlay',0,1e9],['relatedSources',0,5],['timeoutMs',1000,1800000],['maxMetadata',1,100],['explorationMax',0,3]])if(!Number.isInteger(p[k])||p[k]<min||p[k]>max)throw Error('pipeline.'+k+' 超出范围 '+min+'–'+max)
  if(p.minDuration>p.maxDuration)throw Error('时长下限不能大于上限')

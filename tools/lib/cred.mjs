@@ -21,7 +21,7 @@ export function loadCred() {
   try {
     raw = fs.readFileSync(CRED_PATH, 'utf8')
   } catch {
-    throw new Error(`没有凭据文件：${CRED_PATH}\n  去设置页粘贴一次 cookie 并保存 ✓`)
+    throw new Error(`没有凭据文件：${CRED_PATH}\n  请在 Antigravity 控制台「大鲸鱼与主人」使用 B 站扫码登录`)
   }
   let j
   try {
@@ -59,10 +59,8 @@ export function looksLikeJct(v) {
 /** 常见返回码 → 人话 + 怎么办 */
 export const CODE_HINTS = {
   0: '成功',
-  '-101': '账号未登录 —— SESSDATA 失效了，重新复制一次 cookie',
-  '-111': 'CSRF 校验失败 —— bili_jct 和当前 SESSDATA 不是同一个账号，或者 bili_jct 已经过期\n' +
-    '        怎么办：重新登录 B站 → F12 复制一次【两个都要重抄】（SESSDATA + bili_jct）✓\n' +
-    '        提示：只读接口（体检 / 查账号 / 看评论）还能用，所以"体检全绿"不代表能发东西 ✗',
+  '-101': '账号未登录 —— 登录态已失效，请在控制台「大鲸鱼与主人」重新扫码登录',
+  '-111': 'CSRF 校验失败 —— bili_jct 与当前 SESSDATA 不匹配或已过期，请在控制台「大鲸鱼与主人」重新扫码登录',
   '-400': '请求参数错误（少见：通常是参数没传对）',
   '-352': '风控拦截 —— 请求太快或太像机器人，等几分钟再来',
   '-799': '请求过于频繁 —— 退避一会儿',

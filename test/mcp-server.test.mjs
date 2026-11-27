@@ -20,7 +20,6 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     cfgFile: path.join(dir, 'config.json'),
     credFile: path.join(dir, 'credentials.json'),
     personaFile: path.join(dir, 'persona.md'),
-    pendingFile: path.join(dir, 'pending-replies.json'),
     ipcClient: async () => ({ running: false }),
     rpc: { available: () => false },
   })

@@ -148,10 +148,11 @@ test('debrief enforces configured duration limits per profile before fetching co
     env: { ...env, NODE_OPTIONS: `--import=${preload}` },
     timeout: 10_000,
   })
-  await assert.rejects(runDebrief('BV1long00001', '--profile', 'auto', '--no-frames'), /超过自主观看最长时长限制（10 分钟）/)
-  await assert.rejects(runDebrief('BV1short0001', '--profile', 'auto', '--no-frames'), /低于自主观看最短时长限制/)
-  await assert.rejects(runDebrief('BV1long00001', '--profile', 'owner', '--no-frames'), /询问确认/)
-  await assert.rejects(runDebrief('BV1long00001', '--profile', 'fan', '--no-frames'), /超过粉丝 @ 观看上限（5 分钟）/)
+  await assert.rejects(runDebrief('BV1long00001', '--profile', 'auto'), /超过自主观看最长时长限制（10 分钟）/)
+  await assert.rejects(runDebrief('BV1short0001', '--profile', 'auto'), /低于自主观看最短时长限制/)
+  await assert.rejects(runDebrief('BV1long00001', '--profile', 'owner'), /询问确认/)
+  await assert.rejects(runDebrief('BV1long00001', '--profile', 'fan'), /超过粉丝 @ 观看上限（5 分钟）/)
+  await assert.rejects(runDebrief('BV1long00001', '--no-frames'), /已移除.*--no-frames/)
 })
 
 test('quota enforces autoComment toggle, daily cap, and 7-day same-video dedup', async t => {

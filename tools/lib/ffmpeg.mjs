@@ -75,9 +75,9 @@ export function requireFfmpeg() {
   const p = ffmpegPath()
   if (p) return p
   throw new Error([
-    '找不到ffmpeg。抽帧需要ffmpeg，纯文字浏览可继续使用。',
+    '找不到 ffmpeg。视频抽帧看画面需要 ffmpeg（未安装时仅能读取字幕/弹幕/热评，无法查看画面）。',
     '可在终端运行 winget install -e --id Gyan.FFmpeg 自行安装。',
-    `也可把ffmpeg.exe放到 ${path.join(binPath, EXE)}，或用环境变量 FFMPEG 指定可执行文件。`,
+    `也可把 ffmpeg.exe 放到 ${path.join(binPath, EXE)}，或用环境变量 FFMPEG 指定可执行文件。`,
   ].join('\n'))
 }
 

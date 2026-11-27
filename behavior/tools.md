@@ -1,26 +1,24 @@
 # 工具详细索引
-在Antigravity中优先使用插件内置MCP工具。
-- `bili_browse`: feed / discover / round / search / whois / covers
-- `bili_inspect`: debrief / watch-video / subtitles / comments / video / batch-debrief / ai-share（生成的九宫格与封面图用 Antigravity 内置 `read_file` 查看）
-- `bili_interact`: comment、comment-del、dynamic、dynamic-image、dynamic-edit、like、fav、follow
-- `bili_dm`: dm、dm-batch。模型私信操作需带本任务的 `--account` 大鲸鱼UID和 `--to` 收信人UID。私信监听由后台守护处理。
-- `bili_inbox`: comment-digest / likes / thread / check-comment / check-dynamic / check-mention / recon
-- `bili_life`: life、expression、corpus、quota、night、traffic。模型按公开范围或当前任务授权读取记忆。
-- `bili_stickers`: list / get（直接读取插件自带 42 张表情包）
-- `bili_ops`: deps、selftest、session、behavior、config、read-prompt
+在 Antigravity 中优先使用插件内置 MCP 工具。
+- `bili_browse`: `feed` / `discover` / `round` / `search` / `whois` / `covers`
+- `bili_inspect`: `debrief`（支持 `--profile auto|owner|fan`）/ `watch-video` / `subtitles` / `comments` / `batch-debrief` / `read-shot`（抽帧结果会自动随工具响应附带画面图，单独查看缓存图用 `read-shot`）
+- `bili_interact`: `comment`、`comment-del`、`dynamic`、`dynamic-image`、`like`、`fav`、`follow`
+- `bili_dm`: `dm`、`dm-batch`。模型私信操作须带本任务的 `--account` 大鲸鱼 UID 和 `--to` 收信人 UID（单条 ≤300 字符）。私信监听由后台守护处理。
+- `bili_inbox`: `comment-digest` / `likes` / `thread` / `check-comment` / `check-dynamic` / `check-mention` / `recon`
+- `bili_life`: `life`、`quota`、`night`、`traffic`（仅支持 `traffic status` 只读查看）。模型按公开范围或当前任务授权读取记忆。
+- `bili_stickers`: `list` / `get`（直接读取插件自带 42 张表情包）
+- `bili_ops`: `deps`、`selftest`、`session`、`behavior`（`list` / `read <章节>`）、`config`（仅支持 `show` 查看当前生效参数）、`read-prompt`
 
-命令行等价入口：`node <插件目录>/tools/bili.mjs <命令> [参数...]`。`behavior read <章节>` 重读规范；`behavior reload` 请求下次投递重载规范，不会重投旧任务。
-表达：`expression prepare 候选.json`；字段 scene、target、text、taskId、sourceIds/claims，评论另填 thread=type:oid:root 和 parent。`expression revise ID 修改.txt` 最多一次；`expression finalize ID` 取得固定 delivery；`comment`/`dm --draft ID --dry`，再 `--go`；不合适 `expression discard ID`。requireDraft 由本次配置决定，direct 只是起草方式。
-公开分享走`comment --share --auto --reason 原因 --score 分数 --rank 1`，先核对真实BV号或视频OID，并按配置在正文`@`主人。仅在回复允许的评论时使用该评论实际的楼层坐标。
-私信分享给主人时，调用`dm --msg 含BV链接的正文 --share --target BV --reason 原因 --score 分数 --rank 1`。外发先用`--dry`预览，再以相同参数改为`--go`。每次预览只可提交一次，10分钟内有效。执行时仍校验额度、偏好和未确认发送状态。
+命令行等价入口：`node <插件目录>/tools/bili.mjs <命令> [参数...]`。`behavior read <章节>` 重读规范。
+公开分享走 `comment --share --auto --bvid <BV号> --message <正文>`（正文须 `@ 主人昵称`），须确认已开启 `share.enabled` 且 `share.via = comment`。自主发普通顶层评论（不 `@` 主人）走 `comment --auto --bvid <BV号> --message <正文>`（须开启 `chat.autoComment`）。仅在回复允许的评论时使用该评论实际的 `type/oid/root/parent` 楼层坐标。
+私信分享给主人时，调用 `dm --account <大鲸鱼UID> --to <主人UID> --msg <含BV链接的正文> --share --target <BV号>`（须开启 `share.enabled` 且 `share.via = dm`）。所有外发写操作先用 `--dry` 预览，再以相同参数改为 `--go`；每次预览只可提交一次，10 分钟内有效。执行时仍校验额度、偏好、7 天同视频去重、外发内容安全审核及未确认发送状态。
 私信表情包：`dm --msg 正文 --pic 图片路径` 会先发文字、再发图片，各有独立回执；仅发图片用 `dm --pic 图片路径`。两种都先 `--dry` 再 `--go`。文字已成功而图片失败时不要重发正文；明确拒绝后可单独重试图片，结果未知时先核查回执。
 收藏：`fav BV --reason 原因`（工具校验至少 6 字，同类已有 ≥2 条时按工具提示决定是否加 `--better`）；值不值得收藏由你自己判断，额度与去重以工具校验为准。
-写法：`expression references 视频来源事件ID reaction|observation|question|technical-help|discussion`；只用适合当前目的的参考。风格 ID 填 styleRefIds，事实仍填 sourceIds/claims。
 表情包见 `behavior read stickers`；记忆分页与决策字段见 `behavior read memory`。
 
-多段私信最多6条。先使用`dm-batch --file <字符串数组.json> --task <本次taskId> --dry`，再以相同参数改为`--go`。`--resume <组ID> --dry`预览原组的剩余正文，确认后再改用`--go`。结果未确认时先在控制台核查。
-公开动态草稿：`expression prepare` 输入 `channel:"dynamic",scene:"public-comment",target:"自己mid",share:false`，定稿后 `dynamic post --draft ID --auto --dry` 再 `--go`。不要把私人素材改标为公开；自动动态由独立设置开关控制。
+多段私信最多 6 条（每条 ≤300 字符）。先使用 `dm-batch --file <字符串数组.json> --task <本次taskId> --dry`，再以相同参数改为 `--go`。`--resume <组ID> --dry` 预览原组的剩余正文，确认后再改用 `--go`。结果未确认时先在控制台核查。
+公开动态：开启 `chat.dynamic` 后可用 `dynamic post --text <正文> --dry` 再 `--go`，或用 `dynamic-image --image <图片路径> --text <正文> --dry` 再 `--go`（每日受 `dynamicDailyMax` 上限约束）。不要把私人素材改标为公开。
 
-批量工具：`round --n 6 --no-frames [--json]`；`discover --n 6 --kw 关键词 --json`；`batch-debrief <BV...> --no-frames --concurrency 2`。`round --dry` 仅列候选；`debrief --json` 返回带 evidenceId 的结构化素材。`config show` / `config set <pipeline字段> <JSON值>` 调整找片参数。
+批量工具：`round [--n 5] [--json]`；`discover --n 5 --kw 关键词 --json`；`batch-debrief <BV...> --concurrency 2`。`round --dry` 仅列候选；`debrief --json` 返回带 `evidenceId` 的结构化素材。`config show` 查看当前生效的找片与观看参数。
 
-手动唤醒使用控制台「马上唤醒她」，本地命令`node tools/bili.mjs night trigger --go`调用同一入口。
+手动唤醒使用控制台「马上唤醒她」，本地命令 `node tools/bili.mjs night trigger --go` 调用同一入口。

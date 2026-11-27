@@ -12,7 +12,7 @@ import {pipelineConfig,eligibleVideo} from './pipeline-config.mjs'
 import {runNode,mapLimit,parseResult} from './process.mjs'
 export const commandFile=name=>fileURLToPath(new URL('../commands/'+name+'.mjs',import.meta.url))
 export async function discover(args=[],options={}){const result=parseResult(await runNode(commandFile('feed'),[...args,'--json'],options));if(result.schema!=='whale.discovery/1'||!Array.isArray(result.items))throw Error('找片输出格式无效');return result}
-export async function batchDebrief(bvs,{noFrames=false,concurrency,timeoutMs,run=runNode,samplePages=1}={}){
+export async function batchDebrief(bvs,{concurrency,timeoutMs,run=runNode,samplePages=1}={}){
  const p=pipelineConfig(),ids=[...new Set(bvs)]
  if(!ids.length||ids.length>20||ids.some(x=>!/^BV[0-9A-Za-z]{10}$/.test(x)))throw Error('需要 1–20 个有效 BV')
  const limit=Number(concurrency??p.concurrency);if(!Number.isInteger(limit)||limit<1||limit>3)throw Error('并发数必须为 1–3')
@@ -20,7 +20,7 @@ export async function batchDebrief(bvs,{noFrames=false,concurrency,timeoutMs,run
  const results=await mapLimit(ids,limit,async bv=>{
   const started=Date.now()
   try{
-   const report=parseResult(await run(commandFile('debrief'),[bv,'--json','--sample-pages',String(samplePages),...(noFrames?['--no-frames']:[])],{timeoutMs:timeoutMs??p.timeoutMs}))
+   const report=parseResult(await run(commandFile('debrief'),[bv,'--json','--sample-pages',String(samplePages)],{timeoutMs:timeoutMs??p.timeoutMs}))
    if(report.schema!=='bw.debrief.report/1'||report.bvid!==bv||typeof report.evidenceId!=='string'||!report.evidenceId)throw Error('缺少结构化报告或来源事件回执')
    return {bv,ok:true,elapsedMs:Date.now()-started,report}
   }catch(error){return {bv,ok:false,elapsedMs:Date.now()-started,error:error.message}}
@@ -38,7 +38,7 @@ export async function collectTags(bvs,{kind='read'}={}){
   const tags=await get('https://api.bilibili.com/x/tag/archive/tags?bvid='+bv)
   rows.push({bv,kind,region:String(evidence?.data?.tname??''),evidenceId:evidence?.id??null,tags:[...new Set((Array.isArray(tags)?tags:[]).map(t=>String(t.tag_name??'').trim()).filter(Boolean))].slice(0,30),at:new Date().toISOString()})
  }
- const file=path.join(life.dir,'video-tags.json');fs.mkdirSync(life.dir,{recursive:true});const release=await acquireProcessLock(file)
+ const file=path.join(life.dir,'video-tags.json');fs.mkdirSync(life.dir,{recursive:true});const release=await acquireProcessLock(file,{retries:40,delayMs:50})
  try{
   let data={schema:1,items:[]};try{data=JSON.parse(fs.readFileSync(file,'utf8'))}catch(e){if(e.code!=='ENOENT')throw e}
   if(data.schema!==1||!Array.isArray(data.items))throw Error('标签统计损坏')

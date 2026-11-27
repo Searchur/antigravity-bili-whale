@@ -1,8 +1,6 @@
-import {activityRemaining} from '../lib/activity.mjs'
 import {spawn} from 'node:child_process'
 import {NODE_EXE,NODE_ENV} from '../lib/nodebin.mjs'
 export function runNode(file,args=[],{timeoutMs=900000,env={},signal}={}){
- const remaining=activityRemaining();if(remaining!==null)timeoutMs=Math.min(timeoutMs,remaining)
  return new Promise(resolve=>{
   let stdout='',stderr='',done=false,timedOut=false,overflow=false,stopping=false
   const child=spawn(NODE_EXE,[file,...args],{env:{...NODE_ENV,...env},windowsHide:true,detached:process.platform!=='win32',stdio:['ignore','pipe','pipe']})

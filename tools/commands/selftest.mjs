@@ -4,17 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { WHALE_HOME, configPath, dataPath } from '../lib/paths.mjs'
 import { NODE_EXE } from '../lib/nodebin.mjs'
 import { config } from '../lib/config.mjs'
-import { expressionPrompt } from '../lib/expression.mjs'
 import { lifeConfig } from '../lib/life-config.mjs'
+import { BEHAVIOR_IDS, loadBehavior } from '../lib/behavior.mjs'
 
 if (process.argv.includes('--docs')) {
-  const spec = JSON.parse(fs.readFileSync(new URL('../prompts/expression-v1.json', import.meta.url), 'utf8'))
-  const scenes = ['private-recommendation', 'public-comment', 'reply', 'private-reply']
-  if (spec.version !== 1 || scenes.some(k => !expressionPrompt(k)) || !spec.modes.direct || !spec.modes['cat-draft']) throw Error('表达提示契约损坏')
-  for (const file of ['life.mjs', 'comment.mjs', 'dm.mjs', 'corpus.mjs']) if (!fs.existsSync(new URL(file, import.meta.url))) throw Error('缺少命令 ' + file)
-  const seed = JSON.parse(fs.readFileSync(new URL('../corpus/seed-v1.json', import.meta.url), 'utf8'))
-  if (!Array.isArray(seed.entries) || seed.entries.some(e => !e.text || !e.source || !/^[a-f0-9]{64}$/.test(e.source.sha256) || !Number.isInteger(e.source.recordIndex)) || new Set(seed.entries.map(e => e.id)).size !== seed.entries.length) throw Error('内置语料来源契约损坏')
-  console.log('表达提示 v1：4 场景、2 草稿方式、life/comment/dm/corpus 入口及 ' + seed.entries.length + ' 条写法参考来源检查通过')
+  const sections = loadBehavior(BEHAVIOR_IDS)
+  if (sections.length !== BEHAVIOR_IDS.length) throw Error('行为规范章节缺失')
+  for (const file of ['life.mjs', 'comment.mjs', 'dm.mjs', 'debrief.mjs', 'dynamic.mjs', 'feed.mjs']) {
+    if (!fs.existsSync(new URL(file, import.meta.url))) throw Error('缺少命令 ' + file)
+  }
+  console.log(`行为规范（${sections.length} 节）及 life/comment/dm/debrief/dynamic/feed 入口检查通过`)
   process.exit(0)
 }
 
@@ -65,6 +64,6 @@ if (failures === 0) {
   } catch {}
   console.log('✓ 启动检查通过')
 } else {
-  console.log(`✗ ${failures} 项需要处理。可在左侧栏「哔哩哔哩大鲸鱼」→「运行与体检」查看详情。`)
+  console.log(`✗ ${failures} 项需要处理。可在左侧栏「哔哩哔哩大鲸鱼」→「环境与依赖」查看详情。`)
 }
 process.exitCode = failures === 0 ? 0 : 1

@@ -1,12 +1,13 @@
 import crypto from 'node:crypto'
 import {chatOpportunity,followupTurn} from './chat-opportunity.mjs'
 import {chatConfig} from './chat-config.mjs'
+import {normalizeListen} from './config.mjs'
 import {initialAffect,advance,dayKey,HOUR,DAY,hash,fail,note,activeTopic,selectable,parseEffects,applyEffects,settleTopics,affectContext,publicTopic,publicTopics} from './affect-engine.mjs'
 import {inWindow} from './night-plan.mjs'
 const uid=()=>crypto.randomUUID()
 const enabled=(s,c)=>c.enabled&&c.affect.enabled&&!c.paused&&!s.settings.paused
 const version=s=>s.settings.permissionVersion??0
-const ownerEvent=e=>e.kind==='received'&&e.verifiedRole==='owner'&&['bili-dm','qq','wechat'].includes(e.channel)
+const ownerEvent=e=>e.kind==='received'&&e.verifiedRole==='owner'&&e.channel==='bili-dm'
 function videoMaterial(e){
   const text=String(e.text??'')
   if(e.data?.subtitle===true){
@@ -90,29 +91,24 @@ function candidateTopics(a,job,at){
 }
 function liveJob(s,id,lease,c,at){const a=s.affect,j=a.jobs.find(j=>j.id===id);if(!enabled(s,c)||!j||j.status!=='running'||j.lease!==lease||j.expiresAt<=at||j.permission!==version(s)||j.configHash!==signature(c))fail('AFFECT_JOB_STALE');return j}
 function planCheck(s,c,full,at,p,{dispatch=false,opportunity=p?p.opportunity:chatOpportunity(s,full,at)}={}){
-  const a=s.affect,chat=chatConfig(full.chat)
-  if(!enabled(s,c)||!c.autonomy||a.initiativeBlocked)return 'disabled'
-  if(full.share?.enabled===false||(!opportunity&&String(full.share?.via??'dm')!=='dm'))return 'private-route-unavailable'
+  const a=s.affect,chat=chatConfig(full.chat),listen=normalizeListen(full.listen)
+  if(!enabled(s,c)||a.initiativeBlocked)return 'disabled'
+  if(!opportunity||opportunity.kind!=='followup')return 'disabled'
+  if(!chat.followup||!listen.dmOwner)return 'disabled'
   if(!full.self?.mid||!full.owner?.mid)return 'identity'
-  if(!opportunity&&!inWindow(full.night??{},at))return 'outside-window'
   if(a.share.lastInitiativeAt>a.lastOwnerAt&&at-a.share.lastInitiativeAt<DAY)return 'awaiting-owner'
-  const hour=new Date(at+8*HOUR).getUTCHours();if(hour>=23||hour<9)return 'quiet'
-  if(at<a.resumeAfter||opportunity?.kind!=='followup'&&a.lastOwnerAt&&at-a.lastOwnerAt<c.affect.ownerIdleMinutes*60000)return 'owner-active'
-  if(p?.opportunity&&(p.chatSignature!==hash(chat)||p.opportunity.ownerAt!==a.lastOwnerAt))return 'chat-policy-changed'
+  if(at<a.resumeAfter)return 'owner-active'
+  if(p&&(p.chatSignature!==hash([chat.followup,chat.dailyMax,listen.dmOwner])||p.opportunity.ownerAt!==a.lastOwnerAt))return 'chat-policy-changed'
   if(p){
     if(!['generating','ready'].includes(p.status)||p.expiresAt<=at||p.permission!==version(s)||p.policyVersion!==a.policyVersion||p.configHash!==signature(c)||p.ownerAt!==a.lastOwnerAt)return 'plan-stale'
     if(p.turn){
       const current=followupTurn(s,full)
       if(!current||current.owner.id!==p.turn.ownerId||current.reply.id!==p.turn.replyId)return 'conversation-changed'
-    }else{
-      const t=a.topics.find(t=>t.id===p.topicId&&t.revision===p.revision);if(!t||!selectable(t,at))return 'topic-stale'
-    }
+    }else return 'plan-stale'
   }else{
     if(a.lastAttemptAt&&at-a.lastAttemptAt<c.affect.initiativeGapMinutes*60000)return 'cooldown'
-    if(a.daily.attempts>=Math.min(c.affect.initiativeDailyMax,opportunity?chat.dailyMax:c.affect.initiativeDailyMax))return 'daily-max'
+    if(a.daily.attempts>=Math.min(c.affect.initiativeDailyMax,chat.dailyMax))return 'daily-max'
     if(a.pendingInitiative&&['generating','ready','dispatching','uncertain'].includes(a.pendingInitiative.status))return 'pending'
-    if(!opportunity&&(!a.share.armed||a.share.value<c.affect.trigger))return 'below-threshold'
-    if(opportunity?.kind!=='followup'&&!a.topics.some(t=>selectable(t,at)))return 'no-topic'
   }
   if(Object.values(s.pending).some(x=>x.channel==='dm'&&String(x.target)===String(full.owner.mid)&&(!dispatch||x.affectPlanId!==p?.id)))return 'pending-send'
   return null
@@ -122,7 +118,7 @@ export function affectSendCheck(s,request,c,full,at){
   const p=s.affect?.pendingInitiative
   if(!p||p.id!==request.affectPlanId||request.channel!=='dm'||String(request.target)!==String(full.owner?.mid)||request.scene!=='private-reply'||!request.auto) return 'affect-plan-mismatch'
   const reason=planCheck(s,c,full,at,p,{dispatch:true});if(reason)return reason
-  if(p.textHash!==hash(request.text)||p.draftId!==request.draftId||!p.covered)return 'affect-body-unverified'
+  if(p.textHash!==hash(request.text)||!p.covered)return 'affect-body-unverified'
   return null
 }
 export function bindAffectSend(s,p,at){
@@ -221,46 +217,38 @@ export function attachAffect(api,cfg){
       live.forEach(({t,r},i)=>{if(checks[i]){settleTopics(a,r.refs,r.operationId,now(),{initiative:!!r.initiative,initiativeAt:r.at});delete t.reconcile}else{t.status='open';t.deferUntil=now()+3*HOUR;delete t.reconcile}note(a,now(),checks[i]?'coverage-confirmed':'coverage-not-expressed',{operationId:job.operationId,topicId:t.id})})
       return {covered:checks.every(Boolean),checks:topics.map((t,i)=>({topicId:t.id,covered:checks[i]}))}
     })},
-    affectPreview(full,env={}){const s=projected(),a=s.affect;if(full.share?.via==='comment'){const reason=!enabled(s,cfg)||full.share?.enabled===false||a.initiativeBlocked?'disabled':!publicTopics(a,now()).length?'no-public-topic':!inWindow(full.night??{},now())?'outside-window':env.busy?'busy':env.networkPaused?'network':null;const at=now(),opportunity=chatOpportunity(s,full,at)
+    affectPreview(full,env={}){const s=projected(),at=now(),opportunity=chatOpportunity(s,full,at)
       const chatReason=opportunity?(planCheck(s,cfg,full,at,null,{opportunity})??(env.busy?'busy':env.networkPaused?'network':null)):'no-chat-opportunity'
-      return {eligible:!reason,reason,mode:'scheduled-browse-comment',privateChat:{eligible:!chatReason,reason:chatReason,kind:opportunity?.kind??null},status:api.affectStatus()}}const reason=planCheck(s,cfg,full,now(),null);return {eligible:!reason&&!env.busy&&!env.networkPaused,reason:reason??(env.busy?'busy':env.networkPaused?'network':null),status:api.affectStatus()}},
+      return {eligible:!chatReason,reason:chatReason,mode:'owner-dm-followup',privateChat:{eligible:!chatReason,reason:chatReason,kind:opportunity?.kind??null},status:api.affectStatus()}},
     claimAffectInitiative(full,env={}){return tx(s=>{
       const a=s.affect;advance(a,now(),c,{paused:!enabled(s,cfg)})
       if(a.pendingInitiative&&!a.pendingInitiative.operationId&&a.pendingInitiative.expiresAt<=now())a.pendingInitiative.status='expired'
       if(env.busy||env.networkPaused)return null
       const at=now(),opportunity=chatOpportunity(s,full,at)
       const reason=planCheck(s,cfg,full,at,null,{opportunity});if(reason)return null
-      const topics=a.topics.filter(t=>selectable(t,now()))
-      const weight=t=>t.priority*(a.mood.value>=5&&['shared-interest','touching-experience','new-understanding'].includes(t.category)||a.mood.value<=-5&&t.category==='touching-experience'?1.15:1)
-      const turn=opportunity?.kind==='followup'?followupTurn(s,full):null
-      const t=turn?null:topics.sort((x,y)=>weight(y)-weight(x))[0]
-      if(!turn&&!t)return null
-      const subject=turn?{turn:{ownerId:turn.owner.id,replyId:turn.reply.id},sourceEventIds:[turn.owner.id,turn.reply.id]}:{topicId:t.id,revision:t.revision,sourceEventIds:t.sourceEventIds}
-      const p={id:uid(),...subject,status:'generating',createdAt:now(),expiresAt:turn?Math.min(at+180000,turn.reply.at+5*60000+1):at+180000,permission:version(s),policyVersion:a.policyVersion,ownerAt:a.lastOwnerAt,configHash:signature(cfg),requestId:'affect:'+uid()}
-      if(opportunity){p.opportunity=opportunity;p.chatSignature=hash(chatConfig(full.chat))}
-      const snapshot=api.compileSnapshot(s,turn?'最近一轮主人私信':[t.summary,t.reasonToShare].filter(Boolean).join(' '),'private-reply')
+      const turn=followupTurn(s,full)
+      if(!turn)return null
+      const chat=chatConfig(full.chat),listen=normalizeListen(full.listen)
+      const p={id:uid(),turn:{ownerId:turn.owner.id,replyId:turn.reply.id},sourceEventIds:[turn.owner.id,turn.reply.id],status:'generating',createdAt:now(),expiresAt:Math.min(at+180000,turn.reply.at+5*60000+1),permission:version(s),policyVersion:a.policyVersion,ownerAt:a.lastOwnerAt,configHash:signature(cfg),requestId:'affect:'+uid(),opportunity,chatSignature:hash([chat.followup,chat.dailyMax,listen.dmOwner])}
+      const snapshot=api.compileSnapshot(s,'最近一轮主人私信','private-reply')
       if(snapshot.blocked)return null
-      if(opportunity)a.chatAttempts=[...(a.chatAttempts??[]),opportunity.key].slice(-100)
-      p.memoryRefs=turn?[]:snapshot.segments.filter(x=>['recall','policy'].includes(x.kind)).flatMap(x=>x.refs)
+      a.chatAttempts=[...(a.chatAttempts??[]),opportunity.key].slice(-100)
+      p.memoryRefs=[]
       a.pendingInitiative=p;a.daily.attempts++;a.lastAttemptAt=now()
-      if(turn)return {...structuredClone(p),conversation:{owner:turn.owner.text.slice(-1500),reply:turn.reply.text.slice(-1500)},context:''}
-      t.attempts++;return {...structuredClone(p),topic:structuredClone(t),context:snapshot.text}
+      return {...structuredClone(p),conversation:{owner:turn.owner.text.slice(-1500),reply:turn.reply.text.slice(-1500)},context:snapshot.text}
     })},
-    readyAffectPlan(id,draftId,text,coverage,full){return tx(s=>{
+    readyAffectPlan(id,text,coverage,full){return tx(s=>{
       const a=s.affect,p=a.pendingInitiative;if(!p||p.id!==id)fail('AFFECT_PLAN_STALE')
       const reason=planCheck(s,cfg,full,now(),p);if(reason)fail('AFFECT_PLAN_STALE')
       if(!parseCoverage(coverage,text))fail('AFFECT_NOT_EXPRESSED')
-      const d=s.drafts.find(d=>d.id===draftId&&d.status==='pending'&&d.text===text&&d.target===String(full.owner.mid)&&d.scene==='private-reply');if(!d)fail('AFFECT_DRAFT_STALE')
-      p.status='ready';p.draftId=draftId;p.textHash=hash(text);p.covered=true;return {id,draftId}
+      p.status='ready';p.textHash=hash(text);p.covered=true;return {id}
     })},
     finishAffectPlan(id,outcome){return tx(s=>{const a=s.affect,p=a.pendingInitiative;if(!p||p.id!==id||['sent','failed'].includes(p.status))return
       if(p.operationId){p.status='uncertain';return} // a prepared/dispatching write must never be automatically retried
-      p.status=outcome==='skip'?'skipped':'failed';const t=a.topics.find(t=>t.id===p.topicId)
-      const d=s.drafts.find(d=>d.id===p.draftId);if(d&&['editing','pending'].includes(d.status))d.status='discarded'
-      if(outcome==='skip'&&t){t.status='deferred';t.deferUntil=now()+DAY}
+      p.status=outcome==='skip'?'skipped':'failed'
       note(a,now(),'initiative-'+p.status)
     })},
-    validateAffectPlanRequest(id,draftId,text,full){const request={affectPlanId:id,draftId,text,channel:'dm',target:String(full.owner?.mid),scene:'private-reply',auto:true};const reason=affectSendCheck(read(),request,cfg,full,now());if(reason)fail('AFFECT_'+reason.toUpperCase().replaceAll('-','_'));return request},
+    validateAffectPlanRequest(id,text,full){const request={affectPlanId:id,text,channel:'dm',target:String(full.owner?.mid),scene:'private-reply',auto:true};const reason=affectSendCheck(read(),request,cfg,full,now());if(reason)fail('AFFECT_'+reason.toUpperCase().replaceAll('-','_'));return request},
   })
 }
 export function parseCoverage(raw,text){

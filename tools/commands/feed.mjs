@@ -3,7 +3,6 @@ import {apiGet} from '../lib/bili-api.mjs'
 import { favoriteItems } from '../lib/favorites.mjs'
 import { dataPath } from '../lib/paths.mjs'
 import { preferenceMatches, preferenceSearch } from '../lib/feed-preferences.mjs'
-import { legacyVideoIndex } from '../lib/legacy-index.mjs'
 import { lifeStore } from '../lib/life-runtime.mjs'
 const life = lifeStore()
 import {affectBrowsing,affectInterestOrder} from '../lib/affect-engine.mjs'
@@ -35,17 +34,9 @@ if(!Number.isInteger(PER)||PER<1||PER>20)throw Error('--per 必须为 1–20')
 const POOL = Number(opt.pool ?? 200)
 if(!Number.isInteger(POOL)||POOL<1||POOL>1000)throw Error('--pool 必须为 1–1000')
 
-const legacyWatchHistory = dataPath('whale-diary.md')
-const audit = dataPath('commented-videos.md')
-
-let prefs = [...(config().preferences?.like ?? [])]   // 偏好来自统一配置（首选）
+let prefs = [...(config().preferences?.like ?? [])]
 let dislike = [...(config().preferences?.dislike ?? [])]
 let seen = new Set(life.read().events.filter(e=>e.kind==='video-read').map(e=>e.target))
-for(const file of [legacyWatchHistory,audit]){
-  const index=legacyVideoIndex(file,life.dir)
-  // Legacy inferred interests are not promoted into reviewed constraints.
-  for(const bv of index.seen)seen.add(bv)
-}
 
 try {
   const ledger=JSON.parse(fs.readFileSync(dataPath('quota.json'),'utf8'))
@@ -95,7 +86,6 @@ async function searchCached(kw, order, days) {
 }
 const earlyExcluded=new Set(seen)
 try{for(const x of favoriteItems(JSON.parse(fs.readFileSync(dataPath('favorites.json'),'utf8')),config().self?.mid))if(x.bv)earlyExcluded.add(x.bv)}catch(e){if(e.code!=='ENOENT')throw Error('收藏账本无法读取')}
-try{for(const x of JSON.parse(fs.readFileSync(dataPath('feedback.json'),'utf8')).events??[])if(x.bv)earlyExcluded.add(x.bv)}catch(e){if(e.code!=='ENOENT')throw Error('反馈账本无法读取')}
 const pool = []
 // ── #3 更多来源（2026-10-18 加，Kimi 评审指出：只搜关键词 = 只刷"搜索"，不是刷 B 站）
 //   --source search（默认）| popular（热门）| rank（排行榜）| all（三个都要）
@@ -137,60 +127,31 @@ try { if (SOURCE_HOT === 'following' || SOURCE_HOT === 'all') await fetchFollowi
 
 }
 
-// ── 反馈回流（2026-10-20 加，主人定：B 也做）────────────────────────────
-//   feedback.json 里 kind='like' 的事件带 videoTitle → 对被赞视频【标题相似】的候选加权
-//   相似度用字符二元组 Jaccard（中文不用分词也能用 ✓）
-const FEEDBACK = dataPath('feedback.json')
-let likedEvents = []
-try {
-  const fb = JSON.parse(fs.readFileSync(FEEDBACK, 'utf8'))
-  likedEvents = (fb.events ?? [])
-    .filter((e) => config().life?.learnFromLikes === true && e && (e.kind === 'like' || (typeof e.note === 'string' && /BV[0-9A-Za-z]{10}/.test(e.note))))
-    .filter((e) => String(e.videoTitle ?? '').trim())   // 没有标题的旧事件学不到东西，跳过 ✓
-} catch { /* 没有反馈就零加权 */ }
-const favBVs = new Set()
+// 收藏品味回流（来自本地 favorites.json）
+const STOP_WORDS = new Set(['我为', '添加', '开屏', '广告', '这个', '那个', '什么', '自己', '可以', '就是', '一个'])
+const ownerName = String(config().owner?.name ?? '')
+const learnTokens = (text) => {
+  const out = new Set()
+  const base = ownerName ? String(text).replaceAll(ownerName, ' ') : String(text)
+  const t = base.replace(/@\S+/g, ' ')
+  for (const m of t.matchAll(/[A-Za-z][A-Za-z0-9]{1,}/g)) if (m[0].length >= 2) out.add(m[0].toLowerCase())
+  for (const m of t.matchAll(/[\u4e00-\u9fa5]{2,}/g)) {
+    const run = m[0]
+    for (const n of [3, 4]) for (let i = 0; i + n <= run.length; i += 1) {
+      const g = run.slice(i, i + n)
+      if (!STOP_WORDS.has(g)) out.add(g)
+    }
+  }
+  return [...out]
+}
+let favItems = []
 try {
   const fj = JSON.parse(fs.readFileSync(dataPath('favorites.json'), 'utf8'))
-  for (const x of favoriteItems(fj, config().self?.mid)) if (x?.bv) favBVs.add(x.bv)
+  favItems = favoriteItems(fj, config().self?.mid).filter((x) => x && x.bv)
 } catch {}
-const likedBVs = new Set()
-try {
-  const fb = JSON.parse(fs.readFileSync(FEEDBACK, 'utf8'))
-  for (const e of (fb.events ?? [])) if (e?.bv) likedBVs.add(e.bv)
-} catch {}
-  // 抽主题词：拉丁词（≥2）+ 中文 3-4 字 n-gram（更具体，避免"我为/添加"这类噪音）
-  // 为什么不比标题相似度（Jaccard）：实测"几乎改一个字"的两条标题相似度只有 0.036 ✗
-  //   主题词方案能学到"dsh""大肥鱼"这种真正跨标题复用的信号 ✓
-  const STOP_WORDS = new Set(['我为', '添加', '开屏', '广告', '这个', '那个', '什么', '自己', '可以', '就是', '一个'])
-  const ownerName = String(config().owner?.name ?? '')
-  const learnTokens = (text) => {
-    const out = new Set()
-    // ⚠️ ownerName 为空时 new RegExp('') 会在每个字之间插空格 → 必须先判断 ✗（实测踩过）
-    const base = ownerName ? String(text).replace(new RegExp(ownerName, 'g'), ' ') : String(text)
-    const t = base.replace(/@\S+/g, ' ')
-    for (const m of t.matchAll(/[A-Za-z][A-Za-z0-9]{1,}/g)) if (m[0].length >= 2) out.add(m[0].toLowerCase())
-    for (const m of t.matchAll(/[\u4e00-\u9fa5]{2,}/g)) {
-      const run = m[0]
-      for (const n of [3, 4]) for (let i = 0; i + n <= run.length; i += 1) {
-        const g = run.slice(i, i + n)
-        if (!STOP_WORDS.has(g)) out.add(g)
-      }
-    }
-    return [...out]
-  }
-  // 她自己收藏过的（favorites.json）也算"品味信号" ✓ 和"被赞过的"并列
-  let favItems = []
-  try {
-    const fj = JSON.parse(fs.readFileSync(dataPath('favorites.json'), 'utf8'))
-    favItems = favoriteItems(fj, config().self?.mid).filter((x) => x && x.bv)
-  } catch {}
-  const learnedTokens = [...new Set([
-    ...likedEvents.flatMap((e) => learnTokens(String(e.videoTitle ?? '') + ' ' + String(e.comment ?? ''))),
-    ...favItems.flatMap((x) => learnTokens(String(x.title ?? '') + ' ' + String(x.reason ?? ''))),
-  ])]
-  const learnedHitsOf = (title) => learnedTokens.filter((tok) => title.toLowerCase().includes(tok)).length
-  // 每条命中 +2.5，最多 +7.5（不压过偏好命中的主权重 ✓）
-  const boostOf = (title) => Math.min(7.5, learnedHitsOf(title) * 2.5)
+const learnedTokens = [...new Set(favItems.flatMap((x) => learnTokens(String(x.title ?? '') + ' ' + String(x.reason ?? ''))))]
+const learnedHitsOf = (title) => learnedTokens.filter((tok) => title.toLowerCase().includes(tok)).length
+const boostOf = (title) => Math.min(7.5, learnedHitsOf(title) * 2.5)
 
 // ── 偏好命中与排序（2026-10-20 重写，主人定：不要对高播放量有偏向 ✗）────────────
 //   旧：弹幕密度 + log10(播放)×3  → 大 UP 的爆款永远霸榜 ✗
@@ -209,7 +170,7 @@ const preferenceSnapshot=life.read()
 const browsing=affectBrowsing(preferenceSnapshot.affect,Date.now(),{...life.policy.affect,enabled:life.policy.enabled&&!life.policy.paused&&!preferenceSnapshot.settings.paused&&life.policy.affect.enabled})
 const allowedCandidate=x=>!dislike.some(p=>preferenceMatches(x.t,p))&&!earlyExcluded.has(x.bv)&&!life.preferences({title:x.t,author:x.mid,bvid:x.bv},'watch',preferenceSnapshot).excluded&&!(selfName&&String(x.up??'').includes(selfName))&&String(config().self?.mid??'')!==String(x.mid)&&(!looksLikeJunk(x)||hitsOf(x.t).length>=2)
 const activeInterests=[...new Set((explicitKeywords.length?explicitKeywords:prefs).map(preferenceSearch).filter(Boolean))]
-const sharing=config().share?.via==='comment'&&config().share?.enabled!==false?affectInterestOrder(preferenceSnapshot.affect,activeInterests,Date.now(),{...life.policy.affect,enabled:life.policy.enabled&&!life.policy.paused&&!preferenceSnapshot.settings.paused&&life.policy.affect.enabled}):{keywords:activeInterests,shareReady:false,shareInterests:[]}
+const sharing=config().share?.enabled===true&&['comment','dm'].includes(String(config().share?.via??'comment'))?affectInterestOrder(preferenceSnapshot.affect,activeInterests,Date.now(),{...life.policy.affect,enabled:life.policy.enabled&&!life.policy.paused&&!preferenceSnapshot.settings.paused&&life.policy.affect.enabled}):{keywords:activeInterests,shareReady:false,shareInterests:[]}
 browsing.shareReady=sharing.shareReady;browsing.shareInterests=sharing.shareInterests
 const annotate=x=>{const evidence=interestEvidence(x,activeInterests);return {...x,interestMatches:evidence.map(e=>e.preference),interestEvidence:evidence}}
 const preliminary={...pipeline,minDuration:Math.max(0,pipeline.minDuration-5),maxDuration:pipeline.maxDuration+5}
@@ -277,7 +238,7 @@ const diagnostics={browsing,interestSelected,explorationSelected:diversified.len
 if(opt.json){console.log(JSON.stringify({schema:'whale.discovery/1',items:diversified,n:N,shortfall:Math.max(0,N-diversified.length),keywords:searchKeywords,windows:pipeline.windows,diagnostics}));process.exit(0)}
 console.error('[来源] 兴趣优先；探索合计最多 '+pipeline.explorationMax+' 条')
 console.log(`偏好（来自配置）: ${prefs.join(' · ')}`)
-console.log(`反馈回流: 被赞 ${likedEvents.length} 条 · 她收藏 ${favItems.length} 条 → 学会 ${learnedTokens.length} 个主题词`)
+console.log(`品味回流: 收藏 ${favItems.length} 条 → 提取 ${learnedTokens.length} 个主题词`)
 console.log(`已看过/已评论过（已排除）: ${seen.size} 个 BV`)
 console.log(`候选池: ${pool.length} 条 → 去重去已看后 ${verified.length} 条\n`)
 console.log('兴趣候选 '+interestSelected+' 条；探索 '+(diversified.length-interestSelected)+' 条；缺口 '+Math.max(0,N-diversified.length)+' 条')
@@ -287,8 +248,7 @@ let shown = 0
 for (const x of diversified) {
   if (shown >= N) break
   perKw[x.kw] = perKw[x.kw] ?? 0
-  // 多样性已在上一步做过 → 这里不再二次限流 ✓
   perKw[x.kw] += 1; shown += 1
   console.log(`  ${String(shown).padStart(2)}. ${x.bv}  ${String(x.d).padStart(4)}s  弹幕${String(x.dm).padStart(7)}  播放${String(x.play).padStart(9)}  ${x.t.slice(0, 40)}  @${x.up} ${x._hits.length ? "[" + x._hits.join("+") + "]" : ""}`)
 }
-console.log('\n看完跑：node bili.mjs debrief <BV>   → 然后把"想法"写进日记的「想说」区（不发）')
+console.log('\n如需深看，运行：bili_inspect debrief <BV> --profile auto')

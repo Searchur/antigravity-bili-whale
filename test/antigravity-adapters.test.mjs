@@ -108,7 +108,7 @@ test('createAntigravityTextComplete reads transcript_full.jsonl, strips code fen
       { step_index: 0, type: 'USER_INPUT', content: 'prompt' },
       { step_index: 1, type: 'PLANNER_RESPONSE', content: '```json\n{"action":"skip"}\n```' },
     ])
-    const out = await complete({ prompt: 'test prompt', stage: 'diary' })
+    const out = await complete({ prompt: 'test prompt', stage: 'formation' })
     assert.equal(out, '{"action":"skip"}')
     assert.deepEqual(archived[0], { id: 'worker-conv-1', annotations: { archived: true } })
 

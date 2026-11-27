@@ -49,9 +49,8 @@ export function archiveLifeState(state, { dir, now, cfg }, force = false) {
       : keep
   ).push(event))
 
-  // Historical diary entries remain searchable in the archive.
   const forget = cfg.forgetExpiredEvents !== false
-  const forgotten = forget ? old.filter(event => event.at < boundary && event.kind !== 'diary') : []
+  const forgotten = forget ? old.filter(event => event.at < boundary) : []
   const archived = old.filter(event => !forgotten.includes(event))
   if (archived.length) {
     if (state.affect) {
@@ -61,6 +60,11 @@ export function archiveLifeState(state, { dir, now, cfg }, force = false) {
     const cognition = cognitiveState(state)
     cognition.archivedUnprocessed = (cognition.archivedUnprocessed ?? 0) +
       archived.filter(event => event.seq > cognition.cursor && learningKinds.has(event.kind)).length
+    const archivedKeys = archived.map(event => event.key).filter(Boolean)
+    if (archivedKeys.length) {
+      state.settings ??= {}
+      state.settings.archivedEventKeys = [...new Set([...(state.settings.archivedEventKeys ?? []), ...archivedKeys])].slice(-500)
+    }
     const name = 'events-' + now() + '-' + id() + '.json'
     const payload = { version: 1, events: archived }
     atomicWriteJson(path.join(dir, 'archive', name), payload)

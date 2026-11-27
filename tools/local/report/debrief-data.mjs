@@ -23,14 +23,13 @@ export const REPORT_SCHEMA = 'bw.debrief.report/1'
  *
  * @param {object} input
  * @param {string} input.bvid              视频号
- * @param {object} input.options           本次运行的参数（bucket/top/grid/comments/no-frames/substrip/score）
+ * @param {object} input.options           本次运行的参数（bucket/top/grid/comments/substrip）
  * @param {object} input.meta              元信息（原始 view.data 里用到的字段）
  * @param {object} input.cover             封面：{ ok: true, file } | { ok: false, error }
  * @param {object} input.subtitles         字幕：{ entries, file } | { entries: [] }
  * @param {object} input.danmaku           弹幕：{ entries, claimed } | null
  * @param {object} input.comments          热评：{ code, replies } | { error }
  * @param {object} input.frames            画面：{ enabled, error, toolLines, sheet, strip }
- * @param {boolean} input.score            --score 评分卡开关（文本在渲染器里）
  * @returns {object} report
  */
 export function buildDebriefReport(input = {}) {
@@ -39,9 +38,7 @@ export function buildDebriefReport(input = {}) {
     topN: 5,
     grid: '3x3',
     commentCount: 8,
-    noFrames: false,
     substrip: false,
-    score: false,
     ...(input.options ?? {}),
   }
   const subtitleEntries = Array.isArray(input.subtitles?.entries) ? input.subtitles.entries : []
@@ -59,7 +56,6 @@ export function buildDebriefReport(input = {}) {
     }),
     comments: normalizeComments(input.comments),
     frames: normalizeFrames(input.frames),
-    score: Boolean(input.score ?? options.score),
   }
 }
 

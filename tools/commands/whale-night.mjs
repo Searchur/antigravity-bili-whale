@@ -1,22 +1,23 @@
 // Shared planning engine: absolute timestamps and persistent per-window history.
 import fs from 'node:fs'
-import path from 'node:path'
 import { dshPath } from '../lib/paths.mjs'
 import { readNightConfig } from '../lib/night-config.mjs'
 import { makePlan, completePlan, dayOf } from '../lib/night-plan.mjs'
+import { atomicWriteJson } from '../lib/life-persistence.mjs'
 import { callSidecarIpc } from '../../lib/sidecar-ipc.js'
 import { readSchedulerHealth } from '../../lib/scheduler-health.js'
 import { deliveryStatus } from '../../lib/delivery-state.js'
 const STATE = dshPath('whale-night.json')
+const IPC_FILE = dshPath('sidecar-ipc.json')
 const load = () => { try { return JSON.parse(fs.readFileSync(STATE, 'utf8')) } catch { return {} } }
-const save = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n') }
+const save = (file, value) => atomicWriteJson(file, value)
 const [cmd, ...args] = process.argv.slice(2)
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 if (cmd === 'trigger') {
   try{
     if(args.length!==1||!['--dry','--go'].includes(args[0]))throw Error('用法: night trigger --dry 或 night trigger --go；必须明确选择')
     const dry=args[0]==='--dry'
-    const result=await callSidecarIpc(dry?'/status':'/wake-now',dry?{}:{method:'POST',timeoutMs:90_000})
+    const result=await callSidecarIpc(dry?'/status':'/wake-now',dry?{file:IPC_FILE}:{method:'POST',timeoutMs:90_000,file:IPC_FILE})
     if(!result.running||result.ok===false)throw Error(result.error||'后台守护未连接')
     if(dry&&!result.schedulerStatus?.rpcAvailable)throw Error('后台守护尚未连接 Antigravity 会话接口')
     console.log(JSON.stringify(dry?{ok:true,dry:true,note:'将请求控制台的立即唤醒服务；执行时由后台守护校验登录、作息状态和模型配额'}:result,null,2))

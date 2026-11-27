@@ -1,4 +1,6 @@
 import { config } from '../lib/config.mjs'
+import { lifeStore } from '../lib/life-runtime.mjs'
+import { localDay } from '../lib/local-date.mjs'
 import { favoriteItems, legacyFavoriteItems, claimLegacyFavorites, readFavorites, verifiedFavoriteAccount, selectFavoriteFolder } from '../lib/favorites.mjs'
 import { atomicWriteJson } from '../lib/life-persistence.mjs'
 import { acquireProcessLock } from '../lib/process-lock.mjs'
@@ -48,7 +50,7 @@ for (let i = 0; i < argv.length; i += 1) {
 const DRY = !!opt.dry
 const GO = !!opt.go
 const DAY = 86400000
-const today = () => new Date().toLocaleDateString('sv-SE')
+const today = () => localDay()
 
 const load = () => readFavorites(FAV_LOG)
 const save = (d) => atomicWriteJson(FAV_LOG, d)
@@ -62,7 +64,7 @@ function inferKind(reason) {
   if (/学|教程|怎么|原理|工具|插件|做法/.test(r)) return '想学'
   if (/再看|好笑|治愈|震撼|好听|想看第二遍|重看/.test(r)) return '想再看'
   if (/鱼|鲸|拟人|我自己|人格|AI 人|桌宠/.test(r)) return '和我有关'
-  if (/提|引用|日记|分享里|以后说/.test(r)) return '以后要提'
+  if (/提|引用|分享里|以后说/.test(r)) return '以后要提'
   return '其他'
 }
 
@@ -185,7 +187,11 @@ console.log(`  收藏夹：「${fav.title}」（media_id=${fav.id}）· 今天�
 
 if (GO === DRY) { console.error('✗ 必须且只能给 --dry 或 --go'); process.exit(2) }
 requireWritePreview('favorite', { bv, folder: fav.id, reason, kind, better: !!opt.better }, { dry: DRY, credentials: cred })
-if (DRY) { console.log('  [dry] 未写入 ✓ 确认后把 --dry 换成 --go'); process.exit(0) }
+if (DRY) { console.log('  [dry] 预检通过，未写入；确认后改为 --go'); process.exit(0) }
+if (config().life?.paused || lifeStore().read().settings.paused) {
+  console.error('大鲸鱼主动活动已暂停，不能执行收藏操作。')
+  process.exit(4)
+}
 
 let release
 try { release=await acquireProcessLock(FAV_LOG) } catch { console.error('收藏账本正在使用或锁不可用，请稍后再试。'); process.exit(3) }
@@ -214,8 +220,8 @@ const j = await r.json()
 if (j.code !== 0) {
   // 2026-10-21：把常见返回码翻译成人话 —— 裸的 -111 用户完全看不懂 ✗
   const HINT = {
-    '-101': '账号未登录：SESSDATA 失效，重新复制一次 cookie',
-    '-111': 'CSRF 校验失败：bili_jct 和当前 SESSDATA 不是同一账号，或已过期 → 两个都重新复制一次',
+    '-101': '账号未登录：登录态已失效，请在控制台重新扫码登录',
+    '-111': 'CSRF 校验失败：请在控制台「大鲸鱼与主人」重新扫码登录',
     '-352': '风控拦截：等几分钟再来',
     11010: '收藏夹不存在或不属于当前账号，请重新登录并检查收藏夹',
     10031: '操作太快：退避一会儿',

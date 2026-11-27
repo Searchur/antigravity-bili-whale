@@ -12,8 +12,8 @@
 | **zod** | 前端协议数据校验 | MIT |
 | **zod-to-json-schema** | 数据校验架构转换 | ISC |
 | **qrcode (Kazuhiko Arase)** | `vendor/qrcode/qrcode.mjs` 内置零依赖二维码生成器 | MIT（见 `vendor/qrcode/LICENSE`） |
-| **Bilibili API / bilibili-API-collect** | B 站公开接口调用及 `tools/docs/` 接口参考文档 | 非官方；本项目不包含 B 站代码或数据 |
-| **ffmpeg** | 本机可选的视频画面抽帧工具 | **LGPL v2.1+** 或GPL（仓库不打包ffmpeg） |
+| **Bilibili API / bilibili-API-collect** | B 站公开接口调用参考 | 非官方；本项目不包含 B 站代码或数据 |
+| **ffmpeg** | 本机视频画面抽帧依赖工具 | **LGPL v2.1+** 或 GPL（仓库不打包 ffmpeg） |
 | **Node.js** | 本地运行环境 | MIT |
 
 `mcp/dist/app.html`内的`third-party-licenses`数据块保留实际进入前端包的第三方组件的版本、版权与许可文本。

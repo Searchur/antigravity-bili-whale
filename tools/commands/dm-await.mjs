@@ -12,6 +12,7 @@ import { isFollowerOfWhale } from '../lib/relation.mjs'
 import { checkFanQuota } from '../lib/fan-quota.mjs'
 import { dmListenerScope } from '../lib/dm-listener-scope.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
+import { atomicWriteJson } from '../lib/life-persistence.mjs'
 
 const argv = process.argv.slice(2)
 const peek = argv.includes('--peek')
@@ -30,9 +31,7 @@ function checkScope() {
 
 function save(state) {
   checkScope()
-  const tmp = file + '.' + crypto.randomUUID() + '.tmp'
-  try { fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, file) }
-  finally { fs.rmSync(tmp, { force: true }) }
+  atomicWriteJson(file, state)
 }
 
 function recordFanReceipt(receipt, mid) {
@@ -44,9 +43,7 @@ function recordFanReceipt(receipt, mid) {
     if (now - Number(v?.at ?? 0) > 24 * 3600_000) delete map[k]
   }
   map[receipt] = { mid: String(mid), at: now }
-  const tmp = receiptsFile + '.' + crypto.randomUUID() + '.tmp'
-  try { fs.writeFileSync(tmp, JSON.stringify(map, null, 2), { mode: 0o600 }); fs.renameSync(tmp, receiptsFile) }
-  finally { fs.rmSync(tmp, { force: true }) }
+  atomicWriteJson(receiptsFile, map)
 }
 
 function acknowledge(state, message) {
@@ -91,9 +88,15 @@ function emit(message) {
 
 async function pollFanSessions(headers, state, nav) {
   const fanCursors = { ...(state.fanCursors ?? {}) }
+  const nowSec = Math.floor(Date.now() / 1000)
+  const firstFanPoll = !Number.isFinite(Number(state.fanBaselineAt)) || Number(state.fanBaselineAt) <= 0
+  const fanBaselineAt = firstFanPoll ? nowSec : Number(state.fanBaselineAt)
+
   const url = 'https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&group_fold=1&unfollow_fold=0&sort_rule=2&size=20&build=0&mobi_app=web'
   const res = await exactJson(await fetch(url, { headers }))
-  if (res?.code !== 0 || !Array.isArray(res.data?.session_list)) return { messages: [], fanCursors }
+  if (res?.code !== 0 || !Array.isArray(res.data?.session_list)) {
+    return { messages: [], fanCursors, fanBaselineAt }
+  }
 
   const out = []
   for (const sess of res.data.session_list.slice(0, 12)) {
@@ -102,17 +105,21 @@ async function pollFanSessions(headers, state, nav) {
     if (talker === owner || talker === selfMid) continue
     const lastTs = Number(sess.last_msg?.timestamp ?? 0)
     const senderUid = String(sess.last_msg?.sender_uid ?? '')
-    // 跳过自己发出的最后一条或没有新消息的会话
-    const cursor = fanCursors[talker]
+
+    let cursor = fanCursors[talker]
     if (!cursor) {
-      // 首次见到该粉丝会话：只记基线，不倒灌历史旧私信
-      fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
-      continue
+      if (firstFanPoll || lastTs <= fanBaselineAt) {
+        // 首次开启粉丝私信监听时的历史会话：记录基线，不倒灌历史旧私信
+        fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+        continue
+      }
+      // 监听启用后新发来私信的新粉丝：立即投递首条消息，绝不静默丢弃！
+      cursor = { lastSeen: fanBaselineAt, lastKey: '', lastKeys: [] }
     }
+
     if (senderUid && senderUid !== talker) continue
     if (lastTs <= Number(cursor.lastSeen ?? 0)) continue
 
-    // 严格校验：对方必须关注了大鲸鱼，且今日未超粉丝私信回复限额
     const isFan = await isFollowerOfWhale(talker, headers)
     if (!isFan) {
       fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
@@ -124,7 +131,11 @@ async function pollFanSessions(headers, state, nav) {
       perUserDaily: cfg.fanLimits?.dmPerUserDaily ?? 2,
       totalDaily: cfg.fanLimits?.dmTotalDaily ?? 10,
     })
-    if (!fq.allowed) continue
+    if (!fq.allowed) {
+      // 超出当日限额的来信推进游标，避免次日积压倒灌或每次轮询重复打关系接口
+      fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+      continue
+    }
 
     try {
       const hist = await readHistory(talker, headers, cursor, { nav })
@@ -142,7 +153,7 @@ async function pollFanSessions(headers, state, nav) {
     } catch {}
     if (out.length >= 5) break
   }
-  return { messages: out, fanCursors }
+  return { messages: out, fanCursors, fanBaselineAt }
 }
 
 async function main() {
@@ -204,8 +215,6 @@ async function main() {
     const combined = []
     if (dmOwnerOn && owner) {
       const explicitBaseline = argv.includes('--baseline')
-      // The unscoped file cannot prove which account owns its pending messages.
-      // Start at the verified account's current position when upgrading it.
       const baseline = explicitBaseline || (state.lastSeen === undefined && fs.existsSync(dataPath('dm-await-state.json')))
       const result = await readHistory(owner, headers, state, { baseline, nav })
       if (baseline) {
@@ -235,7 +244,7 @@ async function main() {
 
     if (dmFanOn && !argv.includes('--baseline')) {
       const fanRes = await pollFanSessions(headers, state, nav)
-      state = { ...state, fanCursors: fanRes.fanCursors }
+      state = { ...state, fanCursors: fanRes.fanCursors, fanBaselineAt: fanRes.fanBaselineAt }
       combined.push(...fanRes.messages)
     }
 
@@ -276,7 +285,7 @@ let release
 try {
   if (scope && (dmOwnerOn || dmFanOn)) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
-    release = await acquireProcessLock(file)
+    release = await acquireProcessLock(file, { retries: 20, delayMs: 50 })
   }
   process.exitCode = await main()
 } catch (e) {

@@ -36,7 +36,7 @@ export function observeEvent(s,e,{trusted=false}={}){
     w.exchanges=w.exchanges.slice(-30);w.revision++
   }
   if(['sent','outbound'].includes(e.kind)){
-    w.outbound.push({id:e.id,at:e.at,text:e.text,channel:e.channel,target:e.target,taskId:e.taskId??null,episodeId:e.episodeId??null,receipt:e.receipt??null,phase:e.phase??'uncertain',visibility:e.channel==='comment'?'public':'private'})
+    w.outbound.push({id:e.id,at:e.at,text:e.text,channel:e.channel,target:e.target,taskId:e.taskId??null,episodeId:e.episodeId??null,receipt:e.receipt??null,phase:e.phase??'uncertain',visibility:['comment','dynamic'].includes(e.channel)?'public':'private'})
     w.outbound=w.outbound.slice(-20);w.revision++
   }
 }
@@ -170,17 +170,12 @@ export function attachCognition(api,{event,account,owner,cfg}){
   const enabled=()=>{if(!cfg.enabled||!cfg.learningEnabled||cfg.paused)throw Error('归纳已关闭')}
   Object.assign(api,{
     invalidateFormation(reason='configuration-changed'){return tx(s=>{for(const j of cognitiveState(s).jobs)if(['extract','review','review_pending','retry_pending'].includes(j.stage)){j.stage='cancelled';j.tokenHash=null;j.reason=reason}changeRevision(s,{permission:true,policy:true});return {cancelled:true}})},
-    bindChannel({channel,senderId,enabled=true}){return tx(s=>{
-      if(!['qq','wechat'].includes(channel)||!String(senderId??'').trim())throw Error('外部身份绑定无效')
-      const c=cognitiveState(s);c.bindings=c.bindings.filter(b=>b.channel!==channel)
-      c.bindings.push({channel,senderId:String(senderId),enabled:enabled===true,at:now()})
-      changeRevision(s,{permission:true,policy:true});return c.bindings
-    })},
     ingestOwnerMessage(input){return tx(s=>{
       const channel=input.channel??'bili-dm'
-      if(!input.messageId||(channel==='bili-dm'&&String(input.actor)!==String(owner)))throw Error('主人身份或消息 ID 无效')
-      if(channel!=='bili-dm'&&!cognitiveState(s).bindings.some(b=>b.channel===channel&&b.senderId===String(input.actor)&&b.enabled))throw Error('外部通道未绑定')
-      const key='incoming:'+channel+':'+input.messageId,old=cognitionIndexes(s).byKey.get(key)??api.search(key,{archives:true,limit:100}).find(e=>e.key===key);if(old)return old
+      if(channel!=='bili-dm'||!input.messageId||String(input.actor)!==String(owner))throw Error('主人身份或消息 ID 无效')
+      const key='incoming:'+channel+':'+input.messageId,old=cognitionIndexes(s).byKey.get(key)
+      if(old)return old
+      if((s.settings.archivedEventKeys??[]).includes(key))return {id:key,key,archived:true}
       const c=cognitiveState(s),prior=c.working.outbound.filter(x=>now()-x.at<DAY&&['apiAccepted','visibilityConfirmed'].includes(x.phase))
       const match=input.replyTo?prior.find(x=>x.id===input.replyTo||x.receipt===input.replyTo):prior.length===1?prior[0]:null
       const episodeId=match?.episodeId??'episode:'+uid()

@@ -9,7 +9,7 @@ import { createApiHandlers } from '../lib/api-handlers.js'
 import { wakePrompt } from '../lib/scheduler.js'
 import { mentionSummaryLines } from '../lib/mention-summary.js'
 import { pipelineConfig } from '../tools/local/pipeline-config.mjs'
-import { watchOptions, gridForFrameCount, checkWatchDuration, planIntervalFrames } from '../tools/lib/watch-options.mjs'
+import { watchOptions, checkWatchDuration, planIntervalFrames } from '../tools/lib/watch-options.mjs'
 import { parseFrameOutput } from '../tools/local/report/debrief-data.mjs'
 import { createModelToolRunner } from '../mcp/model-tools.mjs'
 import { checkRelation, isFollowerOfWhale, clearRelationCache } from '../tools/lib/relation.mjs'
@@ -193,7 +193,6 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     cfgFile: path.join(dir, 'config.json'),
     credFile,
     personaFile: path.join(dir, 'persona.md'),
-    pendingFile: path.join(dir, 'pending-replies.json'),
     openPathImpl: (target, opts) => { openedCalls.push({ target, ...opts }) },
     ipcClient: async (ep) => {
       if (ep === '/invalidate') { invalidated++; return { running: true } }
@@ -333,7 +332,6 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(saved.config.listen.dmIntervalSec, 120)
     assert.equal(saved.config.listen.commentIntervalSec, 300)
     assert.equal(pipelineConfig(saved.config).maxDuration, 1200)
-    assert.deepEqual(gridForFrameCount(12), { cols: 4, rows: 3, count: 12 })
     assert.equal(watchOptions(['BV1xx411c7mD', '--every', '10', '--max-frames', '12'], dir).everySec, 10)
 
     const wPrompt = wakePrompt({ atText: '2026-11-26 21:00', window: '20:00–24:00' }, '', 8, 'dm', 'direct', {}, saved.config, 2)
@@ -457,7 +455,6 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
       cfgFile: path.join(dir, 'config.json'),
       credFile: path.join(dir, 'credentials.json'),
       personaFile: path.join(dir, 'persona.md'),
-      pendingFile: path.join(dir, 'pending-replies.json'),
       ipcClient: async () => ({ running: false }),
       rpc: { available: () => false },
     })
@@ -542,7 +539,6 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
     cfgFile: path.join(dir, 'config.json'),
     credFile: path.join(dir, 'credentials.json'),
     personaFile: path.join(dir, 'persona.md'),
-    pendingFile: path.join(dir, 'pending-replies.json'),
     ipcClient: (ep, opts) => callSidecarIpc(ep, { ...opts, file: ipcFile }),
     rpc: { available: () => false },
   })
@@ -619,7 +615,6 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
     cfgFile: path.join(dir, 'config.json'),
     credFile: path.join(dir, 'credentials.json'),
     personaFile: path.join(dir, 'persona.md'),
-    pendingFile: path.join(dir, 'pending-replies.json'),
     biliMjs: path.join(dir, 'nonexistent-bili.mjs'),
     ipcClient: async () => ({ running: false }),
     rpc: { available: () => false },
@@ -828,36 +823,26 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
 
 test('v1.6.2 removes artificial short-comment limits so whale freely chooses short or long comments within Bilibili 1000-char limit', async () => {
   const { lifeConfig } = await import('../tools/lib/life-config.mjs')
-  const { checkHard, hardPolicyPrompt } = await import('../tools/lib/expression-hard.mjs')
-  const { expressionPrompt } = await import('../tools/lib/expression.mjs')
   const { lifeStore } = await import('../tools/lib/life-runtime.mjs')
 
   const defaults = lifeConfig()
-  assert.equal(defaults.hardMode, 'off')
-  assert.equal(defaults.hardMaxChars, 1000)
-  assert.equal(defaults.hardWarnAt, 0)
+  assert.equal('hardMode' in defaults, false)
+  assert.equal('requireDraft' in defaults, false)
 
   const longComment = '这是一条认真看完视频后写下的长评论分析，涵盖技术细节与实际体验。'.repeat(28) // ~896 chars
   assert.ok(longComment.length > 800 && longComment.length <= 1000)
-  const hardRes = checkHard(longComment, 'public-comment', defaults)
-  assert.equal(hardRes.ok, true)
-  assert.equal(hardRes.applied, false)
-  assert.deepEqual(hardRes.errors, [])
-  assert.deepEqual(hardRes.warnings, [])
-  assert.equal(hardPolicyPrompt('public-comment', defaults), '')
 
-  const pubPrompt = expressionPrompt('public-comment', 'cat-draft', defaults)
-  assert.equal(pubPrompt.includes('中位数约 10 字'), false)
-  assert.equal(pubPrompt.includes('超过 40 字提醒'), false)
-  assert.ok(pubPrompt.includes('1000 字符'))
+  const pubMd = fs.readFileSync(path.resolve('behavior/public-comment.md'), 'utf8')
+  assert.equal(pubMd.includes('中位数约 10 字'), false)
+  assert.ok(pubMd.includes('1000 字符'))
 
-  // Legacy config.json containing old hardMode='enforce' / hardMaxChars=60 is normalized to unrestricted
+  // Legacy config.json containing old hardMode='enforce' / hardMaxChars=60 loads cleanly without blocking long comments
   const dir = mkTmp('ag-whale-v162-')
   const cfgPath = path.join(dir, 'config.json')
   fs.writeFileSync(cfgPath, JSON.stringify({
     self: { mid: '999', name: '大鲸鱼' },
     owner: { mid: '12345', name: '主人' },
-    life: { hardMode: 'enforce', hardMaxChars: 60, hardWarnAt: 40 },
+    life: { hardMode: 'enforce', hardMaxChars: 60, hardWarnAt: 40, draftMode: 'cat-draft', requireDraft: true },
   }))
   const api = createApiHandlers({
     whaleHome: dir,
@@ -869,9 +854,8 @@ test('v1.6.2 removes artificial short-comment limits so whale freely chooses sho
   })
   try {
     const loaded = await api.getSettings()
-    assert.equal(loaded.config.life.hardMode, 'off')
-    assert.equal(loaded.config.life.hardMaxChars, 1000)
-    assert.equal(loaded.config.life.hardWarnAt, 0)
+    assert.equal('hardMode' in loaded.config.life, false)
+    assert.equal('requireDraft' in loaded.config.life, false)
 
     const store = lifeStore(loaded.config, { dshHome: dir, fullConfig: () => loaded.config })
     const check = store.check({

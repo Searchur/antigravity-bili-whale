@@ -7,9 +7,9 @@
  *   · 这里只做排版：不请求、不读文件、不打印；
  *   · 文案、顺序、缩进、空格个数都必须与重构前 debrief.mjs 里逐字一致（验收标准是逐字 diff）。
  *
- * 覆盖的六段（+ 两个可选项）：
+ * 覆盖的六段（+ 结尾提示）：
  *   ① 元信息  ② 封面  ③ 官方字幕  ④ 弹幕热区  ⑤ 热评  ⑥ 画面 / ⑥b 字幕条
- *   --score 评分卡、结尾「下一步」提示
+ *   结尾「下一步」提示
  */
 
 // 与 debrief.mjs 里的同名函数一致（mm:ss）。渲染器不 import 采集脚本，纯函数在这里留一份。
@@ -31,10 +31,10 @@ export function render(report) {
   push(`播放 ${stat.view}  点赞 ${stat.like}  收藏 ${stat.favorite}  投币 ${stat.coin}  弹幕 ${stat.danmaku}  评论 ${stat.reply}`)
   if (meta.desc) push(`简介: ${meta.desc.replace(/\n+/g, ' / ').slice(0, 300)}`)
 
-  // ── ② 封面（交给 read_file 看）──
+  // ── ② 封面（已随响应附带，或通过 bili_inspect read-shot 查看）──
   const cover = report.cover ?? {}
   push('', '══════════ ② 封面 ══════════')
-  if (cover.ok) push(`${cover.file}（交给 read_file 看）`)
+  if (cover.ok) push(`${cover.file}（已随工具响应附带，或用 bili_inspect read-shot 查看）`)
   else push(`封面下载失败：${cover.error}`)
 
   // ── ③ 官方字幕（它到底说了什么）──
@@ -85,7 +85,7 @@ export function render(report) {
     }
   }
 
-  // ── ⑥ 画面（交给 read_file）──
+  // ── ⑥ 画面 ──
   const fr = report.frames ?? { enabled: false }
   if (fr.enabled) {
     push('', '══════════ ⑥ 画面（长什么样）══════════')
@@ -103,26 +103,14 @@ export function render(report) {
       } else {
         push(`STRIP: ${st.outPng}`)
         push(`取帧方式: 每 ${st.everySeconds} 秒一帧 × ${st.rows} 行 · 裁下画面下方 32% 的字幕带`)
-        push('（用 read_file 看它 —— 整片台词基本都在这一张图里）')
+        push('（可结合 bili_inspect read-shot 查看 —— 整片台词基本都在这一张图里）')
       }
     }
   }
 
-  // ── 评分卡（--score）：只打空表格，分数由模型填 ──
-  if (report.score) {
-    push('', '══════════ 评分卡（每项 0-4 分，满 20）══════════')
-    push('  信息密度 __/4   看完学到东西了吗')
-    push('  偏好交集 __/4   和 config.like 重合吗（对照 dislike 扣分）')
-    push('  新颖度   __/4   对照日记「看过的」，主人大概率不知道吗')
-    push('  情绪价值 __/4   好笑 / 治愈 / 震撼，至少占一样')
-    push('  表达质量 __/4   UP 讲得清楚吗，还是标题党')
-    push('  → 合计 __/20；达到分享门槛后再判断是否值得发（不到 13 = 今天没有值得发的 ✓）')
-    push('  （填完写进日记：日期 + BV + 分数 + 一句理由）')
-  }
-
   // ── 下一步（交给模型）──
   push('', '══════════ 下一步（交给模型）══════════')
-  push('用 read_file 看封面与九宫格，再把上面五路合起来写成结论 —— 脚本只备素材，不作判断。')
+  push('结合封面与画面拼图（随工具响应附带或通过 bili_inspect read-shot 查看），再把上面各路信息合起来形成判断 —— 脚本只备素材，不作判断。')
 
   return { lines }
 }

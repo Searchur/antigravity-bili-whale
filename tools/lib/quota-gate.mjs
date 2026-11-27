@@ -1,8 +1,4 @@
-// 限额闸的统一入口（2026-10-17 加，Kimi 评审 #5：写通道只有 comment 接了闸门 ✗）
-//
-// 以前 quota.mjs 的头注释承诺「check 只挡发言类动作（comment / dynamic / danmaku）」，
-// 但 dynamic / dynamic-image / edit-dynamic / danmaku 四条写通道里 quota 出现 0 次 —— 等于裸奔。
-// 这里把「检查 + 记账」收成两个函数，四条通道各调一次。
+// 限额闸的统一入口（评论 / 动态等写通道共用检查与记账）
 import { execFileSync } from './capture.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

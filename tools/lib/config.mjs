@@ -1,6 +1,6 @@
 import fs from 'node:fs'
-import { LIFE_DEFAULTS } from './life-config.mjs'
-import { CHAT_DEFAULTS } from './chat-config.mjs'
+import { LIFE_DEFAULTS, lifeConfig } from './life-config.mjs'
+import { CHAT_DEFAULTS, chatConfig } from './chat-config.mjs'
 import { configPath } from './paths.mjs'
 
 export { configPath } from './paths.mjs'
@@ -105,7 +105,7 @@ export const DEFAULTS = {
   owner: { mid: '', name: '' },
   self: { mid: '', name: '' },
   quota: { shareDaily: 3 },
-  share: { enabled: false, via: 'comment', minScore: 13, silentAfterDays: 3 },
+  share: { enabled: false, via: 'comment' },
   listen: { ...LISTEN_DEFAULTS },
   night: { windows: [{ start: '00:00', end: '24:00', wakes: 5 }], skipChance: 0.2, minGapMin: 10, maxVideos: 5, deepWatchMax: 3, maxWakesPerDay: 5 },
 }
@@ -250,14 +250,34 @@ export function config({ fresh = false } = {}) {
   try { user = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch { /* 首次运行用默认值 */ }
   const merged = withoutRetiredListening(merge(DEFAULTS, user))
   merged.browse = { enabled: user.browse?.enabled === true }
+  merged.chat = chatConfig(merged.chat)
+  if (merged.share && typeof merged.share === 'object') {
+    delete merged.share.aiCommentGuard
+    delete merged.share.aiThreshold
+    delete merged.share.minScore
+    delete merged.share.silentAfterDays
+    if (!['comment', 'dm'].includes(merged.share.via)) merged.share.via = 'comment'
+  }
   merged.models = normalizeModels(merged.models)
   merged.watch = normalizeWatch(user.watch)
   merged.listen = normalizeListen(user.listen ?? merged.listen)
   merged.fanLimits = normalizeFanLimits(merged.fanLimits)
   merged.safety = normalizeSafety(merged.safety)
+  if (merged.night && typeof merged.night === 'object') {
+    const n = merged.night
+    n.minGapMin = clampInt(n.minGapMin, 10, 240, 10)
+    n.maxVideos = clampInt(n.maxVideos, 1, 10, 5)
+    n.deepWatchMax = Math.min(n.maxVideos, clampInt(n.deepWatchMax, 1, 3, 3))
+  }
+  const cleanTags = (arr, limit) => [...new Set((Array.isArray(arr) ? arr : []).map(s => String(s ?? '').trim()).filter(Boolean))].slice(0, limit)
+  merged.preferences = {
+    ...(merged.preferences ?? {}),
+    like: cleanTags(merged.preferences?.like, MAX_LIKE_TAGS),
+    dislike: cleanTags(merged.preferences?.dislike, MAX_DISLIKE_TAGS),
+  }
   delete merged.diary
   delete merged.notify
-  merged.life = { ...(merged.life ?? {}), autonomy: false, hardMode: 'off', hardMaxChars: 1000, hardWarnAt: 0 }
+  merged.life = { ...lifeConfig(merged.life), autonomy: false }
   merged.personaOncePerSession = true
   if (!String(merged.persona?.name ?? '').trim()) merged.persona = { ...(merged.persona ?? {}), name: '大鲸鱼' }
   merged.__hasUserFile = Object.keys(user).length > 0

@@ -20,15 +20,15 @@ const GROUPS = [
   {
     name: 'bili_inspect',
     title: 'B站视频深读与画面抽帧',
-    description: '视频内容与评论深读工具。支持命令：debrief（一条龙：封面+简介+字幕+弹幕热区+热评+抽帧，自动附带画面图）、watch-video（抽帧拼九宫格并附带画面图）、subtitles（官方字幕）、comments（热评/最新评论）、video（纯文字还原）、batch-debrief（有限并发深读）、ai-share（分享前评论抽样与评估）、read-shot（按路径读取 shots 缓存内的封面或抽帧图）。',
-    commands: ['debrief', 'watch-video', 'subtitles', 'comments', 'video', 'batch-debrief', 'ai-share', 'read-shot'],
+    description: '视频内容与评论深读工具。支持命令：debrief（一条龙：封面+简介+字幕+弹幕热区+热评+画面抽帧，自动附带画面图）、watch-video（抽帧拼图并附带画面图）、subtitles（官方字幕辅助查看）、comments（热评/最新评论）、batch-debrief（有限并发深读）、read-shot（按路径读取 shots 缓存内的封面或抽帧图）。',
+    commands: ['debrief', 'watch-video', 'subtitles', 'comments', 'batch-debrief', 'read-shot'],
     timeoutMs: 300_000,
   },
   {
     name: 'bili_interact',
     title: 'B站公开互动写操作（强制 --dry/--go）',
-    description: '评论、动态、点赞、收藏、关注工具。支持命令：comment、comment-del、dynamic、dynamic-image、dynamic-edit、like、fav、follow。写操作先用 --dry 预览，再用相同参数改为 --go。',
-    commands: ['comment', 'comment-del', 'dynamic', 'dynamic-image', 'dynamic-edit', 'like', 'fav', 'follow'],
+    description: '评论、动态、点赞、收藏、关注工具。支持命令：comment、comment-del、dynamic、dynamic-image、like、fav、follow。写操作先用 --dry 预览，再用相同参数改为 --go。',
+    commands: ['comment', 'comment-del', 'dynamic', 'dynamic-image', 'like', 'fav', 'follow'],
     timeoutMs: 360_000,
   },
   {
@@ -48,8 +48,8 @@ const GROUPS = [
   {
     name: 'bili_life',
     title: '鲸鱼长期记忆与作息状态',
-    description: '长期记忆、表达草稿与作息工具。支持命令：life（有界记忆与上下文检索）、expression（表达草稿）、corpus（语料参考）、quota（分享额度）、night（作息）、traffic（请求保护状态）。',
-    commands: ['life', 'expression', 'corpus', 'quota', 'night', 'traffic'],
+    description: '长期记忆、额度与作息工具。支持命令：life（有界记忆与上下文检索）、quota（分享/评论/动态额度查询）、night（作息状态）、traffic（请求保护只读状态）。',
+    commands: ['life', 'quota', 'night', 'traffic'],
     timeoutMs: 120_000,
   },
   {
@@ -62,7 +62,7 @@ const GROUPS = [
   {
     name: 'bili_ops',
     title: '鲸鱼运维与规范阅读',
-    description: '运维与行为规范工具。支持命令：deps（依赖体检）、selftest（启动自检）、session（确认当前登录账号）、behavior（行为规范）、config（选片参数）、read-prompt（读取已授权的唤醒上下文文件）。',
+    description: '运维与行为规范工具。支持命令：deps（依赖体检）、selftest（启动自检）、session（确认当前登录账号）、behavior（行为规范）、config（只读查看选片参数）、read-prompt（读取已授权的唤醒上下文文件）。',
     commands: ['deps', 'selftest', 'session', 'behavior', 'config', 'read-prompt'],
     timeoutMs: 120_000,
   },
@@ -73,21 +73,16 @@ const GROUP_MAP = new Map(GROUPS.map(g => [g.name, g]))
 const TASK_MEMORY_ACTIONS = new Set(['memory-catalog', 'memory-history', 'memory-fetch', 'decision'])
 const PUBLIC_MEMORY_ACTIONS = new Set([
   'context', 'context-explain', 'recall', 'explain', 'source',
-  'memory-catalog-preview', 'memory-history-preview', 'memory-explain', 'legacy-recall', 'legacy-source',
+  'memory-catalog-preview', 'memory-history-preview', 'memory-explain',
 ])
-const EXPRESSION_ACTIONS = new Set(['prepare', 'revise', 'finalize', 'discard', 'references', 'compare'])
 
-function modelLifeArgs(command, args) {
+function modelLifeArgs(args) {
   const [action, value, scene = 'public'] = args
-  if (EXPRESSION_ACTIONS.has(action)) return args
-  if (['expression-plan', 'plan'].includes(action)) return publicScene(value) ? args : null
-  if (command === 'expression') return null
   // Private retrieval requires the existing unguessable task ID and exact scene
   // from the Sidecar's recorded context. Model-supplied roles authorize nothing.
   if (TASK_MEMORY_ACTIONS.has(action)) return args
   if (PUBLIC_MEMORY_ACTIONS.has(action)) return publicScene(scene) ? [action, value ?? '', scene] : null
   if (action === 'search') return args.slice(2).includes('--private') ? null : args
-  if (['rules', 'check'].includes(action)) return args
   return null
 }
 
@@ -155,7 +150,7 @@ export function modelToolDefinitions() {
         args: {
           type: 'array',
           items: { type: 'string' },
-          description: '透传给该命令的参数数组，例如 ["BV1xx...", "--no-frames"] 或 ["--dry"]',
+          description: '透传给该命令的参数数组，例如 ["BV1xx...", "--profile", "auto"] 或 ["--dry"]',
           default: [],
         },
       },
@@ -209,14 +204,21 @@ export function createModelToolRunner({
       isError: true,
       content: [{ type: 'text', text: '该模型工具仅提供公开资料和本任务授权的上下文，管理数据请在控制台查看。' }],
     })
-    if (toolName === 'bili_life' && ['life', 'expression'].includes(command)) {
-      extra = modelLifeArgs(command, extra)
+    if (toolName === 'bili_life' && command === 'life') {
+      extra = modelLifeArgs(extra)
       if (!extra) return restricted()
     }
-    if (toolName === 'bili_life' && command === 'corpus' && extra[0] !== 'retrieve') return restricted()
     if (toolName === 'bili_life' && command === 'quota') {
       if (extra[0] === 'status') extra = ['status', '--summary-only']
       else if (extra[0] !== 'check') return restricted()
+    }
+    if (toolName === 'bili_life' && command === 'traffic') {
+      if (extra.length === 0) extra = ['status']
+      else if (!(extra.length === 1 && extra[0] === 'status')) return restricted()
+    }
+    if (toolName === 'bili_ops' && command === 'config') {
+      if (extra.length === 0) extra = ['show']
+      else if (!(extra.length === 1 && extra[0] === 'show')) return restricted()
     }
     if (toolName === 'bili_dm') {
       const hasUid = flag => extra.filter(value => value === flag).length === 1 && /^[1-9]\d{0,19}$/.test(extra[extra.indexOf(flag) + 1] ?? '')

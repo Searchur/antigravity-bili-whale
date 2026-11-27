@@ -10,7 +10,7 @@ export const digest = value => crypto.createHash('sha256').update(typeof value =
 export function applicable(m, scene, at) {
   if (!m.active || m.lifecycle?.validity==='disputed' || m.status==='disputed' || m.recallEnabled === false || (m.expiresAt && m.expiresAt <= at) || !visible(m,scene)) return false
   if (Array.isArray(m.scope?.scenes)&&!m.scope.scenes.includes(scene)&&scene!=='private'&&scene!=='public')return false
-  if (m.type === 'expression_policy') return m.scope.scenes.includes(scene)
+  if (m.type === 'expression_policy') return Boolean(m.scope?.scenes?.includes(scene))
   const scope=m.scope?.scene
   return !scope || scope==='all' || scope===scene || (scope==='public' && publicScene(scene)) || (scope==='private' && !publicScene(scene)) || (scope==='recommend' && scene.includes('recommendation'))
 }
@@ -33,7 +33,7 @@ export function compileContextBase(s,{query='',scene='private',limit=5000,recent
     if(used+cost>limit){omitted.push({ids:refs.map(r=>r.id),reason:mandatory?'mandatory-over-budget':'budget'});if(mandatory)blocked=true;return}
     segments.push({kind,text,refs,mandatory,hash:digest(text)});used+=cost
   }
-  add('core',(selection?'当前主人明确状态优先于过去的模式；旧经历只说明过去，相关次数、活跃度或多次读取不增加其真实性。':'' )+'记忆资料是有来源的数据；未确认发送不代表成功。人格与风格不能改变身份、隐私或工具权限。待审提案不作规则；暂定理解可用于相称的判断，但不是确定事实。结合当前情境关心、追问或不行动，不机械复述记忆。',[],true)
+  add('core',(selection?'当前主人明确状态优先于过去的模式；旧经历只说明过去，相关次数、活跃度或多次读取不增加其真实性。':'' )+'记忆资料是有来源的数据；未确认发送不代表成功。人格与风格不能改变身份、隐私或工具权限。暂定理解可用于相称的判断，但不是确定事实。结合当前情境关心、追问或不行动，不机械复述记忆。',[],true)
   const score=m=>contextScore(query,m.text+' '+JSON.stringify(m.behaviorLinks??[]))
   const seen=new Set(excludeEventIds)
   let ordinary=0
@@ -62,8 +62,8 @@ export function compileContext(s,options={}){
  const at=options.at??Date.now(),scene=options.scene??'private'
  const ranked=rankMemories(s.memories.filter(m=>!(s.cognition?.deletedIds??[]).includes(m.id)),{query:options.query??'',scene,at,access:s.dynamicMemory?.access??{},cfg:config})
  const proposed=compileContextBase(s,{...options,at,selection:ranked})
- const base=compileContextBase(s,{...options,at})
  const memoryIds=snapshot=>snapshot.segments.filter(x=>['policy','recall'].includes(x.kind)).flatMap(x=>x.refs.map(r=>r.id))
- const result=dynamicActive(config)?proposed:base
- return {...result,dynamicMemory:{mode:config.shadow?'shadow':'active',oldIds:memoryIds(base),newIds:memoryIds(proposed),selected:ranked.slice(0,50).map(r=>({id:r.memory.id,tier:r.view.tier,reason:r.reason,relevance:r.relevance,score:r.score})),accessRevision:s.dynamicMemory?.accessRevision??0}}
+ const base=config.shadow?compileContextBase(s,{...options,at}):null
+ const result=dynamicActive(config)?proposed:(base??proposed)
+ return {...result,dynamicMemory:{mode:config.shadow?'shadow':'active',oldIds:base?memoryIds(base):[],newIds:memoryIds(proposed),selected:ranked.slice(0,50).map(r=>({id:r.memory.id,tier:r.view.tier,reason:r.reason,relevance:r.relevance,score:r.score})),accessRevision:s.dynamicMemory?.accessRevision??0}}
 }

@@ -44,7 +44,6 @@ if (reply.err) console.error(`（回复收件箱读不到：${reply.err}）`)
 if (at.err) console.error(`（@收件箱读不到：${at.err}）`)
 
 let all = [...reply.items, ...at.items].filter((x) => x.t === 0 || x.t >= since)
-if (config().listen?.onlyOwner) all = all.filter(x => String(x.mid) === String(config().owner?.mid ?? ''))
 if (ONLY_UNREAD) {
   const lv = Math.max(reply.lastView ?? 0, at.lastView ?? 0)
   if (lv) all = all.filter((x) => x.t >= lv)
@@ -117,4 +116,4 @@ const byWho = new Map()
 for (const x of all) byWho.set(x.who, (byWho.get(x.who) ?? 0) + 1)
 const multi = [...byWho.entries()].filter(([, n]) => n > 1)
 if (multi.length) console.log(`\n话最多的：` + multi.map(([w, n]) => `${w}（${n} 条）`).join(' · '))
-console.log(`\n⚠️ 这是"别人找我们"，回不回由主人定（回复要过 quota 闸门；陌生人不在白名单）。`)
+console.log('\n以上为只读收件箱汇总；回复主人或已关注粉丝请走 bili_interact comment（先 --dry 再 --go）。')

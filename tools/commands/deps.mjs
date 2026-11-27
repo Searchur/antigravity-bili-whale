@@ -40,8 +40,8 @@ const ff = ffmpegInfo()
 items.push({
   name: 'ffmpeg（抽帧看画面）',
   ok: ff.ok,
-  detail: ff.ok ? `${ff.version}\n  路径：${ff.path}` : (ff.path ? `找到了但跑不起来：${ff.version ?? ff.error}` : '未安装（不影响纯文字浏览）'),
-  fix: '如需抽帧，请在终端执行 winget install -e --id Gyan.FFmpeg，或设置 FFMPEG 指向已有的 ffmpeg.exe。',
+  detail: ff.ok ? `${ff.version}\n  路径：${ff.path}` : (ff.path ? `找到了但跑不起来：${ff.version ?? ff.error}` : '未安装（视频抽帧必需，未安装时无法查看视频画面）'),
+  fix: '请在终端执行 winget install -e --id Gyan.FFmpeg，或设置 FFMPEG 指向已有的 ffmpeg.exe。',
 })
 
 // 3. Node.js
@@ -115,7 +115,7 @@ try {
       fix = '检查 Antigravity 插件页与 Automations，确保 antigravity-bili-whale 已开启并等待首次 tick'
     } else if (runtime.error || runtime.lastError) {
       ok = false; detail = '调度循环异常：' + (runtime.error ?? runtime.lastError.message)
-      fix = '查看「哔哩哔哩大鲸鱼」→「运行与体检」中的错误详情'
+      fix = '查看「哔哩哔哩大鲸鱼」→「环境与依赖」中的错误详情'
     } else if (runtime.status === 'stopped' || !runtime.lastTickAt || now - runtime.lastTickAt > 150_000) {
       ok = false; detail = '调度循环已停止或超过 150 秒无心跳'
       fix = '重启 Antigravity App 或重新启用插件，等待首次 tick'

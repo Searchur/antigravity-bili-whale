@@ -1,16 +1,16 @@
-import { dataPath } from '../lib/paths.mjs'
-import { guardedFetch as fetch } from '../lib/traffic.mjs'
-// 抓取若干视频的元信息 + 封面（供 agent 看图），封面存到 covers/<BV>.jpg
-//   node fetch-covers.mjs BV1xxx BV2yyy ...
 import fs from 'node:fs'
 import path from 'node:path'
+import { dataPath, dshPath } from '../lib/paths.mjs'
+import { guardedFetch as fetch } from '../lib/traffic.mjs'
+
 const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const H = { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}` }
-const outDir = path.join(process.argv[1], '..', '..', 'covers')
+const outDir = dshPath('shots', 'covers')
 fs.mkdirSync(outDir, { recursive: true })
 
 for (const bv of process.argv.slice(2)) {
+  if (!/^BV[0-9A-Za-z]{10}$/.test(bv)) { console.log(`${bv}: 无效 BV 号`); continue }
   try {
     const d = await (await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bv}`, { headers: H })).json()
     if (d.code !== 0) { console.log(`${bv}: code=${d.code} ${d.message}`); continue }
