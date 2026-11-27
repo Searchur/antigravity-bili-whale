@@ -12,7 +12,7 @@ const jsResult = await build({
   entryPoints: [path.join(uiDir, 'main.mjs')],
   bundle: true,
   format: 'iife',
-  target: ['es2022'],
+  target: ['esnext'],
   charset: 'utf8',
   minify: true,
   write: false,

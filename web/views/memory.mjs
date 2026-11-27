@@ -1,4 +1,4 @@
-import { el, row, selectCtrl, renderExportResult } from './render-sections.mjs'
+import { el, row, selectCtrl, renderExportResult } from './sections.mjs'
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 

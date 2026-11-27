@@ -1,5 +1,6 @@
 /**
- * 仓库目录结构、命名与扩展名、分层依赖方向、零循环依赖、版本与清单一致性自动化守卫。
+ * 仓库目录结构、命名与扩展名、分层依赖方向、零循环依赖、ES2026 语法边界、
+ * Markdown 格式与断链、用户数据路径规范、版本与运行清单一致性自动化守卫。
  * 用法：node scripts/check-structure.mjs
  */
 import fs from 'node:fs'
@@ -28,6 +29,8 @@ export const ALLOWED_SRC_DOMAINS = new Set([
   'life', 'social', 'daemon', 'console', 'mcp', 'cli',
 ])
 
+export const ALLOWED_WEB_DIRS = new Set(['views'])
+
 export const ALLOWED_TEST_DIRS = new Set([
   'fixtures', 'host', 'plugin', 'runtime', 'structure',
 ])
@@ -55,8 +58,21 @@ export const ALLOWED_LAYER_DEPS = Object.freeze({
 })
 
 const KEBAB_FILE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.(?:test|example))?\.(?:mjs|json|md|html|css)$/
+const ALLOWED_UPPER_MD = new Set(['README.md', 'NOTICE.md', 'AGENTS.md', 'skills/antigravity-bili-whale/SKILL.md'])
 const ALLOWED_WEB_PACKAGES = new Set(['@modelcontextprotocol/ext-apps'])
 const ALLOWED_SCRIPT_PACKAGES = new Set(['esbuild'])
+
+/** Node 24 (V8 13.6) 尚未实装的 ES2026 API 静态防误用清单 */
+const UNSUPPORTED_ES2026_PATTERNS = [
+  { name: 'Math.sumPrecise', re: /\bMath\.sumPrecise\s*\(/ },
+  { name: 'Uint8Array.fromBase64/fromHex', re: /\bUint8Array\.(?:fromBase64|fromHex)\s*\(/ },
+  { name: 'Uint8Array.prototype.toBase64/toHex', re: /\.(?:toBase64|toHex)\s*\(/ },
+  { name: 'Map.prototype.getOrInsert/getOrInsertComputed', re: /\.(?:getOrInsert|getOrInsertComputed)\s*\(/ },
+  { name: 'Iterator.concat', re: /\bIterator\.concat\s*\(/ },
+]
+
+const LEGACY_DSH_RE = /\b(?:DSH_HOME|dshPath|dshHome)\b/
+const LEGACY_DATA_NAMES_RE = /[\x27\x22](?:whale-night\.json|whale-listen\.json|whale-scheduler\.json|whale-delivery\.json|whale-life|whale-work|traffic-state\.json|dm-tick-err\.log|feed-search-cache\.json|selftest-passed\.json|dm-await-state\.json|dev_id)[\x27\x22]/
 
 function walkFiles(dir, rootDir, out = []) {
   if (!fs.existsSync(dir)) return out
@@ -68,10 +84,8 @@ function walkFiles(dir, rootDir, out = []) {
   return out
 }
 
-/**
- * 剥离注释（保留字符串字面量）后提取静态 import/export ... from 与动态 import('...') 路径。
- */
-export function extractModuleSpecifiers(source) {
+/** 剥离注释（保留字符串字面量） */
+function stripComments(source) {
   let clean = ''
   let i = 0
   const n = source.length
@@ -110,11 +124,56 @@ export function extractModuleSpecifiers(source) {
     clean += ch
     i++
   }
+  return clean
+}
 
+/** 剥离注释与字符串字面量（仅保留代码标识符，用于 var / CJS / API 静态守卫） */
+function stripCommentsAndStrings(source) {
+  let clean = ''
+  let i = 0
+  const n = source.length
+  while (i < n) {
+    const ch = source[i]
+    const next = source[i + 1]
+    if (ch === '/' && next === '/') {
+      i += 2
+      while (i < n && source[i] !== '\n') i++
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      i += 2
+      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) i++
+      i += 2
+      clean += ' '
+      continue
+    }
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const quote = ch
+      clean += ' '
+      i++
+      while (i < n) {
+        const c = source[i]
+        i++
+        if (c === '\\' && i < n) { i++; continue }
+        if (c === quote) break
+      }
+      continue
+    }
+    clean += ch
+    i++
+  }
+  return clean
+}
+
+/**
+ * 剥离注释后提取静态 import/export ... from 与动态 import('...') 路径。
+ */
+export function extractModuleSpecifiers(source) {
+  const clean = stripComments(source)
   const specs = []
-  const staticRe = /(?:^|[\n;{}])\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/g
+  const staticRe = /(?:^|[\n;{}])\s*(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?[\x27\x22]([^\x27\x22]+)[\x27\x22]/g
   for (const m of clean.matchAll(staticRe)) specs.push(m[1])
-  const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
+  const dynamicRe = /\bimport\s*\(\s*[\x27\x22]([^\x27\x22]+)[\x27\x22]\s*\)/g
   for (const m of clean.matchAll(dynamicRe)) specs.push(m[1])
   return [...new Set(specs)]
 }
@@ -143,11 +202,77 @@ function findCycles(graph) {
   return cycles
 }
 
+function checkMarkdownFile(rel, rootDir, errors) {
+  const full = path.join(rootDir, rel)
+  const raw = fs.readFileSync(full, 'utf8')
+  if (!ALLOWED_UPPER_MD.has(rel)) {
+    const base = path.posix.basename(rel)
+    if (!KEBAB_FILE_RE.test(base)) {
+      errors.push(`Markdown 文件名不符合 kebab-case 规范：${rel}`)
+    }
+  }
+  if (raw.includes('\r')) {
+    errors.push(`Markdown 文件包含 CRLF 换行（请统一为 LF）：${rel}`)
+  }
+  if (!raw.endsWith('\n')) {
+    errors.push(`Markdown 文件缺少末尾换行：${rel}`)
+  }
+
+  let body = raw
+  if (body.startsWith('---\n')) {
+    const endIdx = body.indexOf('\n---\n', 4)
+    if (endIdx > 0) body = body.slice(endIdx + 5)
+  }
+
+  const lines = body.split('\n')
+  let inFence = false
+  let h1Count = 0
+  let prevLevel = 0
+  const linkRe = /!?\[[^\]]*\]\(([^)]+)\)/g
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx]
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence) continue
+
+    const heading = line.match(/^(#{1,6})\s+\S/)
+    if (heading) {
+      const level = heading[1].length
+      if (level === 1) h1Count++
+      if (prevLevel > 0 && level > prevLevel + 1) {
+        errors.push(`Markdown 标题跳级（H${prevLevel} -> H${level}）：${rel}:${idx + 1}`)
+      }
+      prevLevel = level
+    }
+
+    // 剥离行内代码后再检查相对链接，避免示例文本误报
+    const withoutCode = line.replace(/`[^`]*`/g, '')
+    for (const m of withoutCode.matchAll(linkRe)) {
+      const target = m[1].trim().split(/\s+/)[0].replace(/^<|>$/g, '')
+      if (!target || /^(?:https?:|mailto:|file:|#)/i.test(target)) continue
+      const filePart = target.split('#')[0].split('?')[0]
+      if (!filePart) continue
+      const resolved = path.resolve(path.dirname(full), decodeURIComponent(filePart))
+      if (!fs.existsSync(resolved)) {
+        errors.push(`Markdown 存在断链：${rel}:${idx + 1} -> ${target}`)
+      }
+    }
+  }
+
+  if (h1Count !== 1) {
+    errors.push(`Markdown 必须恰有 1 个一级标题（当前 ${h1Count} 个）：${rel}`)
+  }
+}
+
 export function checkStructure({
   rootDir = REPO_ROOT,
   checkManifest = true,
   checkDocs = true,
   checkVersions = true,
+  checkMarkdown = true,
 } = {}) {
   const errors = []
 
@@ -162,7 +287,7 @@ export function checkStructure({
     }
   }
 
-  // 2. src/ 领域子目录白名单
+  // 2. src/ 与 web/ 子目录白名单
   const srcRoot = path.join(rootDir, 'src')
   if (fs.existsSync(srcRoot)) {
     for (const ent of fs.readdirSync(srcRoot, { withFileTypes: true })) {
@@ -170,6 +295,15 @@ export function checkStructure({
         errors.push(`src/ 根目录禁止直接放置文件：src/${ent.name}`)
       } else if (!ALLOWED_SRC_DOMAINS.has(ent.name)) {
         errors.push(`src/ 下存在未登记领域目录：src/${ent.name}/`)
+      }
+    }
+  }
+
+  const webRoot = path.join(rootDir, 'web')
+  if (fs.existsSync(webRoot)) {
+    for (const ent of fs.readdirSync(webRoot, { withFileTypes: true })) {
+      if (ent.isDirectory() && !ALLOWED_WEB_DIRS.has(ent.name)) {
+        errors.push(`web/ 下存在未登记子目录：web/${ent.name}/`)
       }
     }
   }
@@ -186,7 +320,7 @@ export function checkStructure({
         continue
       }
       if (base.endsWith('.mjs')) allMjsFiles.push(rel)
-      if (rel === 'src/vendor/qrcode/LICENSE' || base === 'README.md') continue
+      if (rel === 'src/vendor/qrcode/LICENSE') continue
       if (!KEBAB_FILE_RE.test(base)) {
         errors.push(`文件名不符合 kebab-case 规范：${rel}`)
       }
@@ -220,7 +354,34 @@ export function checkStructure({
     }
   }
 
-  // 4. 依赖边界与零循环依赖检查
+  // 4. ES2026 / Node 24+ 语法守卫 & 遗留标识/数据路径防回归
+  for (const rel of allMjsFiles) {
+    if (rel.startsWith('src/vendor/') || rel === 'scripts/check-structure.mjs') continue
+    const source = fs.readFileSync(path.join(rootDir, rel), 'utf8')
+    const codeOnly = stripCommentsAndStrings(source)
+
+    if (/\bvar\s+[a-zA-Z_$]/.test(codeOnly)) {
+      errors.push(`违反 ES2026 规范，禁止使用 var 声明：${rel}`)
+    }
+    if (/\b(?:module\.exports|exports\.|__dirname|__filename)\b/.test(codeOnly)) {
+      errors.push(`违反纯 ESM 规范，禁止使用 CommonJS 标识：${rel}`)
+    }
+    for (const { name, re } of UNSUPPORTED_ES2026_PATTERNS) {
+      if (re.test(codeOnly)) {
+        errors.push(`当前 Node 24 (V8 13.6) 尚未实装 ES2026 API（${name}）：${rel}`)
+      }
+    }
+    if (!rel.startsWith('test/structure/')) {
+      if (LEGACY_DSH_RE.test(codeOnly)) {
+        errors.push(`存在已废弃的 DSH 遗留标识（请改用 WHALE_HOME / whaleHome / dataPathsFor）：${rel}`)
+      }
+      if (rel.startsWith('src/') && LEGACY_DATA_NAMES_RE.test(stripComments(source))) {
+        errors.push(`src/ 中禁止硬编码旧版平铺数据文件名（请统一使用 src/core/data-paths.mjs）：${rel}`)
+      }
+    }
+  }
+
+  // 5. 依赖边界与零循环依赖检查
   const fileGraph = new Map()
   const layerGraph = new Map()
   for (const domain of ALLOWED_SRC_DOMAINS) layerGraph.set(domain, new Set())
@@ -266,6 +427,9 @@ export function checkStructure({
           }
         }
       } else if (isBuiltin(spec)) {
+        if (!spec.startsWith('node:')) {
+          errors.push(`Node 内置模块必须使用 node: 协议前缀：${rel} -> ${spec}`)
+        }
         if (top === 'web') {
           errors.push(`前端目录 web/ 禁止引入 Node 内置模块：${rel} -> ${spec}`)
         } else if (fromDomain === 'shared' || fromDomain === 'vendor') {
@@ -295,16 +459,33 @@ export function checkStructure({
     errors.push(`检测到领域层循环依赖：${cycle}`)
   }
 
-  // 5. 版本一致性与运行清单校验
+  // 6. Markdown 格式、命名、标题层级与断链校验
+  if (checkMarkdown) {
+    const mdFiles = []
+    for (const ent of fs.readdirSync(rootDir, { withFileTypes: true })) {
+      if (ent.isFile() && ent.name.endsWith('.md')) mdFiles.push(ent.name)
+    }
+    for (const dir of ['docs', 'behavior', 'skills', 'stickers']) {
+      for (const rel of walkFiles(path.join(rootDir, dir), rootDir)) {
+        if (rel.endsWith('.md')) mdFiles.push(rel)
+      }
+    }
+    for (const rel of mdFiles) checkMarkdownFile(rel, rootDir, errors)
+  }
+
+  // 7. 版本一致性、Node 24+ 引擎声明与运行清单校验
   if (checkVersions) {
     const pluginVer = JSON.parse(fs.readFileSync(path.join(rootDir, 'plugin.json'), 'utf8')).version
-    const pkgVer = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8')).version
+    const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'))
+    if (!String(pkg.engines?.node ?? '').includes('24')) {
+      errors.push(`package.json engines.node 必须声明 Node 24+（当前：${pkg.engines?.node ?? '未设置'}）`)
+    }
     const lock = JSON.parse(fs.readFileSync(path.join(rootDir, 'package-lock.json'), 'utf8'))
     const lockVer = lock.version
     const lockRootVer = lock.packages?.['']?.version
     const serverVer = fs.readFileSync(path.join(rootDir, 'src/mcp/server.mjs'), 'utf8').match(/version:\s*'(\d+\.\d+\.\d+)'/)?.[1]
     const bridgeVer = fs.readFileSync(path.join(rootDir, 'web/bridge.mjs'), 'utf8').match(/version:\s*'(\d+\.\d+\.\d+)'/)?.[1]
-    const versions = { 'plugin.json': pluginVer, 'package.json': pkgVer, 'package-lock.json': lockVer, 'package-lock.json[root]': lockRootVer, 'src/mcp/server.mjs': serverVer, 'web/bridge.mjs': bridgeVer }
+    const versions = { 'plugin.json': pluginVer, 'package.json': pkg.version, 'package-lock.json': lockVer, 'package-lock.json[root]': lockRootVer, 'src/mcp/server.mjs': serverVer, 'web/bridge.mjs': bridgeVer }
     for (const [label, ver] of Object.entries(versions)) {
       if (ver !== pluginVer) {
         errors.push(`版本号不一致：${label}=${ver}，预期与 plugin.json 一致（${pluginVer}）`)
@@ -326,7 +507,7 @@ export function checkStructure({
     }
   }
 
-  // 6. 架构文档防漂移校验
+  // 8. 架构文档防漂移校验
   if (checkDocs) {
     const archFile = path.join(rootDir, 'docs', 'architecture.md')
     if (!fs.existsSync(archFile)) {
@@ -359,5 +540,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     for (const err of res.errors) console.error('  -', err)
     process.exit(1)
   }
-  console.log(`目录与架构规范校验通过（${res.stats.mjsFiles} 个 .mjs 模块 · ${res.stats.srcDomains} 个无环领域层）`)
+  console.log(`目录与架构规范校验通过（${res.stats.mjsFiles} 个 .mjs 模块 · ${res.stats.srcDomains} 个无环领域层 · ES2026 & Markdown 合规）`)
 }

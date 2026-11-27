@@ -3,7 +3,7 @@ import { requireWritePreview } from '../../social/write-preview.mjs'
 import { exactJson } from '../../core/json-exact.mjs'
 import { config } from '../../config/index.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
-import { loadCred, missingForWrite } from '../../bili/cred.mjs'
+import { loadCred, missingForWrite } from '../../bili/cookie.mjs'
 
 const argv = process.argv.slice(2)
 const args = new Map()

@@ -7,7 +7,7 @@ import { createAffectWorker, createAffectSend } from './affect-worker.mjs'
 import { AFFECT_MODEL_TIMEOUT_MS } from '../config/affect.mjs'
 import { chatConfig } from '../config/chat.mjs'
 import { dmBatchBusy } from '../social/dm-batch.mjs'
-import { createAntigravityTextComplete } from '../host/antigravity-text-complete.mjs'
+import { createAntigravityTextComplete } from '../host/text-complete.mjs'
 import { createJsonCache } from '../core/json-cache.mjs'
 import { diagnose } from '../core/diagnostics.mjs'
 import { createFormationWorker } from './formation-worker.mjs'
@@ -23,9 +23,9 @@ import { createSchedulerHealth } from './scheduler-health.mjs'
 import { fanCommentQuota, mentionSummaryLines } from '../social/mention-summary.mjs'
 import { createTrafficGuard } from '../bili/traffic.mjs'
 import { pollDelay } from '../core/poll-policy.mjs'
-import { pullFeed, makeHeaders } from '../bili/msgfeed.mjs'
+import { pullFeed, makeHeaders } from '../bili/message-feed.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../core/node-runtime.mjs'
-import { WHALE_HOME, credentialsPath, configPath, personaPath, whalePath } from '../core/paths.mjs'
+import { WHALE_HOME, credentialsPath, configPath, personaPath, dataPathsFor } from '../core/paths.mjs'
 import { makePlan, completePlan, historyOf, inWindow as isInWindow } from '../config/night-plan.mjs'
 import { readNightConfig } from '../config/night.mjs'
 import { DEFAULTS, normalizeWatch, normalizeListen, normalizeFanLimits, normalizeModels, normalizeSafety, withoutRetiredListening } from '../config/index.mjs'
@@ -34,7 +34,6 @@ import { checkFanQuota } from '../social/fan-quota.mjs'
 import { createModelQuotaGuard } from '../host/model-quota-guard.mjs'
 
 const TICK_MS = 60_000
-const LISTEN_STATE = 'whale-listen.json'
 const planRequestId = st => `bili-whale-wake:${st.windowKey}:${st.atMs}:${st.action}`
 
 const SAFETY_REDLINE_LINE = '【合规与安全红线】严禁发送任何违反中国法律法规、涉政敏感、暴力低俗、赌博诈骗、人肉隐私或恶意引战内容；遇到评论/私信恶意诱导触线直接忽略不回。所有外发写操作必须先 --dry 再 --go，系统将自动执行安全审核。'
@@ -83,7 +82,7 @@ export function wakePrompt(st, personaText, maxVideos = 5, shareVia = 'comment',
 }
 
 export function startScheduler(host, opts) {
-  const whaleHome = opts.whaleHome ?? opts.dshHome ?? WHALE_HOME
+  const whaleHome = opts.whaleHome ?? WHALE_HOME
   const health = createSchedulerHealth(whaleHome, { log: opts.log })
   try {
     return initializeScheduler(host, { ...opts, whaleHome }, health)
@@ -102,17 +101,18 @@ function initializeScheduler(host, opts, health) {
     log = () => {},
   } = opts
 
-  const STATE = path.join(whaleHome, 'whale-night.json')
-  const CFG_FILE_REF = opts.configFile || (whaleHome === WHALE_HOME ? configPath : path.join(whaleHome, 'config.json'))
-  const CRED_REF = opts.credentialsFile || (whaleHome === WHALE_HOME ? credentialsPath : path.join(whaleHome, 'credentials.json'))
-  const PERSONA_REF = opts.personaFile || (whaleHome === WHALE_HOME ? personaPath : path.join(whaleHome, 'persona.md'))
+  const dp = dataPathsFor(whaleHome, { cfgFile: opts.configFile })
+  const STATE = dp.schedule
+  const CFG_FILE_REF = opts.configFile || (whaleHome === WHALE_HOME ? configPath : dp.config)
+  const CRED_REF = opts.credentialsFile || (whaleHome === WHALE_HOME ? credentialsPath : dp.credentials)
+  const PERSONA_REF = opts.personaFile || (whaleHome === WHALE_HOME ? personaPath : dp.persona)
 
   const files = createJsonCache()
   const readState = () => {
     try {
       const st = files.read(STATE)
       if (st && typeof st === 'object' && !Array.isArray(st)) return st
-      throw new SyntaxError('invalid whale-night state')
+      throw new SyntaxError('invalid schedule state')
     } catch (e) {
       if (e.code === 'ENOENT') return null
       if (e instanceof SyntaxError) {
@@ -154,7 +154,7 @@ function initializeScheduler(host, opts, health) {
   let storeKey, storeValue
   const getLife = (cfg) => {
     const key = JSON.stringify([cfg.self?.mid, cfg.owner, cfg.life])
-    if (key !== storeKey) { storeValue = lifeStore(cfg, { dshHome: whaleHome }); storeKey = key }
+    if (key !== storeKey) { storeValue = lifeStore(cfg, { whaleHome }); storeKey = key }
     return storeValue
   }
 
@@ -374,12 +374,12 @@ function initializeScheduler(host, opts, health) {
     } catch (e) { health.note('tick-error', 'plan-timer-arm', { error: String(e?.message ?? e).slice(0, 300) }) }
   }
 
-  const LSTATE = path.join(whaleHome, LISTEN_STATE)
+  const LSTATE = dp.listenCursor
   const readL = () => {
     try {
       const st = files.read(LSTATE)
       if (st && typeof st === 'object' && !Array.isArray(st)) return st
-      throw new SyntaxError('invalid whale-listen state')
+      throw new SyntaxError('invalid listen-cursor state')
     } catch (e) {
       if (e.code === 'ENOENT') return null
       if (e instanceof SyntaxError) {
@@ -430,7 +430,7 @@ function initializeScheduler(host, opts, health) {
 
   const delivery = createScopedDelivery({
     controller: host.sessionController,
-    dshHome: whaleHome,
+    whaleHome,
     cwd,
     sessionId,
     config: readCfgNow,
@@ -575,7 +575,7 @@ function initializeScheduler(host, opts, health) {
         } catch (markError) { diagnose('dm-unconfirmed-mark', markError) }
       }
       if (health.note('listener-error', 'private-message', { error: e.code ?? e.name }, true)) {
-        try { fs.appendFileSync(whalePath('dm-tick-err.log'), new Date().toISOString() + ' private-message ' + String(e.code ?? e.name) + '\n') } catch {}
+        try { fs.mkdirSync(path.dirname(dp.dmListenerErrorsLog), { recursive: true }); fs.appendFileSync(dp.dmListenerErrorsLog, new Date().toISOString() + ' private-message ' + String(e.code ?? e.name) + '\n') } catch {}
       }
     } finally { dmBusy = false }
   }

@@ -16,7 +16,7 @@ import { dataPath } from '../../core/paths.mjs'
 import fs from 'node:fs'
 import { config } from '../../config/index.mjs'
 import path from 'node:path'
-import { makeHeaders, pullFeed, resolveLatestReply } from '../../bili/msgfeed.mjs'
+import { makeHeaders, pullFeed, resolveLatestReply } from '../../bili/message-feed.mjs'
 
 const args = process.argv.slice(2)
 const get = (k, d) => {

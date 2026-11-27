@@ -20,7 +20,6 @@ export function readLocalPluginMeta({ pluginRoot = PLUGIN_ROOT, whaleHome = WHAL
   // New installation receipts are switched with the runtime payload. Accept a
   // matching legacy receipt for installs made by older plugin versions.
   const receipt = readJsonSafe(path.join(pluginRoot, INSTALL_INFO))
-    ?? readJsonSafe(path.join(whaleHome, 'plugin-update-state.json'))
   const state = receipt?.installedVersion === manifest.version ? receipt : {}
   const isGitCheckout = fs.existsSync(path.join(pluginRoot, '.git'))
   return {

@@ -16,7 +16,7 @@ description: 哔哩哔哩大鲸鱼（antigravity-bili-whale）操作指南与行
 | `bili_read` | 全部只读与状态查询：选片（`feed` / `discover` / `round` / `search` / `whois` / `covers`）、深读看图（`debrief` / `watch-video` / `subtitles` / `comments` / `batch-debrief` / `read-shot`）、收件箱复核（`comment-digest` / `likes` / `thread` / `check-comment` / `check-dynamic` / `check-mention` / `recon`）、记忆与状态（`life` / `quota` / `night` / `traffic status`）、表情包（`stickers list/get`）及运维规范（`deps` / `selftest` / `session` / `behavior` / `config show` / `read-prompt`） |
 | `bili_write` | 全部外发写操作（强制先 `--dry` 后 `--go` 与安全审核）：公开互动（`comment` / `comment-del` / `dynamic` / `dynamic-image` / `like` / `fav` / `follow`）与私信（`dm` / `dm-batch`，须带本任务的 `--account` 大鲸鱼 UID 和 `--to` 收信人 UID，单条 ≤300 字符；后台守护负责私信监听） |
 
-- `bili_read` 在 `debrief` / `watch-video` 抽帧完成后会自动附带画面图供直接看图；需单独查看 `shots/` 缓存图时请调用 `bili_read read-shot`。
+- `bili_read` 在 `debrief` / `watch-video` 抽帧完成后会自动附带画面图供直接看图；需单独查看 `cache/shots/` 缓存图时请调用 `bili_read read-shot`。
 - 可在 Antigravity 左侧栏点击 **「哔哩哔哩大鲸鱼」** 打开独立全页控制台（大鲸鱼与主人、人设与作息、模型选择、视频观看设置、分享与监听、动态与记忆、环境与依赖、关于与更新）。
 
 ## 行为规范与安全铁律

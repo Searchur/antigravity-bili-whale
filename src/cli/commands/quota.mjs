@@ -1,12 +1,12 @@
 import crypto from 'node:crypto'
-import { dataPath } from '../../core/paths.mjs'
+import { DATA_PATHS } from '../../core/paths.mjs'
 import { chatConfig } from '../../config/chat.mjs'
 import { config } from '../../config/index.mjs'
 import { appendQuotaRows, readQuotaLog, flushQuotaReceipts, recoverQuotaReceipts } from '../../social/quota-ledger.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 import { localDay } from '../../core/local-date.mjs'
 
-const FILE = dataPath('quota.json')
+const FILE = DATA_PATHS.quota
 let corrupt = false
 
 const load = () => {

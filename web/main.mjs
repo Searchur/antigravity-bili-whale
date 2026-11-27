@@ -6,11 +6,11 @@ import {
   renderPersonaTab,
   renderInteractTab,
   renderEnvTab,
-} from './render-sections.mjs'
-import { renderModelsTab } from './render-models.mjs'
-import { renderWatchTab } from './render-watch.mjs'
-import { renderMemoryTab } from './render-memory.mjs'
-import { renderAboutTab } from './render-about.mjs'
+} from './views/sections.mjs'
+import { renderModelsTab } from './views/models.mjs'
+import { renderWatchTab } from './views/watch.mjs'
+import { renderMemoryTab } from './views/memory.mjs'
+import { renderAboutTab } from './views/about.mjs'
 
 const state = {
   ready: false,

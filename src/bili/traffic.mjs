@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
-import { WHALE_HOME, configPath } from '../core/paths.mjs'
+import { WHALE_HOME, configPath, dataPathsFor } from '../core/paths.mjs'
 
 export const RISK_DEFAULTS = { minGapMs: 1500, readHourly: 600, readDaily: 3000, writeHourly: 12, writeDaily: 30, writeGapSec: 120, dmGapSec: 60 }
 const digest = value => crypto.createHash('sha256').update(value).digest('hex')
@@ -30,13 +30,13 @@ export class TrafficError extends Error { constructor(message) { super(message);
 // One state and lock per local plugin data directory, shared by CLI children and
 // the Electron host. The lock covers reservation/update only, never network I/O.
 export function createTrafficGuard({ directory, transport = (...a) => globalThis.fetch(...a), settings = riskSettings, now = Date.now, sleep = delay } = {}) {
-  const stateFile = path.join(directory, 'traffic-state.json'), lockFile = stateFile + '.lock'
+  const stateFile = dataPathsFor(directory).traffic, lockFile = stateFile + '.lock'
   function read() {
     try { const s = JSON.parse(fs.readFileSync(stateFile, 'utf8')); if (!s || typeof s !== 'object'||Array.isArray(s)||['until','nextAt','lastDispatch'].some(k=>s[k]!==undefined&&!Number.isFinite(s[k]))) throw Error('invalid state'); return s }
-    catch (e) { if (e.code === 'ENOENT') return {}; throw new TrafficError('请求保护状态损坏，请检查 traffic-state.json；已停止网络请求') }
+    catch (e) { if (e.code === 'ENOENT') return {}; throw new TrafficError('请求保护状态损坏，请检查 state/traffic.json；已停止网络请求') }
   }
   async function locked(fn) {
-    fs.mkdirSync(directory, { recursive: true })
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true })
     const deadline = Date.now() + 10000
     let fd
     while (fd === undefined) {

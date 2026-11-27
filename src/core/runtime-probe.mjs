@@ -47,5 +47,5 @@ export function resolveRuntime(_whaleHome, options = {}) {
       if (fs.statSync(file).isFile() && probe(file, env)) return { file, env: { ...env } }
     } catch {}
   }
-  throw Error('[bili-whale] 找不到可用的 Windows Node.js 运行时，请安装 Node.js 22.13+（推荐 24 LTS）或设置环境变量 BILI_WHALE_NODE')
+  throw Error('[bili-whale] 找不到可用的 Windows Node.js 运行时，请安装 Node.js 24 LTS+ 或设置环境变量 BILI_WHALE_NODE')
 }

@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process'
-import {NODE_EXE,NODE_ENV} from '../../core/nodebin.mjs'
+import {NODE_EXE,NODE_ENV} from '../../core/node-binary.mjs'
 export function runNode(file,args=[],{timeoutMs=900000,env={},signal}={}){
  return new Promise(resolve=>{
   let stdout='',stderr='',done=false,timedOut=false,overflow=false,stopping=false

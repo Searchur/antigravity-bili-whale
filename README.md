@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | **操作系统** | Windows 10 / 11（64 位） | 仅支持 Windows |
 | **宿主客户端** | Antigravity App 桌面端（已登录账号） | 内置模型、Sidecar 与左侧栏 MCP App 均由 Antigravity App 提供 |
-| **Node.js** | `22.13+` 或 `24 LTS`（推荐） | 供插件 MCP Server、后台守护与 B 站工具链运行 |
+| **Node.js** | `24 LTS+` | 供插件 MCP Server、后台守护与 B 站工具链运行（统一 ES2026 / V8 13.6 基线） |
 | **ffmpeg** | 视频抽帧看画面必需 | 「环境与依赖」会检测已安装的 `ffmpeg`；未安装时仅能读取字幕/弹幕/热评，无法查看视频画面。可在终端运行 `winget install -e --id Gyan.FFmpeg` 自行安装，或用环境变量 `FFMPEG` 指定可执行文件 |
 | **B 站账号** | 建议准备一个给大鲸鱼用的 B 站账号 | 仅通过插件内 **哔哩哔哩 App 扫码登录**；若开启私信分享，需与主人账号互相关注 |
 
@@ -42,7 +42,7 @@
 
    > 使用实际目录。Antigravity的插件扫描器会跳过Windows目录联接和符号链接。
    > 使用`git clone`获取源码时，可运行下方的开发部署命令生成独立安装目录。包含`.git`的源码目录会禁用面板更新。
-   > **从 `1.6.x` 升级至 `2.0.0`**：由于 `2.0.0` 重构了顶层源码目录结构，旧版控制台的「一键更新」无法直接升级，请下载 `v2.0.0` Release ZIP 覆盖解压到上述插件目录后重启 Antigravity App。独立数据目录 `%USERPROFILE%\.antigravity-bili-whale\`（配置、登录态、人设与长期记忆）完全保留不受影响。
+   > **从 `1.6.x` 升级至 `2.0.0`**：由于 `2.0.0` 重构了插件源码与数据目录结构，旧版控制台的「一键更新」无法直接升级，请下载 `v2.0.0` Release ZIP 覆盖解压到上述插件目录后重启 Antigravity App。`config.json`、`credentials.json`、`persona.md`、`stickers/`、`bin/`、`exports/` 位置不变；如需保留旧版长期记忆与账本，请按 [docs/user-data.md](docs/user-data.md) 的对照表手动移动对应文件。
 
 2. **启用插件**：
    - 打开（或重启）Antigravity App，进入 **Customizations / 插件管理**，找到 **「哔哩哔哩大鲸鱼（antigravity-bili-whale）」** 并打开开关（首次安装需手动确认开启一次，之后每次打开 Antigravity 都会自动运行、关闭时自动停止）。
@@ -86,16 +86,16 @@
 
 ## 独立数据位置与安全约定
 
-所有运行时数据均独立存放在 **`%USERPROFILE%\.antigravity-bili-whale\`**（可通过环境变量 `BILI_WHALE_HOME` 覆写）：
+所有运行时数据均独立存放在 **`%USERPROFILE%\.antigravity-bili-whale\`**（可通过环境变量 `BILI_WHALE_HOME` 覆写），完整六类目录规范与 `v1.6.x → v2.0.0` 手动迁移对照表见 [docs/user-data.md](docs/user-data.md)：
 
 | 文件 / 目录 | 用途 |
 | --- | --- |
-| `config.json` | 模型、主人、口味、作息、观看、分享与监听等设置 |
-| `credentials.json` | B 站登录凭据（Windows `icacls` 仅当前用户可读，绝不回显、绝不外传） |
-| `persona.md` | 大鲸鱼专属人设正文 |
-| `whale-life\<指纹>\` | 按大鲸鱼账号和主人隔离的状态检查点与冷归档 |
-| `whale-night.json`、`whale-listen.json`、`whale-scheduler.json` | 作息计划、监听游标与后台守护心跳 |
-| `shots\`、`whale-work\`、`bin\` | 缓存、隔离工作区和自备的本地可执行文件 |
+| `config.json`、`credentials.json`、`persona.md` | 主配置、B 站登录凭据（Windows `icacls` 仅当前用户可读）与大鲸鱼人设正文 |
+| `stickers\`、`bin\`、`exports\` | 自定义表情包、自备 `ffmpeg.exe` 及导出的诊断日志与记忆备份 |
+| `memory\<指纹>\` | 按大鲸鱼账号和主人隔离的长期记忆检查点、检索索引与冷归档 |
+| `state\` | 作息计划、监听游标、后台心跳、会话状态、额度与收藏账本 |
+| `runtime\` | Sidecar 回环 IPC、进程锁、10 分钟写前预览令牌与隔离工作区 |
+| `cache\`、`logs\` | 可安全清空的 API/抽帧缓存（`cache\shots\`）与安全审核/请求日志 |
 
 **安全护栏**：
 - 外发等B站写操作先用`--dry`获取预览，再以相同参数将其改为`--go`执行。预览与登录账号、目标和内容绑定，10分钟内可提交一次，部分内容送达不明时先核查结果。
@@ -121,5 +121,5 @@ npm run deploy           # 部署纯净零依赖版本到 Antigravity 插件目�
 
 ## 致谢与许可
 
-- 参考项目：[Alterssss/dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)。本项目按照Antigravity控制台定义功能范围。
+- 参考项目：[Alterssss/dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale) 及原项目关于「有日子的鱼」的角色讨论（[issues/23](https://github.com/Alterssss/dsh-bili-whale/issues/23)）。本项目按照 Antigravity 控制台定义功能范围。
 - 开源协议：**MIT**，详见 [LICENSE](LICENSE) 与 [NOTICE.md](NOTICE.md)。

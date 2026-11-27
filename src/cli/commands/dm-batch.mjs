@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { NODE_EXE } from '../../core/nodebin.mjs'
+import { NODE_EXE } from '../../core/node-binary.mjs'
 import { workDirPath } from '../../core/paths.mjs'
 import { config } from '../../config/index.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
@@ -22,7 +22,7 @@ function readSafeJsonFile(filePath) {
       return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel)
     } catch { return false }
   })
-  if (!inside) throw Error('--file 路径必须在工作目录（whale-work）或临时目录内')
+  if (!inside) throw Error('--file 路径必须在工作目录（runtime/workspace）或临时目录内')
   const st = fs.statSync(realTarget)
   if (!st.isFile() || st.size > 128_000) throw Error('多段私信文件无效或超过 128 KB')
   return JSON.parse(fs.readFileSync(realTarget, 'utf8'))

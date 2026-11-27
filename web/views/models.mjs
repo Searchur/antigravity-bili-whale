@@ -1,5 +1,5 @@
-import { el, getPath, row, selectCtrl } from './render-sections.mjs'
-import { belowQuotaThreshold, remainingQuotaPercent } from '../src/shared/quota-percentage.mjs'
+import { el, getPath, row, selectCtrl } from './sections.mjs'
+import { belowQuotaThreshold, remainingQuotaPercent } from '../../src/shared/quota-percentage.mjs'
 
 const LIGHT_MODEL_RE = /(?:^|[^a-z0-9])(?:lite|mini)(?:$|[^a-z0-9])|flashlite/i
 

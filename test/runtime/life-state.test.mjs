@@ -15,7 +15,7 @@ const full = { self: { mid: '100' }, owner: { mid: '200' } }
 function localStore(t, options = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-state-regression-'))
   t.after(() => fs.rmSync(home, {recursive:true, force:true}))
-  return createLifeStore({dshHome:home, account:'100', owner:'200', ...options})
+  return createLifeStore({whaleHome:home, account:'100', owner:'200', ...options})
 }
 
 test('D03 live evidence survives compaction until its last reference is released', async t => {
@@ -206,7 +206,8 @@ test('D30 a skipped plan consumes a window opportunity while only accepted deliv
   const plan = makePlan({windows: [{start:'20:00', end:'24:00', wakes:2}], skipChance:0.8}, {}, now, () => 0)
   assert.equal(plan.action, 'skip')
   fs.mkdirSync(store.dir, {recursive:true})
-  fs.writeFileSync(path.join(store.dir, 'whale-night.json'), JSON.stringify(completePlan(plan, now)))
+  fs.mkdirSync(path.join(store.dir, 'state'), { recursive: true })
+  fs.writeFileSync(path.join(store.dir, 'state', 'schedule.json'), JSON.stringify(completePlan(plan, now)))
   const calendar = () => buildActivityCalendar({whaleHome:store.dir, store, cfg:full, now:() => now})
   await store.recordScheduler('night-triggered', {runId:'manual'})
   await store.recordDelivery({channel:'wake', requestId:'unconfirmed', attempt:1, status:'unconfirmed'})

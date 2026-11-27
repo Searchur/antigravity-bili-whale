@@ -7,7 +7,7 @@ function resolveAllowedListFile(raw){
  const resolved=path.resolve(String(raw||''))
  const roots=[path.resolve(workDirPath),path.resolve(os.tmpdir())]
  const inside=roots.some(root=>{const rel=path.relative(root,resolved);return rel!==''&&!rel.startsWith('..')&&!path.isAbsolute(rel)})
- if(!inside)throw Error('--from 文件仅允许位于数据工作目录（whale-work）或系统临时目录内')
+ if(!inside)throw Error('--from 文件仅允许位于数据工作目录（runtime/workspace）或系统临时目录内')
  return resolved
 }
 const argv=process.argv.slice(2),get=k=>{const i=argv.indexOf(k);return i>=0?argv[i+1]:undefined}

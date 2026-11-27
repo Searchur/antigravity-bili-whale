@@ -17,7 +17,7 @@ import { enforceOutboundSafety } from '../../social/content-safety.mjs'
 import { isFollowerOfWhale } from '../../bili/relation.mjs'
 import { checkFanQuota, lockFanReplyQuota, recordFanReply } from '../../social/fan-quota.mjs'
 import { requireWritePreview } from '../../social/write-preview.mjs'
-import { loadCred, missingForWrite } from '../../bili/cred.mjs'
+import { loadCred, missingForWrite } from '../../bili/cookie.mjs'
 import { fanCommentQuota } from '../../social/mention-summary.mjs'
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { bundledStickerRoot, userStickerRoot, dataPath, shotsPath, workDirPath } from '../../core/paths.mjs'
+import { bundledStickerRoot, userStickerRoot, DATA_PATHS, shotsPath, workDirPath } from '../../core/paths.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 import { guardSend } from '../../social/send-guard.mjs'
 import { uploadPic, dmContent } from '../../bili/upload-pic.mjs'
@@ -16,7 +16,7 @@ import { requireWritePreview } from '../../social/write-preview.mjs'
 import { dmListenerScope } from '../../social/dm-listener-scope.mjs'
 import { atomicWriteJson } from '../../core/atomic-json.mjs'
 import { localDay } from '../../core/local-date.mjs'
-import { loadCred, missingForWrite, explainCode, looksLikeJct } from '../../bili/cred.mjs'
+import { loadCred, missingForWrite, explainCode, looksLikeJct } from '../../bili/cookie.mjs'
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
 function assertSafeAttachmentPath(filePath) {
@@ -42,7 +42,7 @@ function assertSafeAttachmentPath(filePath) {
 }
 
 function stableDevId() {
-  const file = dataPath('dev_id')
+  const file = DATA_PATHS.deviceId
   try {
     const v = fs.readFileSync(file, 'utf8').trim()
     if (/^WEB-[0-9A-F-]{20,}$/i.test(v)) return v
@@ -78,7 +78,7 @@ const STATUS = !!opt.status
 const MSG = String(opt.msg ?? '').trim()
 const PIC_RAW = String(opt.pic ?? '').trim()
 
-const QUOTA = dataPath('dm-quota.json')
+const QUOTA = DATA_PATHS.dmQuota
 let cred
 try {
   cred = loadCred()

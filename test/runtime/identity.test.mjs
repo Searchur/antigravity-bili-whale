@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { createSessionDelivery } from '../../src/daemon/session-delivery.mjs'
 import { captureDeliveryIdentity, createScopedDelivery } from '../../src/daemon/scoped-delivery.mjs'
-import { createAntigravitySessionController } from '../../src/host/antigravity-session.mjs'
+import { createAntigravitySessionController } from '../../src/host/session.mjs'
 import { readDeliveries, updateDelivery } from '../../src/daemon/delivery-state.mjs'
 import { dmListenerScope } from '../../src/social/dm-listener-scope.mjs'
 import { createLifeStore } from '../../src/life/store.mjs'
@@ -34,7 +34,7 @@ test('switching owner between conversation lookup and send blocks the previous t
     },
   })
   const delivery = createScopedDelivery({
-    dshHome: dir, controller, config: () => current, persona: () => 'fixture', contextGeneration: () => 'test',
+    whaleHome: dir, controller, config: () => current, persona: () => 'fixture', contextGeneration: () => 'test',
   })
   const identity = captureDeliveryIdentity(current)
   const task = id => ({ ...request(id), identity, memoryScene: 'private-reply' })
@@ -57,7 +57,7 @@ test('ambiguous host results are never retried and a changed main model creates 
     async prompt() { assert.fail('changed model must rotate the existing host conversation') },
   }
   const delivery = createSessionDelivery({
-    dshHome: dir, sessionId: 'initial', controller, config: () => ({ models: { main: model } }), persona: () => 'fixture',
+    whaleHome: dir, sessionId: 'initial', controller, config: () => ({ models: { main: model } }), persona: () => 'fixture',
   })
   await assert.rejects(delivery.send(request('uncertain')), { code: 'DELIVERY_UNCONFIRMED' })
   await assert.rejects(delivery.send(request('uncertain')), { code: 'DELIVERY_UNCONFIRMED' })
@@ -103,7 +103,7 @@ test('unscoped and other account DM records cannot be read or acknowledged as th
 test('model tool can retrieve task-scoped memory but cannot read private or global state directly', async t => {
   const dir = setup(t)
   const cfgFile = path.join(dir, 'config.json')
-  const store = createLifeStore({ dshHome: dir, account: '1001', owner: '2001' })
+  const store = createLifeStore({ whaleHome: dir, account: '1001', owner: '2001' })
   const taskId = randomUUID()
   await store.captureContext(taskId, '', 'private-reply', 'mock-session', { sessionRole: 'private-main' })
   fs.writeFileSync(cfgFile, JSON.stringify(cfg('1001', '2001')))

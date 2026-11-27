@@ -1,17 +1,17 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import crypto from 'node:crypto'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
+import { dataPathsFor } from '../core/paths.mjs'
 
-export function readSchedulerHealth(dshHome){
+export function readSchedulerHealth(whaleHome){
   try{
-    const value=JSON.parse(fs.readFileSync(path.join(dshHome,'whale-scheduler.json'),'utf8'))
+    const value=JSON.parse(fs.readFileSync(dataPathsFor(whaleHome).schedulerHealth,'utf8'))
     if(value.schema!==1||!value.instanceId||!Array.isArray(value.recent))throw Error('invalid schema')
     return value
   }catch(e){if(e.code==='ENOENT')return null;return {error:'调度诊断文件无法读取：'+e.message}}
 }
-export function createSchedulerHealth(dshHome,{now=Date.now,log=()=>{}}={}){
-  const file=path.join(dshHome,'whale-scheduler.json'),throttled=new Map()
+export function createSchedulerHealth(whaleHome,{now=Date.now,log=()=>{}}={}){
+  const file=dataPathsFor(whaleHome).schedulerHealth,throttled=new Map()
   const state={schema:1,instanceId:crypto.randomUUID(),pid:process.pid,startedAt:now(),lastTickAt:0,status:'starting',activeRun:null,recent:[],lastError:null,
     runtime:{node:process.versions.node,electron:process.versions.electron??null,abortSignalAny:typeof AbortSignal.any==='function'}}
   const output=text=>{try{log(text)}catch{}}

@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { acquireProcessLock } from '../core/process-lock.mjs'
-import { DSH_HOME } from '../core/paths.mjs'
+import { WHALE_HOME, dataPathsFor } from '../core/paths.mjs'
 import { LIFE_DEFAULTS, lifeConfig } from '../config/life.mjs'
 import {compileContext, visible, applicable, validatePolicy, digest, assertScene} from '../memory/context.mjs'
 import {rebuildIndex, indexCandidates, terms} from '../memory/index.mjs'
@@ -24,9 +24,9 @@ export const fingerprint = text => crypto.createHash('sha256').update(String(tex
 const id = () => crypto.randomUUID()
 const str=(v,n=4000)=>String(v??'').slice(0,n)
 const date=at=>new Date(at).toLocaleDateString('sv-SE')
-export function createLifeStore({dshHome=DSH_HOME,account='',owner='',ownerName='',config=LIFE_DEFAULTS,fullConfig=null,now=Date.now}={}) {
+export function createLifeStore({whaleHome=WHALE_HOME,account='',owner='',ownerName='',config=LIFE_DEFAULTS,fullConfig=null,now=Date.now}={}) {
   const cfg=lifeConfig(config)
-  const dir=path.join(dshHome,'whale-life',fingerprint(account+'|'+owner).slice(0,24)),file=path.join(dir,'state.json')
+  const dir=path.join(dataPathsFor(whaleHome).memoryDir,fingerprint(account+'|'+owner).slice(0,24)),file=path.join(dir,'state.json')
   const checkpointFile=path.join(dir,'checkpoint.json')
   const validate=s=>{if(s.version!==1||!Number.isInteger(s.revision)||!['events','memories','proposals','drafts','agenda','leases','archives'].every(k=>Array.isArray(s[k]))||!s.threads||!s.pending||!s.settings)throw Error('schema');validateDynamicState(s);validateRelations(s);validateAffect(s.affect);return s}
   const {checkpoint,read}=createLifePersistence({account,owner,file,checkpointFile,validate,digest})

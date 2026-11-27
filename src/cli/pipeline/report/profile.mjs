@@ -1,7 +1,7 @@
 /**
  * profile.mjs —— 渲染器（profile）的加载与检查。
  *
- * 位置：$DSH_HOME/whale-work/profiles/<name>.mjs（用 BW_DEBRIEF_PROFILE=<name> 选中）。
+ * 位置：%USERPROFILE%\.antigravity-bili-whale\runtime\workspace\profiles\<name>.mjs（用 BW_DEBRIEF_PROFILE=<name> 选中）。
  * 契约：export function render(report) { return { lines: string[] } }
  *
  * 检查顺序（任何一步不过都返回 errors，由调用方 exit 2）：
@@ -11,13 +11,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { dshPath } from '../../../core/paths.mjs'
+import { workDirPath } from '../../../core/paths.mjs'
 
 /** 名字安全：只允许最朴素的文件名，挡掉 ../ 与绝对路径。 */
 export const safeName = (n) => /^[A-Za-z0-9._-]+$/.test(String(n ?? ''))
 
-/** profile 目录与文件路径（$DSH_HOME/whale-work/profiles）。 */
-export const profilesDir = () => dshPath('whale-work', 'profiles')
+/** profile 目录与文件路径（runtime/workspace/profiles）。 */
+export const profilesDir = () => path.join(workDirPath, 'profiles')
 export const profileFile = (name) => path.join(profilesDir(), `${name}.mjs`)
 
 /**

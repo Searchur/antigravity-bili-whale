@@ -23,8 +23,8 @@ function fixture(t) {
     if (r.error) throw r.error
     return r
   }
-  fs.mkdirSync(file('shots'))
-  const pic = file('shots', 'sample.png')
+  fs.mkdirSync(file('cache', 'shots'), { recursive: true })
+  const pic = file('cache', 'shots', 'sample.png')
   fs.copyFileSync(path.join(root, 'assets', 'logo.png'), pic)
   const calls = () => fs.readFileSync(file('calls.log'), 'utf8').trim().split('\n')
   return { file, pic, cli, calls, env, root }
@@ -52,7 +52,8 @@ test('D16 a rejected dynamic can use the same uploaded picture with revised text
 
 test('D19 claims need explicit confirmation and preserve a concurrent insertion before the selected index', t => {
   const { cli, file } = fixture(t)
-  const ledger = file('favorites.json')
+  const ledger = file('state', 'favorites.json')
+  fs.mkdirSync(path.dirname(ledger), { recursive: true })
   const initial = { items: [{ bv: 'oldA' }, { bv: 'oldB' }] }
   fs.writeFileSync(ledger, JSON.stringify(initial))
   assert.notEqual(cli('fav', '--claim-legacy', '1').status, 0)
@@ -64,8 +65,8 @@ test('D19 claims need explicit confirmation and preserve a concurrent insertion 
 
 test('D24 HTTP error bodies cannot replace an existing cover', t => {
   const { cli, file } = fixture(t)
-  fs.mkdirSync(file('shots','covers'))
-  const target = file('shots','covers','BV0000000001.jpg')
+  fs.mkdirSync(file('cache', 'shots', 'covers'), { recursive: true })
+  const target = file('cache', 'shots', 'covers', 'BV0000000001.jpg')
   fs.writeFileSync(target, 'previous')
   assert.notEqual(cli('covers', 'BV0000000001').status, 0)
   assert.equal(fs.readFileSync(target, 'utf8'), 'previous')
@@ -109,7 +110,7 @@ test('D18 concurrent quota records merge and duplicate operation IDs count once'
     })
   }
   await Promise.all(['a','b','c','a','b','d','e','f'].map(append))
-  const log = JSON.parse(fs.readFileSync(file('quota.json'))).log
+  const log = JSON.parse(fs.readFileSync(file('state', 'quota.json'))).log
   assert.equal(log.length, 6)
   assert.deepEqual(log.map(row => row.operationId).sort(), ['a','b','c','d','e','f'])
 })
@@ -121,13 +122,13 @@ test('D17 a confirmed post with failed accounting is recovered once without rese
   fs.writeFileSync(file('fail-accounting'), '')
   const posted = cli(...args, '--go')
   assert.match(posted.stderr, /已.*(接受|发送|发布).*补账/)
-  assert.equal(fs.readFileSync(file('quota.json'), 'utf8'), 'unreadable ledger')
+  assert.equal(fs.readFileSync(file('state', 'quota.json'), 'utf8'), 'unreadable ledger')
   const settings = JSON.parse(fs.readFileSync(file('config.json')))
   settings.owner.mid = '303'
   fs.writeFileSync(file('config.json'), JSON.stringify(settings))
-  fs.writeFileSync(file('quota.json'), '{"log":[]}')
+  fs.writeFileSync(file('state', 'quota.json'), '{"log":[]}')
   for (let i = 0; i < 2; i++) assert.equal(cli('quota', 'status').status, 0)
-  const { log } = JSON.parse(fs.readFileSync(file('quota.json')))
+  const { log } = JSON.parse(fs.readFileSync(file('state', 'quota.json')))
   assert.equal(log.length, 1)
   assert.equal(log[0].target, 'dynamic:501')
   assert.equal(calls().filter(p => p.endsWith('/create/dyn')).length, 1)

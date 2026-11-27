@@ -1,11 +1,11 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
+import { dataPathsFor } from '../core/paths.mjs'
 
 const statuses = new Set(['dispatching', 'unconfirmed', 'accepted', 'failed'])
-export function readDeliveries(dshHome) {
+export function readDeliveries(whaleHome) {
   try {
-    const data = JSON.parse(fs.readFileSync(path.join(dshHome, 'whale-delivery.json'), 'utf8'))
+    const data = JSON.parse(fs.readFileSync(dataPathsFor(whaleHome).deliveries, 'utf8'))
     if (data.schema !== 1 || !Array.isArray(data.records) || data.records.some(r =>
       typeof r.requestId!=='string'||!r.requestId||typeof r.attempt!=='string'||!r.attempt||
       typeof r.sessionId!=='string'||!r.sessionId||!Number.isFinite(r.startedAt)||!Number.isFinite(r.updatedAt)||!statuses.has(r.status))||
@@ -13,12 +13,12 @@ export function readDeliveries(dshHome) {
     return data.records
   } catch (e) {
     if (e.code === 'ENOENT') return []
-    throw Error('投递账本无法读取，请检查 whale-delivery.json；不要删除未确认记录后重发')
+    throw Error('投递账本无法读取，请检查 state/deliveries.json；不要删除未确认记录后重发')
   }
 }
 
-export function updateDelivery(dshHome, requestId, update) {
-  const records = readDeliveries(dshHome)
+export function updateDelivery(whaleHome, requestId, update) {
+  const records = readDeliveries(whaleHome)
   const index = records.findIndex(r => r.requestId === requestId)
   const next = {...(records[index] ?? {}), ...update, requestId}
   if (index < 0) records.push(next)
@@ -29,12 +29,12 @@ export function updateDelivery(dshHome, requestId, update) {
   const ordinary = records.filter(r => !protectedRecord(r)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 256)
   const kept = records.filter(protectedRecord).concat(ordinary)
   if (kept.length > 768) throw Error('未确认投递记录过多，请核查宿主会话；本轮不再投递')
-  atomicWriteJson(path.join(dshHome, 'whale-delivery.json'), { schema: 1, records: kept }, { mode: 0o600 })
+  atomicWriteJson(dataPathsFor(whaleHome).deliveries, { schema: 1, records: kept }, { mode: 0o600 })
   return next
 }
 
-export function deliveryStatus(dshHome) {
-  const records = readDeliveries(dshHome)
+export function deliveryStatus(whaleHome) {
+  const records = readDeliveries(whaleHome)
   const wakes = records.filter(r => r.channel === 'wake').sort((a, b) => b.startedAt - a.startedAt)
   let consecutiveFailures = 0
   for (const r of wakes) {

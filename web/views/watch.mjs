@@ -1,4 +1,4 @@
-import { el, getPath, row, selectCtrl } from './render-sections.mjs'
+import { el, getPath, row, selectCtrl } from './sections.mjs'
 
 const MAX_FRAMES_OPTIONS = [16, 24, 36, 48, 60]
 

@@ -142,7 +142,7 @@ test('follower relation check, fan daily quotas, and dual-layer outbound safety 
         return JSON.stringify({ decision: 'pass', category: '安全', reason: '正常交流' })
       }, { available: () => true }),
     })
-    const ipcFile = path.join(dir, 'sidecar-ipc.json')
+    const ipcFile = path.join(dir, 'runtime', 'sidecar-ipc.json')
     const ipc = await startSidecarIpc({
       file: ipcFile,
       onSafetyCheck: (payload) => reviewer.review(payload),
@@ -354,11 +354,11 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
       'src/plugin/updater.mjs',
       'src/console/activity-stats.mjs',
       'web/main.mjs',
-      'web/render-sections.mjs',
-      'web/render-models.mjs',
-      'web/render-watch.mjs',
-      'web/render-memory.mjs',
-      'web/render-about.mjs',
+      'web/views/sections.mjs',
+      'web/views/models.mjs',
+      'web/views/watch.mjs',
+      'web/views/memory.mjs',
+      'web/views/about.mjs',
       'dist/app.html',
     ]
     for (const rel of scanFiles) {
@@ -382,7 +382,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(bundle.includes('活动统计与日历查看'))
 
     // Zero native browser hover tooltips (title:) across all UI source files
-    for (const uiFile of ['web/main.mjs', 'web/render-sections.mjs', 'web/render-models.mjs', 'web/render-watch.mjs', 'web/render-memory.mjs', 'web/render-about.mjs']) {
+    for (const uiFile of ['web/main.mjs', 'web/views/sections.mjs', 'web/views/models.mjs', 'web/views/watch.mjs', 'web/views/memory.mjs', 'web/views/about.mjs']) {
       const uiSrc = fs.readFileSync(path.resolve(uiFile), 'utf8')
       assert.equal(/\btitle\s*:/.test(uiSrc), false, `${uiFile} must not set native hover title attribute`)
     }
@@ -431,20 +431,22 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
     assert.equal(hist.days['2026-11-24'].commentTotal, 1)
     assert.equal(hist.days['2026-11-26'].mentionSummaryTotal, 1)
 
-    // 2. Seed quota.json, safety-blocked.jsonl, whale-night.json, and life-store events
-    fs.writeFileSync(path.join(dir, 'quota.json'), JSON.stringify({
+    // 2. Seed state/quota.json, logs/safety-blocked.jsonl, state/schedule.json, and memory events
+    fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
+    fs.mkdirSync(path.join(dir, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'state', 'quota.json'), JSON.stringify({
       log: [
         { at: new Date(day1).toISOString(), type: 'comment', share: true, target: 'BV1aaa', note: '给主人推猫猫' },
         { at: new Date(day2).toISOString(), type: 'dynamic', share: false, target: 'dyn:1', note: '今天看了好视频' },
       ],
     }))
-    fs.writeFileSync(path.join(dir, 'safety-blocked.jsonl'), JSON.stringify({
+    fs.writeFileSync(path.join(dir, 'logs', 'safety-blocked.jsonl'), JSON.stringify({
       at: new Date(day2).toISOString(),
       channel: 'comment',
       category: '合规拦截',
       reason: '命中规则',
     }) + '\n')
-    fs.writeFileSync(path.join(dir, 'whale-night.json'), JSON.stringify({
+    fs.writeFileSync(path.join(dir, 'state', 'schedule.json'), JSON.stringify({
       date: '2026-11-26',
       wakes: 2,
       usedCount: { '2026-11-24|20:00–24:00': 1, '2026-11-26|20:00–24:00': 2 },
@@ -467,8 +469,8 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
 
       // Seed 26 searchable experience events to verify search limit 20 vs 50
       const { lifeStore } = await import('../../src/life/runtime.mjs')
-      const store = lifeStore(cfg, { dshHome: dir, now: () => day2 })
-      const earlierStore = lifeStore(cfg, { dshHome: dir, now: () => day1 })
+      const store = lifeStore(cfg, { whaleHome: dir, now: () => day2 })
+      const earlierStore = lifeStore(cfg, { whaleHome: dir, now: () => day1 })
       for (const [i, s] of [earlierStore, store, store].entries()) {
         await s.recordDelivery({ channel:'wake', status:'accepted', requestId:`calendar-wake-${i}`, attempt:1 })
       }
@@ -527,7 +529,7 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
   assert.ok(plan.atMs - at19 <= 25 * 60_000, `expected first wake within 25m slot, got ${(plan.atMs - at19) / 60_000}m`)
 
   const dir = mkTmp('ag-whale-v14-')
-  const ipcFile = path.join(dir, 'sidecar-ipc.json')
+  const ipcFile = path.join(dir, 'runtime', 'sidecar-ipc.json')
   let wakeCalls = 0
   let shouldFail = false
   const ipc = await startSidecarIpc({
@@ -761,7 +763,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'offline-v16-fixture', bili_jct: 'a'.repeat(32) }))
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '999', name: '大鲸鱼' }, owner: { mid: '12345', name: '主人' } }))
     const { lifeStore } = await import('../../src/life/runtime.mjs')
-    const store = lifeStore((await api.getSettings()).config, { dshHome: dir, now: () => dayMs })
+    const store = lifeStore((await api.getSettings()).config, { whaleHome: dir, now: () => dayMs })
     for (let i = 1; i <= 13; i++) {
       await store.record('video-read', { target: `BV1test0000${String(i).padStart(2, '0')}`, text: `视频 ${i}`, data: { title: `视频 ${i}` } })
     }
@@ -770,7 +772,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.equal(cal.days['2026-11-26'].items.length, 5)
 
     // 7. Multi-sheet inline images in model-tools return >2 sheets
-    const shotsDir = path.join(dir, 'shots', 'video')
+    const shotsDir = path.join(dir, 'cache', 'shots', 'video')
     fs.mkdirSync(shotsDir, { recursive: true })
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     const sheetPaths = [1, 2, 3, 4].map(n => {
@@ -804,12 +806,12 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.ok(bundle.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
     assert.ok(bundle.includes('每 300 秒（5 分钟）检查一次（默认）'))
     // Owner @ judgment toggle lives in Interact tab, not Watch tab
-    const watchSrc = fs.readFileSync(path.resolve('web/render-watch.mjs'), 'utf8')
-    const sectionsSrc = fs.readFileSync(path.resolve('web/render-sections.mjs'), 'utf8')
+    const watchSrc = fs.readFileSync(path.resolve('web/views/watch.mjs'), 'utf8')
+    const sectionsSrc = fs.readFileSync(path.resolve('web/views/sections.mjs'), 'utf8')
     assert.equal(watchSrc.includes('switchCtrl'), false)
     assert.ok(sectionsSrc.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
     // About tab renders repo URL as non-clickable text without link-btn
-    const aboutSrc = fs.readFileSync(path.resolve('web/render-about.mjs'), 'utf8')
+    const aboutSrc = fs.readFileSync(path.resolve('web/views/about.mjs'), 'utf8')
     assert.equal(aboutSrc.includes('link-btn'), false)
     assert.equal(aboutSrc.includes('复制仓库地址'), false)
     assert.equal(aboutSrc.includes('Windows Antigravity App 专属'), false)
@@ -862,7 +864,7 @@ test('v1.6.2 removes artificial short-comment limits so whale freely chooses sho
     assert.equal('hardMode' in loaded.config.life, false)
     assert.equal('requireDraft' in loaded.config.life, false)
 
-    const store = lifeStore(loaded.config, { dshHome: dir, fullConfig: () => loaded.config })
+    const store = lifeStore(loaded.config, { whaleHome: dir, fullConfig: () => loaded.config })
     const check = store.check({
       channel: 'comment',
       scene: 'public-comment',
@@ -918,7 +920,7 @@ test('v1.6.3 localizes Memory tab plan/events/channels, exposes behavior folder 
     assert.ok(bundle.includes('本次按概率跳过'))
     assert.ok(bundle.includes('行为规范目录（behavior）'))
 
-    const memSrc = fs.readFileSync(path.resolve('web/render-memory.mjs'), 'utf8')
+    const memSrc = fs.readFileSync(path.resolve('web/views/memory.mjs'), 'utf8')
     assert.equal(memSrc.includes('${st.plan.action}'), false)
     assert.ok(memSrc.includes('eventKindLabel'))
     assert.ok(memSrc.includes('channelLabel'))
@@ -928,7 +930,7 @@ test('v1.6.3 localizes Memory tab plan/events/channels, exposes behavior folder 
     assert.ok(browseMd.includes('由你自己判断'))
     const toolsMd = fs.readFileSync(path.resolve('behavior/tools.md'), 'utf8')
     assert.equal(toolsMd.includes('三个月后还想看'), false)
-    const indexMd = fs.readFileSync(path.resolve('behavior/BEHAVIOR.md'), 'utf8')
+    const indexMd = fs.readFileSync(path.resolve('behavior/index.md'), 'utf8')
     assert.ok(indexMd.includes('自己判断做出选择'))
   } finally {
     api.dispose()

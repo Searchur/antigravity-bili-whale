@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { WHALE_HOME } from '../core/paths.mjs'
+import { WHALE_HOME, dataPathsFor } from '../core/paths.mjs'
 import { normalizeSafety } from '../config/index.mjs'
 import { callSidecarIpc } from '../host/sidecar-ipc.mjs'
 
@@ -87,8 +87,8 @@ export function checkLocalSafety(text, rawSafetyCfg) {
 
 export function logSafetyBlock(entry, whaleHome = WHALE_HOME) {
   try {
-    fs.mkdirSync(whaleHome, { recursive: true })
-    const file = path.join(whaleHome, 'safety-blocked.jsonl')
+    const file = dataPathsFor(whaleHome).safetyLog
+    fs.mkdirSync(path.dirname(file), { recursive: true })
     const line = JSON.stringify({
       at: new Date().toISOString(),
       channel: entry.channel || 'unknown',
@@ -110,7 +110,7 @@ export function logSafetyBlock(entry, whaleHome = WHALE_HOME) {
 
 export function readRecentSafetyBlocks(whaleHome = WHALE_HOME, limit = 20) {
   try {
-    const file = path.join(whaleHome, 'safety-blocked.jsonl')
+    const file = dataPathsFor(whaleHome).safetyLog
     if (!fs.existsSync(file)) return []
     const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean)
     return lines.slice(-limit).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
@@ -151,7 +151,7 @@ export async function enforceOutboundSafety({
     try {
       remote = await ipcClient('/safety-check', {
         method: 'POST',
-        file: path.join(whaleHome, 'sidecar-ipc.json'),
+        file: dataPathsFor(whaleHome).sidecarIpc,
         body: { text: String(text ?? ''), channel, context: String(context ?? '').slice(0, 600) },
         timeoutMs: 30_000,
       })

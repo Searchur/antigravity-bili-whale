@@ -115,7 +115,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.equal(badCmd.result.isError, true)
 
     // Portable read-prompt & read-shot scoped helpers
-    const pDir = path.join(dir, 'whale-work', '.prompts')
+    const pDir = path.join(dir, 'runtime', 'workspace', '.prompts')
     fs.mkdirSync(pDir, { recursive: true })
     const promptName = 'a'.repeat(48) + '.json'
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '1001' }, owner: { mid: '2001' } }))
@@ -129,7 +129,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '1001' }, owner: { mid: '2002' } }))
     assert.equal((await router.handleRequest(promptCall)).result.isError, true)
 
-    const sDir = path.join(dir, 'shots')
+    const sDir = path.join(dir, 'cache', 'shots')
     fs.mkdirSync(sDir, { recursive: true })
     fs.writeFileSync(path.join(sDir, 'frame.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     const sRes = await router.handleRequest({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'read-shot', args: ['frame.png'] } } })
@@ -180,7 +180,7 @@ test('MCP stdio server process handles newline-delimited JSON-RPC over stdin/std
     assert.equal(lines[0].result.serverInfo.name, 'antigravity-bili-whale')
     assert.equal(lines[1].id, 2)
     assert.deepEqual(lines[1].result, {})
-    assert.equal(fs.statSync(path.join(dir, 'whale-work')).isDirectory(), true)
+    assert.equal(fs.statSync(path.join(dir, 'runtime', 'workspace')).isDirectory(), true)
   } finally {
     child.stdin.end()
     child.kill()

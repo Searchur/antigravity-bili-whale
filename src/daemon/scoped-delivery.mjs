@@ -39,7 +39,7 @@ export function createScopedDelivery(options){
   if(expectedScope&&key!==expectedScope&&!legacy.includes(expectedScope))return null
   const checkIdentity=()=>assertDeliveryIdentity(options.config(), identity)
   if(!routes.has(key)){
-   const delivery=createSessionDelivery({...options,sessionRole:role,scopeKey:key,config:checkIdentity,memoryContext:r=>{checkIdentity();return options.memoryContext?.(r)??''},sessionId:crypto.randomUUID(),sessionFile:'whale-session-'+key+'.json',contextGeneration:()=>{checkIdentity();return options.contextGeneration?.()??options.permissionVersion?.()??0}})
+   const delivery=createSessionDelivery({...options,sessionRole:role,scopeKey:key,config:checkIdentity,memoryContext:r=>{checkIdentity();return options.memoryContext?.(r)??''},sessionId:crypto.randomUUID(),sessionFile:key+'.json',contextGeneration:()=>{checkIdentity();return options.contextGeneration?.()??options.permissionVersion?.()??0}})
    routes.set(key,{delivery,key,role,active:0})
   }
   return {record:routes.get(key),legacy,identity}
@@ -62,7 +62,7 @@ export function createScopedDelivery(options){
   async confirm(id){
    let r=pending.get(id)
    if(!r){
-    const entry=readDeliveries(options.dshHome).find(row=>row.requestId===id)
+    const entry=readDeliveries(options.whaleHome).find(row=>row.requestId===id)
     if(!entry?.scopeKey||!entry.memoryScene)return
     r=route(entry.memoryScene,id,entry.sessionRole,captureDeliveryIdentity(options.config()),entry.scopeKey)
     if(!r)return

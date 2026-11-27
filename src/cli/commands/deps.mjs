@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { WHALE_HOME, credentialsPath, configPath, whalePath, dataPath } from '../../core/paths.mjs'
+import { WHALE_HOME, credentialsPath, configPath, DATA_PATHS } from '../../core/paths.mjs'
 import { guardedFetch as fetch, trafficGuard } from '../../bili/traffic.mjs'
 import { deliveryStatus } from '../../daemon/delivery-state.mjs'
 import { readSchedulerHealth } from '../../daemon/scheduler-health.mjs'
@@ -45,17 +45,17 @@ items.push({
 })
 
 // 3. Node.js
-const [major, minor] = process.versions.node.split('.').map(Number)
+const [major] = process.versions.node.split('.').map(Number)
 items.push({
   name: 'Node.js',
-  ok: major > 23 || (major === 23 && minor >= 4) || (major === 22 && minor >= 13),
+  ok: major >= 24,
   detail: `v${process.versions.node}`,
-  fix: '使用 Windows Node.js 22.13+ 或 24 LTS',
+  fix: '使用 Windows Node.js 24 LTS+',
 })
 
 // 4. Node 运行时
 try {
-  const { NODE_EXE, isRealNode } = await import('../../core/nodebin.mjs')
+  const { NODE_EXE, isRealNode } = await import('../../core/node-binary.mjs')
   const real = isRealNode()
   items.push({
     name: 'node 运行时',
@@ -70,8 +70,8 @@ try {
 // 5. 独立数据目录可写
 let dirOk = false
 try {
-  fs.mkdirSync(WHALE_HOME, { recursive: true })
-  const probe = dataPath('.write-probe')
+  fs.mkdirSync(DATA_PATHS.runtimeDir, { recursive: true })
+  const probe = path.join(DATA_PATHS.runtimeDir, '.write-probe')
   fs.writeFileSync(probe, 'ok')
   fs.unlinkSync(probe)
   dirOk = true
@@ -93,7 +93,7 @@ try {
 
 // 7. 生物钟与后台守护
 try {
-  const statePath = whalePath('whale-night.json')
+  const statePath = DATA_PATHS.schedule
   let cfg = {}
   try { cfg = JSON.parse(fs.readFileSync(configPath, 'utf8')) } catch {}
   const night = cfg.night ?? { windows: [{ start: '20:00', end: '24:00', wakes: 1 }] }

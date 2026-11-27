@@ -16,7 +16,7 @@ export const ENTRY_POINTS = [
   'src/mcp/server.mjs', 'src/mcp/app-tools.mjs', 'src/mcp/model-tools.mjs', 'dist/app.html',
   'sidecars/whale/sidecar.json', 'sidecars/whale/main.mjs',
   'src/console/api-handlers.mjs', 'src/daemon/scheduler.mjs', 'src/cli/bili.mjs',
-  'behavior/BEHAVIOR.md', 'stickers/index.json', 'src/vendor/qrcode/qrcode.mjs',
+  'behavior/index.md', 'stickers/index.json', 'src/vendor/qrcode/qrcode.mjs',
 ]
 
 export function compareSemver(a, b) {

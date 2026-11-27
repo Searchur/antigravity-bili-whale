@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { guardedFetch as fetch } from './traffic.mjs'
-import { dataPath } from '../core/paths.mjs'
+import { DATA_PATHS } from '../core/paths.mjs'
 import {acquireProcessLock} from '../core/process-lock.mjs'
 import {atomicWriteJson} from '../core/atomic-json.mjs'
 
@@ -41,7 +41,7 @@ export async function uploadPic(file, csrf, headers, { expectedHash } = {}) {
   const cookie=new Headers(headers).get('cookie')??''
   const account=cookie.match(/(?:^|;)\s*SESSDATA=([^;]+)/i)?.[1]??cookie
   const key=crypto.createHash('sha256').update(account+'\n'+hash).digest('hex')
-  const cacheFile=dataPath('picture-uploads.json')
+  const cacheFile=DATA_PATHS.pictureUploads
   const release=await acquireProcessLock(cacheFile,{retries:40,delayMs:50})
   try {
     let cache={}

@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { PLUGIN_ROOT, WHALE_HOME, configPath, dataPath } from '../../core/paths.mjs'
-import { NODE_EXE } from '../../core/nodebin.mjs'
+import { PLUGIN_ROOT, WHALE_HOME, configPath, DATA_PATHS } from '../../core/paths.mjs'
+import { NODE_EXE } from '../../core/node-binary.mjs'
 import { config } from '../../config/index.mjs'
 import { lifeConfig } from '../../config/life.mjs'
 import { BEHAVIOR_IDS, loadBehavior } from '../../core/behavior.mjs'
@@ -60,8 +60,8 @@ try {
 
 if (failures === 0) {
   try {
-    fs.mkdirSync(WHALE_HOME, { recursive: true })
-    fs.writeFileSync(dataPath('selftest-passed.json'), JSON.stringify({ at: new Date().toISOString() }, null, 2))
+    fs.mkdirSync(path.dirname(DATA_PATHS.selftest), { recursive: true })
+    fs.writeFileSync(DATA_PATHS.selftest, JSON.stringify({ at: new Date().toISOString() }, null, 2))
   } catch {}
   console.log('✓ 启动检查通过')
 } else {

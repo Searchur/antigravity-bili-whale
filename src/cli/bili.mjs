@@ -3,7 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { NODE_EXE } from '../core/nodebin.mjs'
+import { NODE_EXE } from '../core/node-binary.mjs'
 import { translateNamed } from '../core/cli-args.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -15,13 +15,13 @@ const map = {
   // —— 读（只读安全操作） ——
   session: ['verify/session.mjs', '确认凭据属于哪个号'],
   thread: ['verify/thread.mjs', '导出一条评论的完整楼中楼结构'],
-  'check-comment': ['verify/comment-exists.mjs', '按 rpid 复核评论是否存在'],
-  'check-dynamic': ['verify/dynamic-inspect.mjs', '看动态的结构化内容（类型/图片/节点）'],
-  'check-mention': ['verify/mention-check.mjs', '确认动态里的 @ 是不是真提及（查 opus 页）'],
+  'check-comment': ['verify/check-comment.mjs', '按 rpid 复核评论是否存在'],
+  'check-dynamic': ['verify/check-dynamic.mjs', '看动态的结构化内容（类型/图片/节点）'],
+  'check-mention': ['verify/check-mention.mjs', '确认动态里的 @ 是不是真提及（查 opus 页）'],
   'comment-digest': ['commands/comment-digest.mjs', '回复+@ 收件箱汇总（只读）：--hours 24 --pages 2 [--only-unread]'],
-  recon: ['verify/dryrun.mjs', '发评论前的侦查：BV→aid + 评论区状态 + WBI 材料'],
+  recon: ['verify/recon.mjs', '发评论前的侦查：BV→aid + 评论区状态 + WBI 材料'],
   subtitles: ['commands/subtitles.mjs', '拉官方字幕辅助查看（WBI 签名，带时间戳）：<BV> [--lan ai-zh] [--print N]'],
-  'watch-video': ['commands/bili-watch.mjs', '抽帧看视频：取直链 → 抽帧拼图 → 返回画面：<BV> [2x2|3x3|4x4] [--every N] [--max-frames N] [--profile auto|owner|fan]'],
+  'watch-video': ['commands/watch-video.mjs', '抽帧看视频：取直链 → 抽帧拼图 → 返回画面：<BV> [2x2|3x3|4x4] [--every N] [--max-frames N] [--profile auto|owner|fan]'],
   debrief: ['commands/debrief.mjs', '看懂一条视频（一条龙）：封面+简介+官方字幕+弹幕热区+热评+画面抽帧：<BV> [--profile auto|owner|fan] [--confirmed] [--bucket 30] [--top 5]'],
   comments: ['commands/comments.mjs', '热评 / 最新评论（只读）：<BV> [--ps 20] [--pn 1] [--sort hot|time] [--json]'],
   round: ['pipeline/round.mjs', '一轮找片与深读汇总（不发送）：--n 6 --dry|--json'],
@@ -33,19 +33,19 @@ const map = {
   likes: ['commands/likes.mjs', '收到的赞通知流（含点赞者 mid/昵称）：--hours 24 [--owner] [--json]'],
   selftest: ['commands/selftest.mjs', '启动自检：配置、登录态与核心脚本'],
   deps: ['commands/deps.mjs', '依赖体检：Node / ffmpeg / 登录态 / 限流与风控；--json'],
-  night: ['commands/whale-night.mjs', '生物钟：status / plan / trigger --dry|--go'],
+  night: ['commands/night.mjs', '生物钟：status / plan / trigger --dry|--go'],
   search: ['commands/search.mjs', '按关键词搜视频（WBI 签名）：标题/UP/播放/简介/标签'],
-  covers: ['diagnostics/fetch-covers.mjs', '抓视频元信息 + 封面图存到 shots/covers/'],
+  covers: ['diagnostics/covers.mjs', '抓视频元信息 + 封面图存到 cache/shots/covers/'],
   whois: ['diagnostics/whois.mjs', '按 mid 查昵称（@ 人前先核准名字）'],
   // —— 写（都必须显式 --dry 或 --go） ——
   'dm-await': ['commands/dm-await.mjs', '私信监听（主人 + 可选已关注粉丝；由后台守护调用）'],
   like: ['commands/like.mjs', '单条视频点赞 <BV> --dry|--go|--check，核对账号并回读'],
   follow: ['commands/follow.mjs', '关注一个 UP <mid> --dry|--go|--check，核对账号并回读'],
-  fav: ['commands/fav.mjs', '收藏视频：--list / --check / <BV> --reason … --dry|--go'],
+  fav: ['commands/favorites.mjs', '收藏视频：--list / --check / <BV> --reason … --dry|--go'],
   dm: ['commands/dm.mjs', '私信：主人私信或持有效来信回执回复已关注粉丝，强制 --dry/--go'],
   'dm-batch': ['commands/dm-batch.mjs', '主人多段私信：--file 字符串数组.json --task <taskId> --dry|--go；--resume 组ID --dry|--go'],
   comment: ['commands/comment.mjs', '发视频评论或二级回复（支持 --share / --auto / --pic），强制 --dry/--go'],
-  'comment-del': ['commands/comment-del.mjs', '删除自己发的一条评论（x/v2/reply/del，只能删自己的）'],
+  'comment-del': ['commands/comment-delete.mjs', '删除自己发的一条评论（x/v2/reply/del，只能删自己的）'],
   dynamic: ['commands/dynamic.mjs', '动态：post / rm / check（受 chat.dynamic 与每日上限保护）'],
   'dynamic-image': ['commands/dynamic-image.mjs', '发图文动态（受 chat.dynamic 与每日上限保护）'],
 }

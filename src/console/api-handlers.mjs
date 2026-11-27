@@ -5,10 +5,13 @@ import { execFile, spawn } from 'node:child_process'
 import {
   PLUGIN_ROOT,
   biliCliPath,
+  behaviorRoot,
+  safetyRulesPath,
   WHALE_HOME,
   configPath,
   credentialsPath,
   personaPath,
+  dataPathsFor,
 } from '../core/paths.mjs'
 import {
   DEFAULTS,
@@ -39,13 +42,13 @@ import { readFanQuotaSummary } from '../social/fan-quota.mjs'
 import { readRecentSafetyBlocks } from '../social/content-safety.mjs'
 import { clearRelationCache } from '../bili/relation.mjs'
 import { buildActivityCalendar } from './activity-stats.mjs'
-import { createCredentialStore } from '../bili/credentials.mjs'
+import { createCredentialStore } from '../bili/credential-store.mjs'
 import { QrAuth, verifyAccount } from '../bili/auth.mjs'
 import { deliveryStatus } from '../daemon/delivery-state.mjs'
 import { readSchedulerHealth } from '../daemon/scheduler-health.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../core/node-runtime.mjs'
 import { callSidecarIpc } from '../host/sidecar-ipc.mjs'
-import { createAntigravityRpc, fallbackModelCatalog } from '../host/antigravity-rpc.mjs'
+import { createAntigravityRpc, fallbackModelCatalog } from '../host/rpc.mjs'
 import { readLocalPluginMeta, checkForUpdate, applyPluginUpdate } from '../plugin/updater.mjs'
 
 const BASE_DEFAULTS = {
@@ -359,7 +362,7 @@ export function createApiHandlers({
       ['enabled', 'learningEnabled', 'paused'].some(k => lifeConfig(cur.life)[k] !== next.life[k])
       || ['enabled', 'shadow'].some(k => lifeConfig(cur.life).dynamicMemory[k] !== next.life.dynamicMemory[k])
     )) {
-      await lifeStore(cur, { dshHome: whaleHome }).invalidateFormation()
+      await lifeStore(cur, { whaleHome }).invalidateFormation()
     }
     writeConfig({ ...next, self: readConfig().self })
 
@@ -453,16 +456,17 @@ export function createApiHandlers({
   }
 
   function resolveKnownPaths() {
+    const dp = dataPathsFor(whaleHome, { cfgFile })
     return {
       pluginRoot,
       behaviorDir: path.join(pluginRoot, 'behavior'),
       dataDir: whaleHome,
       configFile: cfgFile,
       personaFile,
-      memoryDir: path.join(whaleHome, 'whale-life'),
-      safetyLog: path.join(whaleHome, 'safety-blocked.jsonl'),
-      safetyRules: path.join(pluginRoot, 'tools', 'lib', 'content-safety.mjs'),
-      exportsDir: path.join(whaleHome, 'exports'),
+      memoryDir: dp.memoryDir,
+      safetyLog: dp.safetyLog,
+      safetyRules: path.join(pluginRoot, 'src', 'social', 'content-safety.mjs'),
+      exportsDir: dp.exportsDir,
     }
   }
 
@@ -583,7 +587,7 @@ export function createApiHandlers({
         key = 'node'
         name = 'Node.js 运行环境'
         version = detail.trim()
-        summary = it.ok ? '满足插件脚本与后台守护最低版本要求（22.13+）' : '版本过低，请升级至 Node.js 22.13+ 或 24 LTS'
+        summary = it.ok ? '满足插件脚本与后台守护最低版本要求（Node 24+）' : '版本过低，请升级至 Node.js 24 LTS+'
       } else if (rawName.startsWith('node 运行时')) {
         key = 'node-bin'
         location = detail.trim()
@@ -659,8 +663,8 @@ export function createApiHandlers({
 
   function buildFallbackDepsCards(reason, scheduler, livePid = null) {
     const ff = (() => { try { return ffmpegInfo() } catch { return { ok: false, path: '', version: '' } } })()
-    const [maj, min] = process.versions.node.split('.').map(Number)
-    const nodeOk = maj > 23 || (maj === 23 && min >= 4) || (maj === 22 && min >= 13)
+    const [maj] = process.versions.node.split('.').map(Number)
+    const nodeOk = maj >= 24
     const cred = credState()
     const ffVerMatch = String(ff.version || '').match(/ffmpeg\s+version\s+([^\s]+)/i)
     const ffCleanVer = ffVerMatch ? ffVerMatch[1].replace(/-www\.[^-]+$/i, '') : String(ff.version || '').slice(0, 36)
@@ -685,7 +689,7 @@ export function createApiHandlers({
         status: nodeOk ? 'ok' : 'error',
         version: `v${process.versions.node}`,
         location: process.execPath || '',
-        detail: nodeOk ? '满足插件脚本与后台守护最低版本要求（22.13+）' : '版本过低，请升级至 Node.js 22.13+ 或 24 LTS',
+        detail: nodeOk ? '满足插件脚本与后台守护最低版本要求（Node 24+）' : '版本过低，请升级至 Node.js 24 LTS+',
         fix: '',
         action: null,
       },
@@ -805,14 +809,15 @@ export function createApiHandlers({
   }
 
   async function getStatus() {
+    const dp = dataPathsFor(whaleHome, { cfgFile })
     const readJson = p => { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null } }
     const cfg = readConfig()
-    const quota = readJson(path.join(whaleHome, 'quota.json')) ?? { log: [] }
+    const quota = readJson(dp.quota) ?? { log: [] }
     const today = new Date().toLocaleDateString('sv-SE')
     const todays = (quota.log ?? []).filter(x => new Date(x.at).toLocaleDateString('sv-SE') === today)
-    const night = readJson(path.join(whaleHome, 'whale-night.json'))
+    const night = readJson(dp.schedule)
     const live = await ipcClient('/status')
-    const store = lifeStore(cfg, { dshHome: whaleHome })
+    const store = lifeStore(cfg, { whaleHome })
     const safetyBlocks = readRecentSafetyBlocks(whaleHome, 10)
     const calendar = buildActivityCalendar({ whaleHome, cfg, store })
     return {
@@ -921,7 +926,7 @@ export function createApiHandlers({
 
   async function lifeAction(action, b = {}) {
     const cfg = readConfig()
-    const store = lifeStore(cfg, { dshHome: whaleHome })
+    const store = lifeStore(cfg, { whaleHome })
     const live = await ipcClient('/status')
     if (!action || action === 'status') {
       return {

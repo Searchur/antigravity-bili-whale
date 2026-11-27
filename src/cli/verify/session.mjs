@@ -1,5 +1,5 @@
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { loadCred, missingForWrite, CRED_PATH } from '../../bili/cred.mjs'
+import { loadCred, missingForWrite, CRED_PATH } from '../../bili/cookie.mjs'
 
 let cred
 try {

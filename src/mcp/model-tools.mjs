@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
-import { biliCliPath, WHALE_HOME, configPath, shotsPath, workDirPath } from '../core/paths.mjs'
+import { biliCliPath, WHALE_HOME, configPath, dataPathsFor } from '../core/paths.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../core/node-runtime.mjs'
 import { publicScene } from '../memory/scope.mjs'
 
@@ -135,8 +135,9 @@ export function createModelToolRunner({
 } = {}) {
   const nodeExe = resolveNodeRuntime(whaleHome)
   const baseEnv = { ...nodeEnv(whaleHome), BILI_WHALE_HOME: whaleHome, BILI_WHALE_CONFIG: cfgFile }
-  const shotsDir = whaleHome === WHALE_HOME ? shotsPath : path.join(whaleHome, 'shots')
-  const promptsDir = path.join(whaleHome === WHALE_HOME ? workDirPath : path.join(whaleHome, 'whale-work'), '.prompts')
+  const dp = dataPathsFor(whaleHome, { cfgFile })
+  const shotsDir = dp.shotsDir
+  const promptsDir = path.join(dp.workspaceDir, '.prompts')
 
   function runCli(argv, timeoutMs) {
     return new Promise((resolve) => {
@@ -197,7 +198,7 @@ export function createModelToolRunner({
     }
     if (toolName === 'bili_read' && command === 'night' && (extra.length !== 1 || extra[0] !== 'status')) return restricted()
 
-    // Portable built-in helper: read oversized prompt materialized in whale-work/.prompts/
+    // Portable built-in helper: read oversized prompt materialized in runtime/workspace/.prompts/
     if (toolName === 'bili_read' && command === 'read-prompt') {
       const name = extra[0]
       if (!/^[a-f0-9]{48}\.json$/.test(name)) return restricted()

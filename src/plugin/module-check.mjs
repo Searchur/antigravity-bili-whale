@@ -14,7 +14,7 @@ function checkHostImports(root, loadBuiltin) {
     seen.add(file)
     const source = fs.readFileSync(file, 'utf8')
     const module = new vm.SourceTextModule(source, { identifier: file })
-    // moduleRequests is available on newer Nodes; 22.13 exposes dependencySpecifiers.
+    // Node 24+ V8 SourceTextModule exposes moduleRequests (with fallback for older V8 builds).
     const dependencies = module.moduleRequests?.map(request => request.specifier) ?? module.dependencySpecifiers
     for (const specifier of dependencies) {
       if (isBuiltin(specifier)) continue

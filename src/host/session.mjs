@@ -34,7 +34,7 @@ function dispatchFailure(error) {
  * - createAndPrompt: 首次创建或轮换会话时，通过 ConversationService/CreateConversation
  *   在一次 HTTP JSON 请求中原子建会话并投递首条提示（不受 Windows 32KB 命令行长度限制）。
  * - prompt: 向既有会话续发消息，通过 agentapi send-message 唤醒空闲会话；若正文超过
- *   Windows 命令行安全阈值，则将完整正文写入 whale-work/.prompts/ 并提示模型用 read_file 读取。
+ *   Windows 命令行安全阈值，则将完整正文写入 runtime/workspace/.prompts/ 并提示模型用 read_file 读取。
  * - isBusy: 调用 GetConversation 精确读取 state.runState（RUN_STATE_RUNNING / CANCELLING）。
  */
 export function createAntigravitySessionController({ rpc, workDir, defaultModel = () => 'flash' }) {

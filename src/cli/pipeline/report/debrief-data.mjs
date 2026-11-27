@@ -10,7 +10,7 @@
  * 就只能复制整个脚本。现在取数 → report → renderer，渲染器只认 report，不认网络。
  *
  * 另一个渲染器（profile）的约定：
- *   $DSH_HOME/whale-work/profiles/<name>.mjs
+ *   %USERPROFILE%\.antigravity-bili-whale\runtime\workspace\profiles\<name>.mjs
  *   export function render(report) { return { lines: ['...'] } }   // 每行一个字符串，不带换行符
  * 用 BW_DEBRIEF_PROFILE=<name> 选中；不设就用 debrief-default.mjs。
  */

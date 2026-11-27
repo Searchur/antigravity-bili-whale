@@ -4,7 +4,7 @@
 
 ## 1. 权威与目录隔离
 
-- 长期状态按 `account + owner` 的指纹隔离，目录为 `%USERPROFILE%\.antigravity-bili-whale\whale-life\<fingerprint>\`（可通过 `BILI_WHALE_HOME` 覆写），不与其他客户端共用目录。
+- 长期状态按 `account + owner` 的指纹隔离，目录为 `%USERPROFILE%\.antigravity-bili-whale\memory\<fingerprint>\`（可通过 `BILI_WHALE_HOME` 覆写），不与其他客户端共用目录。
 - `checkpoint.json` 是已提交状态的权威检查点，包含身份、schema、状态摘要和完整状态。
 - `state.json` 是兼容投影，不得覆盖权威检查点。
 - 已建立检查点后，如果检查点缺失、摘要错误、身份不符或投影 revision 超前，读写必须 fail-closed；不得自动重置或退回旧投影。

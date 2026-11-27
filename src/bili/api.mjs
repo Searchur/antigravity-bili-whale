@@ -1,4 +1,4 @@
-import { dataPath } from '../core/paths.mjs'
+import { DATA_PATHS } from '../core/paths.mjs'
 import { diagnose } from '../core/diagnostics.mjs'
 import { guardedFetch as fetch } from './traffic.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
@@ -19,10 +19,10 @@ export function signWbi(params, images, now = Date.now()) {
   return `${query}&w_rid=${crypto.createHash('md5').update(query + key).digest('hex')}`
 }
 
-const CACHE_FILE = dataPath('api-cache.json')
-const BAN_FILE = dataPath('api-ban.json')
+const CACHE_FILE = DATA_PATHS.apiCache
+const BAN_FILE = DATA_PATHS.apiBan
 const CACHE_TTL_MS = 24 * 3600 * 1000
-const REQ_LOG = dataPath('api-requests.log')
+const REQ_LOG = DATA_PATHS.apiRequestsLog
 const MAX_REQ_LOG_BYTES = 1024 * 1024
 const KEEP_REQ_LOG_LINES = 2000
 

@@ -30,7 +30,7 @@ function readInput(raw) {
       return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel)
     } catch { return false }
   })
-  if (!inside) throw Error('JSON 输入文件必须位于工作目录（whale-work）或临时目录内')
+  if (!inside) throw Error('JSON 输入文件必须位于工作目录（runtime/workspace）或临时目录内')
   const st = fs.statSync(realTarget)
   if (!st.isFile() || st.size > 128_000) throw Error('需要不超过 128 KB 的 JSON 文件')
   return JSON.parse(fs.readFileSync(realTarget, 'utf8'))

@@ -104,7 +104,8 @@ test('host skips a private message when its channel stops while the listener chi
 
 test('a comment disabled during polling neither prompts nor consumes the event; reenabling delivers it once', async t => {
   const f = fixture({ commentOwner: true, allDay: true })
-  const cursor = path.join(f.dir, 'whale-listen.json')
+  const cursor = path.join(f.dir, 'state', 'listen-cursor.json')
+  fs.mkdirSync(path.dirname(cursor), { recursive: true })
   const ts = Math.floor(Date.now()/1000) - 20
   write(cursor, { identity: { account: '100', owner: '200' }, lastSeen: ts })
   let disable = true
@@ -136,7 +137,7 @@ test('a comment disabled during polling neither prompts nor consumes the event; 
 test('the listener guard runs again after preparing async context and before host submission', async () => {
   const f = fixture({ commentOwner: true })
   let allowed = true, sent = 0
-  const delivery = createSessionDelivery({ dshHome: f.dir, sessionId: 'unused', config: () => f.config, persona: () => '',
+  const delivery = createSessionDelivery({ whaleHome: f.dir, sessionId: 'unused', config: () => f.config, persona: () => '',
     memoryContext: async () => { allowed = false; return '' },
     controller: { async createAndPrompt() { sent++; return { sessionId: 'test' } } } })
   await assert.rejects(delivery.send({ requestId: 'guard-1', content: [] }, undefined, {
@@ -183,7 +184,8 @@ test('an unknown follower relation retries independently, and late same-second D
 
 test('comment inboxes page through their prior cursor and retry an unresolved follower without replaying the owner', async t => {
   const f = fixture({commentOwner:true,commentFan:true,allDay:true})
-  const cursor = path.join(f.dir,'whale-listen.json')
+  const cursor = path.join(f.dir, 'state', 'listen-cursor.json')
+  fs.mkdirSync(path.dirname(cursor), { recursive: true })
   const ts = 100
   write(cursor,{identity:{account:'100',owner:'200'},lastSeen:ts,lastIds:['reply:old']})
   let recovered = false, delayedMention = false
@@ -234,7 +236,8 @@ test('comment inboxes page through their prior cursor and retry an unresolved fo
 
 test('finishing a resumed scan containing only a known same-second ID clears the saved cursor', async t => {
   const f = fixture({commentOwner:true,allDay:true})
-  const file = path.join(f.dir,'whale-listen.json')
+  const file = path.join(f.dir, 'state', 'listen-cursor.json')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
   write(file,{identity:{account:'100',owner:'200'},lastSeen:100,lastIds:['reply:9'],scan:{reply:{items:[],cursor:'final'}}})
   const queries = []
   t.mock.method(globalThis,'fetch',async input=>{
@@ -257,9 +260,10 @@ test('a closed thread whose host rejected the prompt can retry the same notifica
   f.config.life={enabled:true,cooldownMinutes:10}
   f.save()
   const {createLifeStore}=await import('../../src/life/store.mjs')
-  const oldStore=createLifeStore({dshHome:f.dir,account:'100',owner:'200',config:f.config.life,now:()=>Date.now()-86400000})
+  const oldStore=createLifeStore({whaleHome:f.dir,account:'100',owner:'200',config:f.config.life,now:()=>Date.now()-86400000})
   await oldStore.closeThread('1:44:55')
-  const cursor=path.join(f.dir,'whale-listen.json')
+  const cursor=path.join(f.dir, 'state', 'listen-cursor.json')
+  fs.mkdirSync(path.dirname(cursor), { recursive: true })
   write(cursor,{identity:{account:'100',owner:'200'},lastSeen:100})
   t.mock.method(globalThis,'fetch',async input=>Response.json({code:0,data:{items:new URL(input).pathname.endsWith('/reply') ? [
     {id:41,reply_time:101,user:{mid:200},item:{subject_id:44,source_id:55,source_content:'retry fixture'}}
@@ -284,7 +288,8 @@ test('a fallback that only describes outgoing following leaves the incoming foll
 
 test('a bounded inbox scan resumes a structured platform cursor after restart without dropping unread pages', async t => {
   const f = fixture({commentOwner:true,allDay:true})
-  const cursor = path.join(f.dir,'whale-listen.json')
+  const cursor = path.join(f.dir, 'state', 'listen-cursor.json')
+  fs.mkdirSync(path.dirname(cursor), { recursive: true })
   write(cursor,{identity:{account:'100',owner:'200'},lastSeen:100})
   const pages=[], sends=[]
   t.mock.method(globalThis,'fetch',async input=>{

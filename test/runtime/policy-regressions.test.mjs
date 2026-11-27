@@ -94,7 +94,7 @@ test('Q1 chat.followup works decoupled from autonomy/share/quiet-hours and never
     listen: { dmOwner: true, dmFan: false },
     chat: { followup: true, dynamic: false },
   }
-  const store = lifeStore(cfg, { dshHome: dir, fullConfig: () => cfg, now: () => clock })
+  const store = lifeStore(cfg, { whaleHome: dir, fullConfig: () => cfg, now: () => clock })
 
   // No open thread yet -> no idle DM!
   assert.equal(chatOpportunity(store.read(), cfg, clock), null)
@@ -427,7 +427,8 @@ test('planIntervalFrames strictly increases, relation cache isolates accounts, p
 
   // 4. buildActivityCalendar counts autoComments & preserves fan items with non-zero timestamp
   const dayMs = Date.parse('2026-11-26T15:00:00+08:00')
-  fs.writeFileSync(path.join(dir, 'quota.json'), JSON.stringify({
+  fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'state', 'quota.json'), JSON.stringify({
     log: [
       { at: new Date(dayMs).toISOString(), type: 'comment', share: false, auto: true, target: 'BV:BV1aaa000001', note: '自主评论一条' },
       { at: new Date(dayMs + 1000).toISOString(), type: 'comment', share: true, auto: true, target: 'BV:BV1bbb000002', note: '分享给主人' },
@@ -448,7 +449,8 @@ test('planIntervalFrames strictly increases, relation cache isolates accounts, p
 test('scheduler self-heals NUL-corrupted whale-night.json on tick and wakeNow, and json-cache strips UTF-8 BOM', async t => {
   const { dir, cfgFile } = fixture(t)
   const credFile = path.join(dir, 'credentials.json')
-  const nightFile = path.join(dir, 'whale-night.json')
+  const nightFile = path.join(dir, 'state', 'schedule.json')
+  fs.mkdirSync(path.dirname(nightFile), { recursive: true })
   fs.writeFileSync(credFile, JSON.stringify({ sessdata: 'test-sess', bili_jct: 'a'.repeat(32), buvid3: 'b3' }))
   // Write UTF-8 BOM-prefixed config.json to verify createJsonCache handles BOM cleanly
   fs.writeFileSync(cfgFile, '\uFEFF' + JSON.stringify({

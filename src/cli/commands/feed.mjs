@@ -1,7 +1,7 @@
 import {pipelineConfig,chooseVideos,eligibleVideo,videoDuration,interestEvidence,isInterest,interestGroup,fairOrder,ageDays,browsingRank} from '../pipeline/config.mjs'
 import {apiGet} from '../../bili/api.mjs'
 import { favoriteItems } from '../../bili/favorites.mjs'
-import { dataPath } from '../../core/paths.mjs'
+import { credentialsPath, DATA_PATHS } from '../../core/paths.mjs'
 import { preferenceMatches, preferenceSearch } from '../../config/feed-preferences.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 const life = lifeStore()
@@ -39,11 +39,11 @@ let dislike = [...(config().preferences?.dislike ?? [])]
 let seen = new Set(life.read().events.filter(e=>e.kind==='video-read').map(e=>e.target))
 
 try {
-  const ledger=JSON.parse(fs.readFileSync(dataPath('quota.json'),'utf8'))
+  const ledger=JSON.parse(fs.readFileSync(DATA_PATHS.quota,'utf8'))
   for(const row of ledger.log??[])if(row.type==='comment'&&/^BV:BV[0-9A-Za-z]{10}$/.test(row.target??''))seen.add(row.target.slice(3))
 } catch(e) {if(e.code!=='ENOENT')throw Error('评论账本无法读取，停止选题以免重复分享')}
 
-const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
+const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const H = { 'user-agent': UA, referer: 'https://search.bilibili.com/', cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}` }
 const MIXIN_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
@@ -66,7 +66,7 @@ const searchKeywords = [...new Set((explicitKeywords.length?explicitKeywords:pre
 // 2026-10-23：搜索结果按「关键词+排序」缓存 10 分钟 ✓
 //   动机：一晚她可能跑两次 feed ✗ 第二次完全一样 ✓ 没必要再打 6 次请求 ✓
 //   10 分钟够短，不会让她一直看同一批东西 ✓
-const SEARCH_CACHE = dataPath('feed-search-cache.json')
+const SEARCH_CACHE = DATA_PATHS.feedSearchCache
 const SEARCH_TTL_MS = 10 * 60 * 1000
 async function searchCached(kw, order, days) {
   const key = JSON.stringify([config().self?.mid,crypto.createHash('sha256').update(cred.sessdata??'').digest('hex'),kw,order,days])
@@ -85,7 +85,7 @@ async function searchCached(kw, order, days) {
   return j
 }
 const earlyExcluded=new Set(seen)
-try{for(const x of favoriteItems(JSON.parse(fs.readFileSync(dataPath('favorites.json'),'utf8')),config().self?.mid))if(x.bv)earlyExcluded.add(x.bv)}catch(e){if(e.code!=='ENOENT')throw Error('收藏账本无法读取')}
+try{for(const x of favoriteItems(JSON.parse(fs.readFileSync(DATA_PATHS.favorites,'utf8')),config().self?.mid))if(x.bv)earlyExcluded.add(x.bv)}catch(e){if(e.code!=='ENOENT')throw Error('收藏账本无法读取')}
 const pool = []
 // ── #3 更多来源（2026-10-18 加，Kimi 评审指出：只搜关键词 = 只刷"搜索"，不是刷 B 站）
 //   --source search（默认）| popular（热门）| rank（排行榜）| all（三个都要）
@@ -146,7 +146,7 @@ const learnTokens = (text) => {
 }
 let favItems = []
 try {
-  const fj = JSON.parse(fs.readFileSync(dataPath('favorites.json'), 'utf8'))
+  const fj = JSON.parse(fs.readFileSync(DATA_PATHS.favorites, 'utf8'))
   favItems = favoriteItems(fj, config().self?.mid).filter((x) => x && x.bv)
 } catch {}
 const learnedTokens = [...new Set(favItems.flatMap((x) => learnTokens(String(x.title ?? '') + ' ' + String(x.reason ?? ''))))]

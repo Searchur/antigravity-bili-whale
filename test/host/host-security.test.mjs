@@ -13,6 +13,7 @@ import { checkForUpdate } from '../../src/plugin/updater.mjs'
 import { createScopedDelivery } from '../../src/daemon/scoped-delivery.mjs'
 import { evaluateModelQuota } from '../../src/host/model-quota-guard.mjs'
 import { createLifeStore } from '../../src/life/store.mjs'
+import { dataPathsFor } from '../../src/core/data-paths.mjs'
 
 function temporaryDirectory(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-host-regression-'))
@@ -27,8 +28,8 @@ test('installer rejects missing release files and preserves the existing install
   copyRuntimeFixture(source, '1.6.5')
   fs.mkdirSync(destination)
   fs.writeFileSync(path.join(destination, 'old.txt'), 'keep')
-  fs.unlinkSync(path.join(source, 'src/cli/commands/fav.mjs'))
-  await assert.rejects(installPluginPayload({source, destination, dataPaths: []}), /fav\.mjs/)
+  fs.unlinkSync(path.join(source, 'src/cli/commands/favorites.mjs'))
+  await assert.rejects(installPluginPayload({source, destination, dataPaths: []}), /favorites\.mjs/)
   assert.deepEqual(fs.readdirSync(destination), ['old.txt'])
   assert.equal(fs.readFileSync(path.join(destination, 'old.txt'), 'utf8'), 'keep')
 })
@@ -126,10 +127,13 @@ test('diagnostic export retains counts while excluding message, safety and sched
   const api = createApiHandlers({whaleHome: dir, cfgFile: path.join(dir, 'config.json'), credFile: path.join(dir, 'cred.json'),
     biliMjs: path.join(dir, 'missing.mjs'), ipcClient: async () => ({running: false})})
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({self:{mid:'100'},owner:{mid:'200'}}))
-  const store = createLifeStore({dshHome:dir,account:'100',owner:'200'})
+  const dp = dataPathsFor(dir)
+  const store = createLifeStore({whaleHome:dir,account:'100',owner:'200'})
   await store.ingestOwnerMessage({actor:'200',messageId:'fixture-dm',text:'private-example-3'})
-  fs.writeFileSync(path.join(dir, 'safety-blocked.jsonl'), JSON.stringify({at: Date.now(), channel:'dm', layer:'local', category:'fixture', preview:'private-example-1'}) + '\n')
-  fs.writeFileSync(path.join(dir, 'whale-scheduler.json'), JSON.stringify({schema:1, instanceId:'fixture', status:'idle', recent:[{error:'private-example-2'}]}))
+  fs.mkdirSync(dp.logsDir, { recursive: true })
+  fs.mkdirSync(dp.stateDir, { recursive: true })
+  fs.writeFileSync(dp.safetyLog, JSON.stringify({at: Date.now(), channel:'dm', layer:'local', category:'fixture', preview:'private-example-1'}) + '\n')
+  fs.writeFileSync(dp.schedulerHealth, JSON.stringify({schema:1, instanceId:'fixture', status:'idle', recent:[{error:'private-example-2'}]}))
   const normal = await api.getStatus()
   assert.match(JSON.stringify(normal), /private-example-1/)
   assert.match(JSON.stringify(normal), /private-example-3/)
@@ -169,10 +173,10 @@ test('partial update metadata compares known commits and reports missing evidenc
 
 test('confirmation reads a bounded number of ledgers and recovers retained tasks after restart', async t => {
   const dir = temporaryDirectory(t)
-  const ledger = path.join(dir, 'whale-delivery.json')
+  const ledger = dataPathsFor(dir).deliveries
   const identity = {account:'100',owner:'200'}
   let deliveries = 0, reads = 0
-  const options = {dshHome:dir, config:()=>({self:{mid:'100'},owner:{mid:'200'}}), persona:()=> 'fixture',
+  const options = {whaleHome:dir, config:()=>({self:{mid:'100'},owner:{mid:'200'}}), persona:()=> 'fixture',
     controller:{async createAndPrompt(){deliveries++}}}
   const sender = createScopedDelivery(options)
   const readFile = fs.readFileSync

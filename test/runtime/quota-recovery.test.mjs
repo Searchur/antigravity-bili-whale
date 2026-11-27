@@ -40,7 +40,7 @@ test('D15 a manual comment rechecks its bound account before entering the transp
 
 test('D18 resolving a receipt after midnight charges the original dispatch day', async () => {
   let now = Date.parse('2026-11-26T23:59:00+08:00')
-  const store = createLifeStore({ dshHome: dir, account: '201', owner: '202', now: () => now })
+  const store = createLifeStore({ whaleHome: dir, account: '201', owner: '202', now: () => now })
   const token = await store.reserve(request)
   now += 30000
   await store.dispatch(token, async () => ({}))

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { dataPath, dshPath } from '../../core/paths.mjs'
+import { credentialsPath, shotsPath } from '../../core/paths.mjs'
 import { config } from '../../config/index.mjs'
 import { downloadVideo } from '../../media/video-download.mjs'
 import { segmentFrames } from '../../media/video-frames.mjs'
@@ -11,13 +11,13 @@ import { requireFfmpeg } from '../../media/ffmpeg.mjs'
 
 let FFMPEG
 try { FFMPEG = requireFfmpeg() } catch (e) { console.error(String(e.message)); process.exit(2) }
-const defaultOutDir = dshPath('shots', 'video')
+const defaultOutDir = path.join(shotsPath, 'video')
 let parsed
 try { parsed = watchOptions(process.argv.slice(2), defaultOutDir) } catch (e) { console.error(e.message); process.exit(2) }
 const { bvid, tile: TILE } = parsed
 if (!bvid) { console.error('用法: node bili-watch.mjs <BV号> [列x行] [--every 秒] [--max-frames 帧数] [--profile auto|owner|fan] [--confirmed]'); process.exit(2) }
 
-const shotsBase = path.resolve(dshPath('shots'))
+const shotsBase = path.resolve(shotsPath)
 const resolvedOutDir = path.resolve(parsed.outDir || defaultOutDir)
 if (resolvedOutDir !== shotsBase && !resolvedOutDir.startsWith(shotsBase + path.sep)) {
   console.error('✗ 输出目录必须位于独立数据目录 shots/ 内，已拒绝越界路径。')
@@ -30,7 +30,7 @@ const everySec = parsed.everySec ?? Number(watchResolved.settings.frameEverySec 
 const maxFrames = parsed.maxFrames ?? Number(watchResolved.settings.maxFrames ?? 36)
 const grid = parsed.grid ?? String(watchResolved.settings.frameGrid ?? '3x3')
 
-const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
+const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const H = { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}` }
 

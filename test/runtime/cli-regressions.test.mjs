@@ -52,7 +52,7 @@ test('night command dry-run and execution share the UI wake endpoint', async t =
   const { dir, env } = fixture(t)
   let wakes = 0
   const ipc = await startSidecarIpc({
-    file: path.join(dir, 'sidecar-ipc.json'),
+    file: path.join(dir, 'runtime', 'sidecar-ipc.json'),
     protect: () => {},
     getStatus: () => ({ schedulerStatus: { rpcAvailable: true } }),
     onWakeNow: () => ({ requestId: `test-wake-${++wakes}` }),

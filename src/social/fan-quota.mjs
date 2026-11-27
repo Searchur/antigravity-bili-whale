@@ -1,6 +1,5 @@
 import fs from 'node:fs'
-import path from 'node:path'
-import { WHALE_HOME } from '../core/paths.mjs'
+import { WHALE_HOME, dataPathsFor } from '../core/paths.mjs'
 import { localDay } from '../core/local-date.mjs'
 import { acquireProcessLock } from '../core/process-lock.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
@@ -9,7 +8,7 @@ const CHANNELS = ['dm', 'comment', 'mentionSummary']
 const MAX_HISTORY_DAYS = 365
 
 function quotaFile(whaleHome = WHALE_HOME) {
-  return path.join(whaleHome, 'fan-quota.json')
+  return dataPathsFor(whaleHome).fanQuota
 }
 
 function emptyDay(date, history = {}) {

@@ -12,7 +12,7 @@ function mkTmp(prefix) {
 
 test('sidecar IPC enforces token auth, serves status/models/invalidate, and cleans up on close', async () => {
   const dir = mkTmp('ag-whale-ipc-')
-  const ipcFile = path.join(dir, 'sidecar-ipc.json')
+  const ipcFile = path.join(dir, 'runtime', 'sidecar-ipc.json')
   let invalidatedWith = null
   const ipc = await startSidecarIpc({
     file: ipcFile,

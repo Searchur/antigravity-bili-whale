@@ -10,7 +10,7 @@ import { config } from '../../config/index.mjs'
 import { enforceOutboundSafety } from '../../social/content-safety.mjs'
 import { requireWritePreview } from '../../social/write-preview.mjs'
 import { exactJson } from '../../core/json-exact.mjs'
-import { loadCred, missingForWrite } from '../../bili/cred.mjs'
+import { loadCred, missingForWrite } from '../../bili/cookie.mjs'
 
 function assertSafeImagePath(filePath) {
   const realTarget = fs.realpathSync(filePath)

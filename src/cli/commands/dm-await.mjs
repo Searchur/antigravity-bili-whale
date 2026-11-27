@@ -1,4 +1,4 @@
-import { credentialsPath, dataPath } from '../../core/paths.mjs'
+import { credentialsPath } from '../../core/paths.mjs'
 // Exit contract: 0 = message/ack/baseline; 1 + {hit:false} = normal empty; 2 = invalid input; 3 = failure.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -228,7 +228,7 @@ async function main() {
 
     const combined = []
     if (listen.dmOwner && owner) {
-      const baseline = explicitBaseline || (state.lastSeen === undefined && fs.existsSync(dataPath('dm-await-state.json')))
+      const baseline = explicitBaseline
       const result = await readHistory(owner, headers, state, { baseline, nav })
       if (!checkScope().dmOwner) return empty()
       if (baseline) {

@@ -1,4 +1,4 @@
-import { createAntigravityTextComplete } from '../host/antigravity-text-complete.mjs'
+import { createAntigravityTextComplete } from '../host/text-complete.mjs'
 
 const SAFETY_SYSTEM = [
   '你是严格的中国大陆互联网内容合规安全审核员，负责审核 B 站拟发送的评论、动态或私信。',

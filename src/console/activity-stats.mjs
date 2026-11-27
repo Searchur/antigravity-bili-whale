@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { localDay } from '../core/local-date.mjs'
+import { dataPathsFor } from '../core/paths.mjs'
 import { readFanQuotaHistory } from '../social/fan-quota.mjs'
 import { readLifeArchive } from '../life/archive.mjs'
 
@@ -62,7 +63,7 @@ function loadAllLifeEvents(store, diagnostics) {
 }
 
 /**
- * 汇总本地真实数据（quota.json / whale-life / whale-night.json / fan-quota.json / safety-blocked.jsonl），
+ * 汇总本地真实数据（state/quota.json / memory / state/schedule.json / state/fan-quota.json / logs/safety-blocked.jsonl），
  * 按本地日期生成交互式月历所需的每日分类统计与全局累计汇总。
  */
 export function buildActivityCalendar({
@@ -94,8 +95,9 @@ export function buildActivityCalendar({
     })
   }
 
-  // 1. quota.json：主动分享给主人 + 公开发表动态
-  const quota = readJsonSafe(path.join(whaleHome, 'quota.json'))
+  const dp = dataPathsFor(whaleHome)
+  // 1. state/quota.json：主动分享给主人 + 公开发表动态
+  const quota = readJsonSafe(dp.quota)
   for (const entry of quota?.log ?? []) {
     const d = safeDay(entry?.at)
     const b = getDay(d)
@@ -112,7 +114,7 @@ export function buildActivityCalendar({
     }
   }
 
-  // 2. whale-life 事件与归档：看片 / 主人互动 / 作息唤醒
+  // 2. memory 事件与归档：看片 / 主人互动 / 作息唤醒
   const ownerMid = String(cfg?.owner?.mid ?? '').trim()
   const diagnostics = []
   const events = loadAllLifeEvents(store, diagnostics)
@@ -158,7 +160,7 @@ export function buildActivityCalendar({
   }
 
   // 3. 机会按窗口的起始日期归属。跨午夜窗口仍只记一次。
-  const night = readJsonSafe(path.join(whaleHome, 'whale-night.json'))
+  const night = readJsonSafe(dp.schedule)
   if (night) {
     const usedByDay = new Map()
     for (const [k, cnt] of Object.entries(night.usedCount ?? {})) {
@@ -204,9 +206,9 @@ export function buildActivityCalendar({
     pushItem(b, fanAt, 'fan', '粉丝互动', parts.join(' · '), '当日汇总')
   }
 
-  // 5. safety-blocked.jsonl：按日统计内容安全审核拦截
+  // 5. logs/safety-blocked.jsonl：按日统计内容安全审核拦截
   try {
-    const safetyFile = path.join(whaleHome, 'safety-blocked.jsonl')
+    const safetyFile = dp.safetyLog
     if (fs.existsSync(safetyFile)) {
       const lines = fs.readFileSync(safetyFile, 'utf8').split(/\r?\n/).filter(Boolean).slice(-2000)
       for (const line of lines) {

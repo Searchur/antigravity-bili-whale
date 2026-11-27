@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { qrDataUrl } from './qr.mjs'
-import { AuthError, parseManualCookie } from './credentials.mjs'
+import { AuthError, parseManualCookie } from './credential-store.mjs'
 
 export async function renderQr(url, {encoder, signal}={}) {
   if (signal?.aborted) throw new AuthError('登录已取消。')

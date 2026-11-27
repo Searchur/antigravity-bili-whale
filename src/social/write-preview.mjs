@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { config } from '../config/index.mjs'
-import { credentialsPath, dataPath } from '../core/paths.mjs'
+import { credentialsPath, DATA_PATHS } from '../core/paths.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
 
 const MAX_AGE_MS = 10 * 60_000
@@ -31,7 +31,7 @@ export function requireWritePreview(command, payload, { dry, credentials, attach
   }
   const attachmentHash = attachment ? digest(Buffer.isBuffer(attachment) ? attachment : fs.readFileSync(attachment)) : null
   const key = digest(JSON.stringify([command, login.sessdata, login.bili_jct, current.self?.mid, current.owner?.mid, payload, attachmentHash]))
-  const dir = dataPath('write-previews')
+  const dir = DATA_PATHS.writePreviewsDir
   const file = path.join(dir, `${key}.json`)
   const now = Date.now()
   if (dry) {

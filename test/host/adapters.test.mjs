@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createAntigravitySessionController } from '../../src/host/antigravity-session.mjs'
-import { createAntigravityTextComplete, extractJsonText } from '../../src/host/antigravity-text-complete.mjs'
+import { createAntigravitySessionController } from '../../src/host/session.mjs'
+import { createAntigravityTextComplete, extractJsonText } from '../../src/host/text-complete.mjs'
 import { createSessionDelivery } from '../../src/daemon/session-delivery.mjs'
-import { normalizeModelCatalog, fallbackModelCatalog } from '../../src/host/antigravity-rpc.mjs'
+import { normalizeModelCatalog, fallbackModelCatalog } from '../../src/host/rpc.mjs'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -150,7 +150,7 @@ test('createSessionDelivery uses createAndPrompt once, reuses sessionId, recover
 
     const delivery = createSessionDelivery({
       controller,
-      dshHome: dataDir,
+      whaleHome: dataDir,
       sessionId: 'init',
       sessionRole: 'browse-main',
       config: () => ({ models: { main: 'flash' }, sessionRotateDays: 0, personaOncePerSession: true }),

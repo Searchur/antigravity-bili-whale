@@ -1,11 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { dataPath } from '../core/paths.mjs'
+import { DATA_PATHS } from '../core/paths.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
 import { acquireProcessLock } from '../core/process-lock.mjs'
 
-const file = dataPath('quota.json')
-const recoveryDir = dataPath('quota-recovery')
+const file = DATA_PATHS.quota
+const recoveryDir = DATA_PATHS.quotaRecoveryDir
 
 // Persist a locator before dispatch. An account or owner change must not hide
 // a confirmed receipt from the shared limits. Keep private text in its store.

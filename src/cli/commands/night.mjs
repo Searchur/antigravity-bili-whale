@@ -1,14 +1,15 @@
 // Shared planning engine: absolute timestamps and persistent per-window history.
 import fs from 'node:fs'
-import { dshPath } from '../../core/paths.mjs'
+import path from 'node:path'
+import { WHALE_HOME, DATA_PATHS } from '../../core/paths.mjs'
 import { readNightConfig } from '../../config/night.mjs'
 import { makePlan, completePlan, dayOf } from '../../config/night-plan.mjs'
 import { atomicWriteJson } from '../../core/atomic-json.mjs'
 import { callSidecarIpc } from '../../host/sidecar-ipc.mjs'
 import { readSchedulerHealth } from '../../daemon/scheduler-health.mjs'
 import { deliveryStatus } from '../../daemon/delivery-state.mjs'
-const STATE = dshPath('whale-night.json')
-const IPC_FILE = dshPath('sidecar-ipc.json')
+const STATE = DATA_PATHS.schedule
+const IPC_FILE = DATA_PATHS.sidecarIpc
 const load = () => { try { return JSON.parse(fs.readFileSync(STATE, 'utf8')) } catch { return {} } }
 const save = (file, value) => atomicWriteJson(file, value)
 const [cmd, ...args] = process.argv.slice(2)
@@ -27,10 +28,10 @@ if (cmd === 'trigger') {
   save(STATE, p)
   console.log(JSON.stringify(p, null, 2))
 } else if (cmd === 'mark') {
-  save(dshPath('whale-wake'), { date: dayOf(), at: new Date().toISOString(), by: 'task' })
+  save(path.join(DATA_PATHS.locksDir, 'wake-mark.json'), { date: dayOf(), at: new Date().toISOString(), by: 'task' })
   console.log('已留唤醒标记')
 } else if (cmd === 'status') {
-  console.log(JSON.stringify({ config: readNightConfig(), state: load(), scheduler:readSchedulerHealth(dshPath()),delivery:deliveryStatus(dshPath()) }, null, 2))
+  console.log(JSON.stringify({ config: readNightConfig(), state: load(), scheduler:readSchedulerHealth(WHALE_HOME),delivery:deliveryStatus(WHALE_HOME) }, null, 2))
 } else if (cmd === 'clock') {
   if (args.includes('--test')) {
     await sleep(Math.max(0, Number(args[args.indexOf('--test') + 1] ?? 5)) * 1000)

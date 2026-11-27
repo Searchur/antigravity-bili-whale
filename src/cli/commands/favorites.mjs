@@ -4,7 +4,7 @@ import { localDay } from '../../core/local-date.mjs'
 import { favoriteItems, legacyFavoriteItems, claimLegacyFavorites, readFavorites, verifiedFavoriteAccount, selectFavoriteFolder } from '../../bili/favorites.mjs'
 import { atomicWriteJson } from '../../core/atomic-json.mjs'
 import { acquireProcessLock } from '../../core/process-lock.mjs'
-import { HOME, dataPath } from '../../core/paths.mjs'
+import { credentialsPath, DATA_PATHS } from '../../core/paths.mjs'
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 import { apiGet } from '../../bili/api.mjs'
 // 收藏（2026-10-20 加，主人定：收藏 ≠ 低配的分享，是"我想留着"）
@@ -22,16 +22,15 @@ import { apiGet } from '../../bili/api.mjs'
 //   ⑤ 先 --dry 再 --go（和其它写操作一致）
 import fs from 'node:fs'
 import path from 'node:path'
-import { dshPath } from '../../core/paths.mjs'
 import { requireWritePreview } from '../../social/write-preview.mjs'
 
-const FAV_LOG = dataPath('favorites.json')
+const FAV_LOG = DATA_PATHS.favorites
 // 2026-10-21 修（外部审计 #10）：新用户跑 `fav --list` 会因为缺文件直接一脸 ENOENT ✗
 //   改成友好提示：--list 不需要凭据（只读本地账本），其它子命令才要 ✓
 let cred = { sessdata: '', bili_jct: '', buvid3: '' }
 const cfg = config()
 try {
-  cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
+  cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
 } catch {}
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
@@ -230,7 +229,7 @@ const r = await fetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
   headers: { ...H, 'content-type': 'application/x-www-form-urlencoded' },
   body: body.toString(),
   dispatch: invoke => {
-    const currentCred=JSON.parse(fs.readFileSync(dataPath('credentials.json'),'utf8'))
+    const currentCred=JSON.parse(fs.readFileSync(credentialsPath,'utf8'))
     if(String(config({fresh:true}).self?.mid ?? '')!==account || currentCred.sessdata!==cred.sessdata || currentCred.bili_jct!==cred.bili_jct) throw Error('登录账号已变化，已停止收藏；请重新确认。')
     return invoke()
   },

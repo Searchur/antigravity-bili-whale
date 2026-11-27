@@ -7,7 +7,7 @@ import { gate, lockQuotaForSend, flushQuotaReceipts } from '../../social/quota-g
 import { config } from '../../config/index.mjs'
 import { guardSend } from '../../social/send-guard.mjs'
 import { exactJson } from '../../core/json-exact.mjs'
-import { loadCred, missingForWrite } from '../../bili/cred.mjs'
+import { loadCred, missingForWrite } from '../../bili/cookie.mjs'
 
 const argv = process.argv.slice(2)
 const mode = argv[0]

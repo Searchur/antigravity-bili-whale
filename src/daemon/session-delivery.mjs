@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { setTimeout as setDeadline, clearTimeout as clearDeadline } from 'node:timers'
-import { personaPath } from '../core/paths.mjs'
+import { personaPath, dataPathsFor } from '../core/paths.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
 import { readDeliveries, updateDelivery } from './delivery-state.mjs'
 import { loadBehavior, behaviorSections, BEHAVIOR_ROOT } from '../core/behavior.mjs'
@@ -21,7 +21,7 @@ function mayHaveDispatched(error) {
 
 export function createSessionDelivery({
   controller,
-  dshHome,
+  whaleHome,
   sessionId,
   config,
   persona,
@@ -32,13 +32,14 @@ export function createSessionDelivery({
   memoryContext = null,
   timeoutMs = 60_000,
   onOutcome = () => {},
-  sessionFile = 'whale-session.json',
+  sessionFile = 'default.json',
   contextGeneration = null,
   scopeKey = null,
   sessionRole = null,
   behaviorRoot = BEHAVIOR_ROOT,
 }) {
-  const file = path.join(dshHome, sessionFile)
+  const dp = dataPathsFor(whaleHome)
+  const file = path.join(dp.sessionsDir, sessionFile)
   let state = { id: sessionId, startedAt: now() }, ready = false, tail = Promise.resolve(), lastDelivered = 0
   let booted = false
   const recoveryScopes = new Map()
@@ -52,7 +53,7 @@ export function createSessionDelivery({
     if (e.code !== 'ENOENT') throw Error('会话状态损坏，请检查 ' + sessionFile + '，避免误建会话')
   }
   onSession(state.id)
-  readDeliveries(dshHome)
+  readDeliveries(whaleHome)
   lastDelivered = Number.isFinite(state.deliveredAt) ? state.deliveredAt : 0
 
   function save(next) {
@@ -60,7 +61,7 @@ export function createSessionDelivery({
   }
 
   function outcome(requestId, update, cfg) {
-    const record = updateDelivery(dshHome, requestId, { ...update, scopeKey, updatedAt: now() })
+    const record = updateDelivery(whaleHome, requestId, { ...update, scopeKey, updatedAt: now() })
     try { Promise.resolve(onOutcome(record, cfg)).catch(e => log('记录投递事件失败：' + e.message)) }
     catch (e) { log('记录投递事件失败：' + e.message) }
     return record
@@ -83,7 +84,7 @@ export function createSessionDelivery({
       const requestId = request.requestId ?? crypto.randomUUID()
       const deliver = async () => {
         checkAbort(signal)
-        const existing = readDeliveries(dshHome).find(r => r.requestId === requestId)
+        const existing = readDeliveries(whaleHome).find(r => r.requestId === requestId)
         if (scopeKey && existing?.scopeKey && existing.scopeKey !== scopeKey) {
           if (!compatibleScopeKeys.includes(existing.scopeKey)) throw Error('任务回执属于另一账号或场景，需核查任务 ID')
           recoveryScopes.set(requestId, existing.scopeKey)
@@ -91,7 +92,7 @@ export function createSessionDelivery({
         if (existing?.status === 'accepted') return
         if (existing && ['dispatching', 'unconfirmed'].includes(existing.status)) throw unconfirmed(requestId)
         if (existing?.status === 'failed' && /^Antigravity RPC CreateConversation 超时/.test(existing.error ?? '')) {
-          updateDelivery(dshHome, requestId, { status: 'unconfirmed', updatedAt: now() })
+          updateDelivery(whaleHome, requestId, { status: 'unconfirmed', updatedAt: now() })
           throw unconfirmed(requestId)
         }
 
@@ -126,7 +127,7 @@ export function createSessionDelivery({
         const recallHint = memory?.dynamicMemory?.mode === 'active' ? '动态记忆已启用；按当前场景用 memory-catalog/history/fetch，需要时 behavior read memory。' : ''
         const chapters = memoryScene ? loadBehavior(behaviorSections(memoryScene, sessionRole, taskKind), { root: behaviorRoot }) : []
         const behavior = chapters.map(c => `［规范 ${c.id}］\n${c.text}`).join('\n')
-        const contract = memoryScene ? `当前身份与人设继续适用；场景=${memoryScene}，角色=${sessionRole ?? 'legacy'}。私密材料不公开；未知发送先核查，程序权限与完整例外优先。规范索引：${path.join(behaviorRoot, 'BEHAVIOR.md')}` : ''
+        const contract = memoryScene ? `当前身份与人设继续适用；场景=${memoryScene}，角色=${sessionRole ?? 'legacy'}。私密材料不公开；未知发送先核查，程序权限与完整例外优先。规范索引：${path.join(behaviorRoot, 'index.md')}` : ''
         const prefix = [include ? block : reminder, contract, behavior, traceHint, recallHint, contextText].filter(Boolean).join('\n')
         const content = [...(request.content ?? [])]
         if (content[0]?.type === 'text') content[0] = { ...content[0], text: prefix + '\n' + content[0].text }
@@ -176,7 +177,7 @@ export function createSessionDelivery({
           catch (e) { log('宿主已接受投递，但保存回执失败：' + e.message) }
         }, e => {
           try {
-            const current = readDeliveries(dshHome).find(r => r.requestId === requestId)
+            const current = readDeliveries(whaleHome).find(r => r.requestId === requestId)
             if (current?.status !== 'unconfirmed') {
               setOutcome({ status: signal?.aborted || mayHaveDispatched(e) ? 'unconfirmed' : 'failed', error: String(e?.message ?? e).slice(0, 300) })
             }
@@ -189,7 +190,7 @@ export function createSessionDelivery({
         catch (e) {
           deliveryExpired = true
           if (mayHaveDispatched(e) || signal?.aborted) {
-            const current = readDeliveries(dshHome).find(r => r.requestId === requestId)
+            const current = readDeliveries(whaleHome).find(r => r.requestId === requestId)
             if (!['accepted', 'unconfirmed'].includes(current?.status)) setOutcome({ status: 'unconfirmed', error: String(e.message).slice(0, 300) })
             throw unconfirmed(requestId)
           }
@@ -221,12 +222,12 @@ export function createSessionDelivery({
 
     confirm(requestId, compatibleScopeKeys = []) {
       const job = tail.then(() => {
-        const entry = readDeliveries(dshHome).find(r => r.requestId === requestId)
+        const entry = readDeliveries(whaleHome).find(r => r.requestId === requestId)
         const oldScope = recoveryScopes.get(requestId) ?? (compatibleScopeKeys.includes(entry?.scopeKey) ? entry.scopeKey : null)
         if (entry?.scopeKey && scopeKey && entry.scopeKey !== scopeKey && oldScope !== entry.scopeKey) return
-        if (entry) updateDelivery(dshHome, requestId, { retained: false })
+        if (entry) updateDelivery(whaleHome, requestId, { retained: false })
         if (oldScope && oldScope !== scopeKey && /^[a-f0-9]{24}$/.test(oldScope)) {
-          const oldFile = path.join(dshHome, 'whale-session-' + oldScope + '.json')
+          const oldFile = path.join(dp.sessionsDir, oldScope + '.json')
           try {
             const old = JSON.parse(fs.readFileSync(oldFile, 'utf8'))
             if (old.pendingRequest === requestId) {

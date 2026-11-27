@@ -1,5 +1,5 @@
 import { WHALE_HOME } from './paths.mjs'
-import { resolveRuntime } from './runtime.mjs'
+import { resolveRuntime } from './runtime-probe.mjs'
 const runtime = resolveRuntime(WHALE_HOME, { allowCurrent: true })
 export const NODE_EXE = runtime.file
 export const NODE_ENV = runtime.env

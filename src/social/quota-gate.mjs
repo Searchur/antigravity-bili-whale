@@ -1,9 +1,9 @@
 // 限额闸的统一入口（评论 / 动态等写通道共用检查与记账）
 import { execFileSync } from '../core/capture.mjs'
 import path from 'node:path'
-import { NODE_EXE } from '../core/nodebin.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
+import { NODE_EXE } from '../core/node-binary.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
 import { acquireProcessLock } from '../core/process-lock.mjs'
-import { PLUGIN_ROOT, dataPath } from '../core/paths.mjs'
+import { PLUGIN_ROOT, DATA_PATHS } from '../core/paths.mjs'
 export { flushQuotaReceipts } from './quota-ledger.mjs'
 
 const QUOTA = path.join(PLUGIN_ROOT, 'src', 'cli', 'commands', 'quota.mjs')
@@ -27,7 +27,7 @@ export function gate({ type, target = '', auto = true, share = false }) {
 }
 
 export async function lockQuotaForSend(options) {
-  const release = await acquireProcessLock(dataPath('quota-send'), { retries: 40 })
+  const release = await acquireProcessLock(path.join(DATA_PATHS.locksDir, 'quota-send'), { retries: 40 })
   try {
     if (!gate(options)) throw Error('额度检查未通过，停止发送')
     return release

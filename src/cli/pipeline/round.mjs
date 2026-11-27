@@ -1,6 +1,6 @@
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
-import {dshPath} from '../../core/paths.mjs'
+import { workDirPath } from '../../core/paths.mjs'
 import {config} from '../../config/index.mjs'
 import {atomicWriteJson} from '../../core/atomic-json.mjs'
 import {pipelineConfig} from './config.mjs'
@@ -30,7 +30,7 @@ export async function runRound(argv=process.argv.slice(2)){
   }
  }
  result.elapsedMs=Date.now()-start
- if(!result.dry){const file=dshPath('whale-work','rounds',Date.now()+'-'+process.pid+'.json');atomicWriteJson(file,result);result.file=file}
+ if(!result.dry){const file=path.join(workDirPath, 'rounds', Date.now() + '-' + process.pid + '.json');atomicWriteJson(file,result);result.file=file}
  return result
 }
 function roundFallback(r){

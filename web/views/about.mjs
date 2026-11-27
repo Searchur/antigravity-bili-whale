@@ -1,4 +1,4 @@
-import { el, row } from './render-sections.mjs'
+import { el, row } from './sections.mjs'
 
 const REPO_URL = 'https://github.com/Searchur/antigravity-bili-whale'
 
@@ -107,9 +107,9 @@ export function renderAboutTab(state, actions) {
     pathRow('独立数据目录', '保存配置、凭据、人设、记忆与导出文件；更新与重装插件均不会覆盖。', dataRoot, 'data_dir', false),
     pathRow('主配置文件（config.json）', '保存账号信息、基础称呼、模型选择、观看规则、分享监听与安全审核配置。', paths.configFile || `${dataRoot}\\config.json`, 'config_file', true),
     pathRow('人设正文（persona.md）', '大鲸鱼的专属人设正文（硬上限 4000 字，不影响日常编程对话）。', paths.personaFile || `${dataRoot}\\persona.md`, 'persona_file', true),
-    pathRow('长期记忆目录（whale-life）', '保存长期记忆账本、过往观看经历与心情状态。', paths.memoryDir || `${dataRoot}\\whale-life`, 'memory_dir', false),
-    pathRow('安全审核拦截日志（safety-blocked.jsonl）', '记录被外发内容安全审核拦截的敏感或违规文本审计记录。', paths.safetyLog || `${dataRoot}\\safety-blocked.jsonl`, 'safety_log', true),
-    pathRow('外发内容安全审核规则（content-safety.mjs）', '插件内置的中国法律法规红线规则与双层外发安全审核核心模块。', paths.safetyRules || `${pluginRootPath}\\tools\\lib\\content-safety.mjs`, 'safety_rules', true),
+    pathRow('长期记忆目录（memory）', '保存长期记忆账本、过往观看经历与心情状态。', paths.memoryDir || `${dataRoot}\\memory`, 'memory_dir', false),
+    pathRow('安全审核拦截日志（logs/safety-blocked.jsonl）', '记录被外发内容安全审核拦截的敏感或违规文本审计记录。', paths.safetyLog || `${dataRoot}\\logs\\safety-blocked.jsonl`, 'safety_log', true),
+    pathRow('外发内容安全审核规则（content-safety.mjs）', '插件内置的中国法律法规红线规则与双层外发安全审核核心模块。', paths.safetyRules || `${pluginRootPath}\\src\\social\\content-safety.mjs`, 'safety_rules', true),
     pathRow('导出文件目录（exports）', '存放带时间戳的脱敏诊断日志与长期记忆备份文件。', paths.exportsDir || `${dataRoot}\\exports`, 'exports_dir', false),
     row('上游原项目致谢', '移植自 Alterssss/dsh-bili-whale（MIT License），专为 Windows 版 Antigravity App 原生重构。',
       el('button', { type: 'button', className: 'btn sm', onClick: () => actions.openUrl('https://github.com/Alterssss/dsh-bili-whale') }, '查看上游仓库')))
