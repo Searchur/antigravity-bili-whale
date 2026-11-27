@@ -1,6 +1,6 @@
 import { diagnose } from './diagnostics.mjs'
 import { localDay } from './local-date.mjs'
-import { renameWithRetry } from './life-persistence.mjs'
+import { atomicWriteJson } from './life-persistence.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -57,9 +57,7 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
     }
     try {
       const s = read(), result = fn(s)
-      const temp = stateFile + '.' + process.pid + '.' + crypto.randomUUID() + '.tmp'
-      try { fs.writeFileSync(temp, JSON.stringify(s), { mode: 0o600 }); renameWithRetry(temp, stateFile) }
-      finally { try { fs.rmSync(temp, { force: true }) } catch {} }
+      atomicWriteJson(stateFile, s, { mode: 0o600 })
       return result
     } finally {
       try { fs.closeSync(fd) } catch {}

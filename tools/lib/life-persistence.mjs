@@ -39,13 +39,13 @@ export function initialLifeState() {
   }
 }
 
-export function atomicWriteJson(file, value) {
+export function atomicWriteJson(file, value, { pretty = false, mode = 0o600 } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const tmp = file + '.' + id() + '.tmp'
   try {
-    const fd = fs.openSync(tmp, 'w', 0o600)
+    const fd = fs.openSync(tmp, 'w', mode)
     try {
-      fs.writeFileSync(fd, JSON.stringify(value) + '\n')
+      fs.writeFileSync(fd, (pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value)) + '\n')
       fs.fsyncSync(fd)
     } finally {
       fs.closeSync(fd)

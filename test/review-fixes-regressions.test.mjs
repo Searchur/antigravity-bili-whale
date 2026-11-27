@@ -11,6 +11,8 @@ import { createModelToolRunner } from '../mcp/model-tools.mjs'
 import { createApiHandlers } from '../lib/api-handlers.js'
 import { createAffectWorker, createAffectSend } from '../lib/affect-worker.js'
 import { buildActivityCalendar } from '../lib/activity-stats.js'
+import { createJsonCache } from '../lib/json-cache.js'
+import { startScheduler } from '../lib/scheduler.js'
 import { lifeStore } from '../tools/lib/life-runtime.mjs'
 import { chatOpportunity } from '../tools/lib/chat-opportunity.mjs'
 import { checkLocalSafety, enforceOutboundSafety } from '../tools/lib/content-safety.mjs'
@@ -441,4 +443,57 @@ test('planIntervalFrames strictly increases, relation cache isolates accounts, p
   assert.equal(cal.days['2026-11-26'].total, 3)
   assert.ok(cal.days['2026-11-26'].items.some(i => i.label === '自主评论'))
   assert.ok(cal.days['2026-11-26'].items.some(i => i.kind === 'fan' && i.at > 0))
+})
+
+test('scheduler self-heals NUL-corrupted whale-night.json on tick and wakeNow, and json-cache strips UTF-8 BOM', async t => {
+  const { dir, cfgFile } = fixture(t)
+  const credFile = path.join(dir, 'credentials.json')
+  const nightFile = path.join(dir, 'whale-night.json')
+  fs.writeFileSync(credFile, JSON.stringify({ sessdata: 'test-sess', bili_jct: 'a'.repeat(32), buvid3: 'b3' }))
+  // Write UTF-8 BOM-prefixed config.json to verify createJsonCache handles BOM cleanly
+  fs.writeFileSync(cfgFile, '\uFEFF' + JSON.stringify({
+    self: { mid: '100', name: '大鲸鱼' },
+    owner: { mid: '300', name: '主人' },
+    browse: { enabled: true },
+    models: { main: 'flash', worker: 'flash_lite', minQuotaPercent: 0 },
+    night: { windows: [{ start: '00:00', end: '24:00', wakes: 5 }], skipChance: 0, minGapMin: 10 },
+  }))
+  assert.equal(createJsonCache().read(cfgFile).self.mid, '100')
+
+  // Simulate NTFS crash NUL-filled whale-night.json (559 zero bytes)
+  fs.writeFileSync(nightFile, Buffer.alloc(559, 0))
+
+  const prompts = []
+  const sched = startScheduler({
+    rpc: { available: () => false },
+    sessionController: {
+      available: () => true,
+      isBusy: async () => false,
+      createAndPrompt: async (req) => { prompts.push(req); return { sessionId: 'sess-heal-1' } },
+      prompt: async (req) => { prompts.push(req); return { ok: true } },
+    },
+  }, {
+    whaleHome: dir,
+    configFile: cfgFile,
+    credentialsFile: credFile,
+    biliMjs: cli,
+    cwd: dir,
+  })
+  t.after(() => sched.stop())
+
+  // 1. tick() must self-heal the NUL-corrupted whale-night.json and write a fresh valid schedule
+  await sched.tick()
+  assert.equal(sched.health().lastError, null)
+  const repairedByTick = JSON.parse(fs.readFileSync(nightFile, 'utf8'))
+  assert.equal(typeof repairedByTick.action, 'string')
+
+  // 2. Corrupt whale-night.json again and verify wakeNow() also self-heals and delivers cleanly
+  fs.writeFileSync(nightFile, Buffer.alloc(559, 0))
+  const res = await sched.wakeNow()
+  assert.equal(res.ok, true)
+  assert.ok(prompts.length >= 1)
+  assert.equal(sched.health().lastError, null)
+  const repairedByWake = JSON.parse(fs.readFileSync(nightFile, 'utf8'))
+  assert.equal(repairedByWake.action, 'wake')
+  assert.ok(repairedByWake.wakes >= 1)
 })
