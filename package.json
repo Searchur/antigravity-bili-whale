@@ -1,6 +1,6 @@
 {
   "name": "antigravity-bili-whale",
-  "version": "1.6.7",
+  "version": "1.6.8",
   "description": "Windows Antigravity App B站大鲸鱼插件：自主作息浏览、三类视频观看与抽帧策略、主人与粉丝互动限额、双层外发安全审核、动态长期记忆与左侧栏控制台。",
   "type": "module",
   "license": "MIT",
