@@ -23,13 +23,19 @@ export function makeHeaders(cred) {
 }
 
 // 拉收件箱：kind = 'reply' | 'at'
-export async function pullFeed(kind, { headers, pages = 1 }) {
+export async function pullFeed(kind, { headers, pages = 1, cursor = '', since = 0 }) {
   const out = []
-  let cursor = ''
+  const visited = new Set()
   let lastView = 0
   for (let p = 0; p < pages; p += 1) {
-    const url = `https://api.bilibili.com/x/msgfeed/${kind}?platform=web&build=0&mobi_app=web` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '')
-    const j = await exactJson(await fetch(url, { headers }))
+    const url = new URL(`https://api.bilibili.com/x/msgfeed/${kind}?platform=web&build=0&mobi_app=web`)
+    if (cursor && typeof cursor === 'object') {
+      if (cursor.id == null || cursor.time == null) throw Error(kind + ' 收件箱分页坐标无效')
+      url.searchParams.set('id', String(cursor.id))
+      url.searchParams.set(kind === 'at' ? 'at_time' : 'reply_time', String(cursor.time))
+    } else if (cursor) url.searchParams.set('cursor', String(cursor))
+    visited.add(JSON.stringify(cursor))
+    const j = await exactJson(await fetch(url.href, { headers }))
     if (j.code !== 0) throw new Error(`${kind} code=${j.code} ${j.message}`)
     if (p === 0) lastView = Number(j.data?.last_view_at ?? 0)
     const items = j.data?.items ?? []
@@ -52,12 +58,17 @@ export async function pullFeed(kind, { headers, pages = 1 }) {
       })
     }
     cursor = j.data?.cursor ?? ''
-    if (!cursor || items.length === 0) break
+    if (!cursor || [true,1,'1'].includes(cursor.is_end) || items.length === 0 ||
+        (since && items.some(it => Number(it.reply_time ?? it.at_time ?? 0) < since))) {
+      cursor = ''
+      break
+    }
+    if (visited.has(JSON.stringify(cursor))) throw Error(kind + ' 收件箱分页未前进')
   }
   // ⚠️ 翻页时 cursor 会给回重叠数据（实测每条都出现两遍）→ 按 id 去重
   const seen = new Set()
   const uniq = out.filter((x) => (seen.has(x.id) ? false : (seen.add(x.id), true)))
-  return { items: uniq, lastView }
+  return { items: uniq, lastView, nextCursor: cursor }
 }
 
 // 回读楼层，取"这个人在这个楼里、挂在指定父评论下的那条回复" —— 这才是他真正说的话

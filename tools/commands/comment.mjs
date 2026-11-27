@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { fileURLToPath } from 'node:url'
 import { bundledStickerRoot, userStickerRoot, dataPath, shotsPath, workDirPath } from '../lib/paths.mjs'
 import { verifyCommentVisibility } from '../lib/comment-visibility.mjs'
 import { lifeConfig } from '../lib/life-config.mjs'
@@ -10,10 +9,9 @@ import { checkCommentTarget } from '../lib/comment-target.mjs'
 import { exactJson } from '../lib/json-exact.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { uploadPic, replyPictures } from '../lib/upload-pic.mjs'
-import { execFileSync } from '../lib/capture.mjs'
+import { gate, lockQuotaForSend, flushQuotaReceipts } from '../lib/quota-gate.mjs'
 import { config } from '../lib/config.mjs'
 import { chatConfig } from '../lib/chat-config.mjs'
-import { NODE_EXE } from '../lib/nodebin.mjs'
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
 import { isFollowerOfWhale } from '../lib/relation.mjs'
 import { checkFanQuota, lockFanReplyQuota, recordFanReply } from '../lib/fan-quota.mjs'
@@ -72,15 +70,6 @@ async function parentAuthor(aid, rootRpid, parentRpid, replyType) {
     if (!list.length) break
   }
   return null
-}
-
-const quota = (args) => {
-  try {
-    return {
-      code: 0,
-      out: execFileSync(NODE_EXE, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'quota.mjs'), ...args], { encoding: 'utf8' }).trim(),
-    }
-  } catch (e) { return { code: e.status ?? 1, out: String(e.stdout ?? e.message).trim() } }
 }
 
 const args = new Map()
@@ -282,22 +271,20 @@ console.log('  cookie : SESSDATA=***; bili_jct=***; buvid3=***   (已脱敏)')
 console.log('  body   : ' + body.replace(encodeURIComponent(String(cred.bili_jct)), '***csrf***'))
 console.log(`  正文长度 ${msgCharLen} 字符（B 站单条上限 1000 字符）；oid=${oid}`)
 
-{
-  const target = bvid ? `BV:${bvid}` : `oid:${oid}`
-  const chk = quota(['check', '--type', 'comment', '--target', target, ...(SHARE ? ['--share'] : AUTO ? ['--auto'] : [])])
-  console.log(`\n[限额闸] ${chk.out}`)
-  if (chk.code !== 0) {
-    console.error('  → 拒绝发送（超过额度或对应开关已关闭）。')
-    process.exit(2)
-  }
+const quotaOptions = { type: 'comment', target: bvid ? `BV:${bvid}` : `oid:${oid}`, share: SHARE, auto: AUTO }
+if (!gate(quotaOptions)) {
+  console.error('  → 拒绝发送（超过额度或对应开关已关闭）。')
+  process.exit(2)
 }
 
 const lifeRequest = {
   channel: 'comment',
+  quotaTarget: quotaOptions.target,
   scene: parent ? 'reply' : 'public-comment',
   target: String(bvid || oid),
   thread: threadKey(type, oid, root),
   parent: String(parent ?? ''),
+  ...(replyTargetAuthor?.mid ? {replyToMid:String(replyTargetAuthor.mid)} : {}),
   text: String(message),
   auto: AUTO || SHARE,
   share: SHARE,
@@ -316,9 +303,11 @@ if (dry) {
 }
 
 let releaseFanQuota = null
+let releaseQuota = null
 let lifeGuard = null
 let sentRpid = null
 try {
+  if (AUTO || SHARE) releaseQuota = await lockQuotaForSend(quotaOptions)
   releaseFanQuota = await lockFanReplyQuota(fanQuotaRequest)
   lifeGuard = await guardSend(lifeRequest)
 
@@ -340,6 +329,7 @@ try {
 
   console.log('\n[go] 发送中…')
   const res = await fetch(url, {
+    waitWriteMs: PIC ? 180000 : 0,
     dispatch: invoke => lifeGuard.store.dispatch(lifeGuard.token, invoke),
     method: 'POST',
     headers: {
@@ -360,9 +350,7 @@ try {
     await lifeGuard.store.settle(lifeGuard.token, { status: 'sent', receipt: String(rpid) })
     console.log(`  平台已接受，评论 rpid=${rpid}`)
     if (fanQuotaRequest) recordFanReply(fanQuotaRequest)
-    const rec = quota(['record', '--type', 'comment', '--target', bvid ? `BV:${bvid}` : `oid:${oid}`,
-      '--note', message.replace(/\s+/g, ' ').slice(0, 40), ...(SHARE ? ['--share'] : AUTO ? ['--auto'] : [])])
-    console.log(`  [限额闸] ${rec.out}`)
+    await flushQuotaReceipts(lifeGuard.store)
     sentRpid = String(rpid)
   } else {
     if (Number.isFinite(out.code)) await lifeGuard.store.settle(lifeGuard.token, { status: 'rejected' })
@@ -392,6 +380,7 @@ try {
   process.exitCode = 1
 } finally {
   await releaseFanQuota?.()
+  await releaseQuota?.()
 }
 
 if (sentRpid) {

@@ -6,7 +6,7 @@ import { guardSend, lifeStore } from '../lib/life-runtime.mjs'
 import { uploadPic, dmContent } from '../lib/upload-pic.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { config } from '../lib/config.mjs'
-import { gate, record } from '../lib/quota-gate.mjs'
+import { gate, lockQuotaForSend, flushQuotaReceipts } from '../lib/quota-gate.mjs'
 import { exactJson } from '../lib/json-exact.mjs'
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
 import { isFollowerOfWhale } from '../lib/relation.mjs'
@@ -306,8 +306,10 @@ const request = {
   auto: SHARE || !!AFFECT_PLAN || !!opt.auto,
   share: SHARE,
   video: SHARE ? SHARE_TARGET : undefined,
+  quotaTarget: SHARE ? SHARE_TARGET : undefined,
   affectPlanId: AFFECT_PLAN || undefined,
   batchPartId: BATCH_PART || undefined,
+  ...(BATCH_PART && typeof opt.task === 'string' ? {taskId:opt.task} : {}),
   ...(PIC ? { dmImageHash: imageHash, dmImageOnly: !MSG } : {}),
 }
 await guardSend(request, { dry: true })
@@ -331,6 +333,7 @@ async function deliver(guard, text, pic) {
     const receipt = result.data?.msg_key ?? result.data?.msg_seqno
     if (receipt == null || !String(receipt)) throw Error('平台接受但未返回消息回执，保留未知发送占位')
     await guard.store.settle(guard.token, { status: 'sent', receipt: String(receipt) })
+    if (SHARE) await flushQuotaReceipts(guard.store)
     if (IS_FAN_REPLY) {
       recordFanReply(fanQuotaRequest)
     } else {
@@ -344,8 +347,9 @@ async function deliver(guard, text, pic) {
 }
 
 let releaseQuota
-let shareRecorded = false
+let releaseShareQuota
 try {
+  if (SHARE) releaseShareQuota = await lockQuotaForSend({ type: 'dm', target: SHARE_TARGET, auto: true, share: true })
   releaseQuota = await lockFanReplyQuota(fanQuotaRequest, MSG && PIC ? 2 : 1)
   activeGuard = await guardSend(request)
   let picData = null
@@ -356,10 +360,6 @@ try {
   if (MSG) {
     textReceipt = await deliver(activeGuard, MSG, null)
     console.log('  文字已确认，回执 ' + textReceipt)
-    if (SHARE && !shareRecorded) {
-      record({ type: 'dm', target: SHARE_TARGET, note: MSG.slice(0, 40), auto: true, share: true })
-      shareRecorded = true
-    }
     if (PIC) {
       const parent = activeGuard.store.read().events.find(event => event.kind === 'sent' && event.operationId === activeGuard.token)
       activeGuard = await guardSend({
@@ -380,10 +380,6 @@ try {
     console.log('  正在发送图片，可能需要等待配置的私信冷却')
     const receipt = await deliver(activeGuard, '', picData)
     console.log('  图片已确认，回执 ' + receipt)
-    if (SHARE && !shareRecorded) {
-      record({ type: 'dm', target: SHARE_TARGET, note: '[图片分享]', auto: true, share: true })
-      shareRecorded = true
-    }
   }
   if (IS_FAN_REPLY && RECEIPT) consumeFanReceipt(String(meInfo.mid), RECEIPT)
   console.log('  已发送' + (MSG && PIC ? '文字和图片' : '') + '；账本按各自回执记录')
@@ -394,4 +390,5 @@ try {
   process.exitCode = 1
 } finally {
   await releaseQuota?.()
+  await releaseShareQuota?.()
 }

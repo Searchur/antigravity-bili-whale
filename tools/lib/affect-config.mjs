@@ -7,3 +7,5 @@ export function affectConfig(input={}){
   if(c.rearm>=c.trigger)throw Error('affect.rearm 必须小于 trigger')
   return c
 }
+export const AFFECT_MODEL_TIMEOUT_MS=90_000
+export const AFFECT_WORKER_TIMEOUT_MS=AFFECT_MODEL_TIMEOUT_MS+20_000

@@ -45,8 +45,7 @@ if (at.err) console.error(`（@收件箱读不到：${at.err}）`)
 
 let all = [...reply.items, ...at.items].filter((x) => x.t === 0 || x.t >= since)
 if (ONLY_UNREAD) {
-  const lv = Math.max(reply.lastView ?? 0, at.lastView ?? 0)
-  if (lv) all = all.filter((x) => x.t >= lv)
+  all = all.filter(x => x.t >= (x.kind === 'reply' ? reply.lastView : at.lastView))
 }
 all.sort((a, b) => a.t - b.t)
 

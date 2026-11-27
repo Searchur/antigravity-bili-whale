@@ -1,5 +1,6 @@
-import { HOME, dataPath } from '../lib/paths.mjs'
+import { dataPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
+import { exactJson } from '../lib/json-exact.mjs'
 // 「收到的赞」—— 谁赞了什么（2026-10-18 加，主人指出 B站客户端能看到点赞的人）
 //
 // 端点（实测 2026-10-18 可用）：GET x/msgfeed/like?build=0&mobi_app=web
@@ -10,9 +11,8 @@ import { guardedFetch as fetch } from '../lib/traffic.mjs'
 //   node likes.mjs                最近 24 小时谁赞了她
 //   node likes.mjs --hours 72     时间窗
 //   node likes.mjs --owner        只看主人有没有赞（用于反馈识别）
-//   node likes.mjs --json         机器读
+//   node likes.mjs --json         total 为时间窗内通知总数，count 为筛选后的返回条数
 import fs from 'node:fs'
-import path from 'node:path'
 import { config } from '../lib/config.mjs'
 
 const argv = process.argv.slice(2)
@@ -37,7 +37,7 @@ const ownerName = String(config().owner?.name ?? '')
 
 let items = []
 try {
-  const j = await (await fetch('https://api.bilibili.com/x/msgfeed/like?build=0&mobi_app=web', { headers: H })).json()
+  const j = await exactJson(await fetch('https://api.bilibili.com/x/msgfeed/like?build=0&mobi_app=web', { headers: H }))
   if (j.code !== 0) { console.error(`x/msgfeed/like code=${j.code} ${j.message ?? ''}`); process.exit(3) }
   // 结构实测是 { latest:{items}, total:{cursor,items} } —— 不是 data.items ✗
   const merged = [...(j.data?.latest?.items ?? []), ...(j.data?.total?.items ?? []), ...(j.data?.items ?? [])]
@@ -48,17 +48,18 @@ try {
 }
 
 const ownerLiked = items.filter((it) => (it.users ?? []).some((u) => String(u.mid) === ownerMid))
+const selected = ONLY_OWNER ? ownerLiked : items
 const fmt = (t) => new Date(Number(t) * 1000).toLocaleString('zh-CN', { hour12: false })
 
 if (JSONOUT) {
-  console.log(JSON.stringify({ hours: HOURS, total: items.length, ownerLiked: ownerLiked.length, items }, null, 2))
+  console.log(JSON.stringify({ hours: HOURS, total: items.length, count: selected.length, ownerLiked: ownerLiked.length, items: selected }, null, 2))
   process.exit(0)
 }
 
 if (ONLY_OWNER) {
   if (ownerLiked.length) {
     console.log(`✓ 主人在近 ${HOURS} 小时赞了她 ${ownerLiked.length} 次：`)
-    for (const it of ownerLiked) console.log(`  ${fmt(it.like_time)} · 共 ${it.counts} 赞 · ${it.item?.title ?? it.item?.business_id ?? ''}`)
+    for (const it of selected) console.log(`  ${fmt(it.like_time)} · 共 ${it.counts} 赞 · ${it.item?.title ?? it.item?.business_id ?? ''}`)
   } else {
     console.log(`（近 ${HOURS} 小时主人没点赞${ownerName ? ` · 主人=${ownerName}` : ''}）`)
   }

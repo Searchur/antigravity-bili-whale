@@ -21,6 +21,7 @@ export function renderAboutTab(state, actions) {
     update_available: { cls: 'info', text: `发现新版本 v${remote?.latestVersion || ''}` },
     commit_available: { cls: 'warn', text: `发现新提交 ${remote?.mainCommit?.shortSha || ''}` },
     up_to_date: { cls: 'ok', text: '已是最新版本' },
+    incomplete: { cls: 'warn', text: '更新信息不完整' },
   }
   const stBadge = check?.status ? statusMap[check.status] : null
   const updating = state.busy === 'update_apply'
@@ -68,7 +69,9 @@ export function renderAboutTab(state, actions) {
           local.installedCommit ? `已安装提交：${local.installedCommit.slice(0, 7)} · ${fmtTime(local.updatedAt)}` : '来源：本地首次部署 / 手动放入 plugins')),
       el('div', { className: 'stat-tile' },
         el('div', { className: 'stat-k' }, 'GitHub 远程最新状态'),
-        el('div', { className: 'stat-v' }, remote ? `v${remote.latestVersion}${remote.mainCommit ? `（${remote.mainCommit.shortSha}）` : ''}` : '点击右上角「检查更新」获取'),
+        el('div', { className: 'stat-v' }, remote
+          ? [remote.latestVersion ? 'v' + remote.latestVersion : '版本未知', remote.mainCommit?.shortSha].filter(Boolean).join(' · ')
+          : '点击右上角「检查更新」获取'),
         el('div', { className: 'row-hint', style: { marginTop: '4px' } },
           remote?.mainCommit
             ? `${remote.mainCommit.message || '最新提交'} · ${fmtTime(remote.mainCommit.date)}`

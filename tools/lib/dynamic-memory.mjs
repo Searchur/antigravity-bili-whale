@@ -1,6 +1,5 @@
 import crypto from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
+import {readLifeArchive} from './life-archive.mjs'
 import {terms} from './memory-index.mjs'
 import {assertScene,visible,inScope} from './memory-scope.mjs'
 import {dynamicActive} from './dynamic-memory-config.mjs'
@@ -65,12 +64,7 @@ function boundedFragment(record,meta,offset,budget,expectedHash){
  throw Error('单次读取预算不足，无法返回完整字符')
 }
 function archiveRows(api,s,entry){
- const name=entry.name
- if(name!==path.basename(name)||!name.endsWith('.json'))throw Error('归档名称无效')
- const file=path.join(api.dir,'archive',name),size=fs.statSync(file).size
- if(size>8*1024*1024)throw Error('归档超过单次读取上限')
- const raw=fs.readFileSync(file,'utf8');if(hash(raw)!==entry.digest)throw Error('归档校验失败')
- const data=JSON.parse(raw);if(!Array.isArray(data.events))throw Error('归档格式无效')
+ const {data,size}=readLifeArchive(api.dir,entry,8*1024*1024)
  return {rows:data.events,size}
 }
 const eventAllowed=(s,e,scene)=>historicalKinds.has(e.kind)&&visible(e,scene)&&!(s.cognition?.deletedIds??[]).includes(e.id)

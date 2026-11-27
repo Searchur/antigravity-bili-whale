@@ -23,7 +23,7 @@ export function validatePolicy(input, sourceIds) {
 }
 // Pure compiler: no filesystem, timestamps, host calls or partial mandatory rows.
 // 2026-10-30：给联合验证脚本用（同一入口，不新增逻辑）
-export function compileContextBase(s,{query='',scene='private',limit=5000,recent=20,at=Date.now(),selection=null,excludeEventIds=[]}={}) {
+export function compileContextBase(s,{query='',scene='private',limit=5000,recent=20,at=Date.now(),selection=null,excludeEventIds=[],affect=''}={}) {
   assertScene(scene)
   if(!Number.isInteger(limit)||limit<1||limit>20000)throw Error('上下文预算无效')
   const segments=[],omitted=[],diagnostics=[]
@@ -51,6 +51,7 @@ export function compileContextBase(s,{query='',scene='private',limit=5000,recent
   }
   }
   for(const e of s.events.filter(e=>!seen.has(e.id)&&['received','sent','video-read','observed'].includes(e.kind)&&e.data?.test!==true&&visible(e,scene)&&(!query.trim()||contextScore(query,e.text??'')>0)).slice(-Math.min(recent,4)))add('recent',JSON.stringify({id:e.id,kind:e.kind,at:e.at,text:String(e.text??'').slice(0,300),source:e.origin}),[{id:e.id}])
+  if(affect&&!blocked)add('affect',affect,[])
   if(blocked)diagnostics.push({code:'MANDATORY_CONTEXT_OVER_BUDGET',detail:'停止本次生成；规则和例外未截断，请提高预算或缩小适用范围'})
   const text=blocked?'':segments.map(s=>s.text).join('\n')
   return {contextId:digest({scene,text,policyRevision:s.settings.policyRevision??0}),stateRevision:s.revision,policyRevision:s.settings.policyRevision??0,permissionVersion:s.settings.permissionVersion??0,scene,segments,budget:{unit:'unicode-codepoints',limit,used},omitted,diagnostics,blocked,text,capability:'fallback'}

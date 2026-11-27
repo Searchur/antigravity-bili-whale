@@ -42,15 +42,16 @@ export async function checkRelation(targetMid, headers, { fetchImpl = fetch, now
     const isBlocked = a === 128 || b === 128
     const isMutual = a === 6
     const isFollower = !isBlocked && (isMutual || b === 2 || b === 6)
-    return { ok: true, isFollower, isMutual, isBlocked, attribute: a, beAttribute: b }
+    const ok = isBlocked || isMutual || [0,1,2,6].includes(b)
+    return { ok, isFollower, isMutual, isBlocked, attribute: a, beAttribute: b,
+      ...(!ok && { why: '关系接口未返回对方的关注状态' }) }
   }
 
   try {
     const r1 = await exactJson(await fetchImpl(`https://api.bilibili.com/x/space/acc/relation?mid=${encodeURIComponent(mid)}`, { headers }))
     if (r1?.code === 0 && r1.data) {
       const value = parseResult(r1.data.relation?.attribute, r1.data.be_relation?.attribute)
-      setCached(key, { at: now(), value })
-      return value
+      if (value.ok) { setCached(key, { at: now(), value }); return value }
     }
   } catch {}
 
@@ -58,7 +59,7 @@ export async function checkRelation(targetMid, headers, { fetchImpl = fetch, now
     const r2 = await exactJson(await fetchImpl(`https://api.bilibili.com/x/relation?fid=${encodeURIComponent(mid)}`, { headers }))
     if (r2?.code === 0 && r2.data) {
       const value = parseResult(r2.data.attribute, r2.data.be_relation?.attribute)
-      setCached(key, { at: now(), value })
+      if (value.ok) setCached(key, { at: now(), value })
       return value
     }
     return { ok: false, isFollower: false, isMutual: false, isBlocked: false, attribute: -1, beAttribute: -1, why: `关系接口 code=${r2?.code ?? 'err'}` }

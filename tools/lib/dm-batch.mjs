@@ -70,6 +70,7 @@ export async function sendBatch(store,id,{run,config,signal}={}){
         await update(x=>{x.status='unconfirmed';x.parts[i].status='unconfirmed'});throw Error('第 '+(i+1)+' 条回执未知，先核查；剩余正文已保留')
       }
       const args=['dm','--account',String(full.self?.mid??''),'--to',String(full.owner?.mid??''),'--msg',part.text,'--batch-part',partId,'--auto']
+      if(b.taskId)args.push('--task',b.taskId)
       const dry=await run([...args,'--dry'],signal)
       signal?.throwIfAborted()
       if(!dry.ok)throw Error('第 '+(i+1)+' 条预检失败：'+String(dry.err??'').slice(-300))

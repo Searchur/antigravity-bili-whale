@@ -128,17 +128,8 @@ export function createAppToolRunner(api) {
   return async function invokeAppTool(toolName, args = {}) {
     try {
       switch (toolName) {
-        case 'open_bili_whale': {
-          const [settings, status, about] = await Promise.all([
-            api.getSettings(),
-            api.getStatus(),
-            api.getAbout(),
-          ])
-          return okResult(
-            { ok: true, settings, status, about },
-            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.6.5'}）。`,
-          )
-        }
+        case 'open_bili_whale':
+          return okResult({ ok: true }, '已打开哔哩哔哩大鲸鱼控制台。')
         case 'whale_app_bootstrap': {
           const [settings, persona, status, models, about] = await Promise.all([
             api.getSettings(),

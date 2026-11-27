@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { requireWritePreview } from '../lib/write-preview.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
-import { gate, record } from '../lib/quota-gate.mjs'
+import { gate, lockQuotaForSend, flushQuotaReceipts } from '../lib/quota-gate.mjs'
 import { config } from '../lib/config.mjs'
 import { guardSend } from '../lib/life-runtime.mjs'
 import { exactJson } from '../lib/json-exact.mjs'
@@ -106,11 +106,12 @@ if (mode === 'post') {
   console.log('  POST https://api.bilibili.com/x/dynamic/feed/create/dyn?csrf=***&wts=...&w_rid=...')
   console.log('  content-type: application/json    cookie: SESSDATA=***; bili_jct=***; buvid3=***')
   console.log(`  正文(${text.length} 字): ${text}`)
-  const request = { channel: 'dynamic', scene: 'public-comment', target: String(mid), text, auto: true, share: false }
+  const request = { channel: 'dynamic', quotaTarget: 'dynamic', scene: 'public-comment', target: String(mid), text, auto: true, share: false }
   await guardSend(request, { dry: true })
   requireWritePreview('dynamic-post', request, { dry: isDry, credentials: cred })
   if (isDry) { console.log('\n[dry] 预检通过，未发布。'); process.exit(0) }
   let guard
+  const releaseQuota = await lockQuotaForSend({ type: 'dynamic' })
   try {
     guard = await guardSend(request)
     const r = await fetch(url, {
@@ -127,7 +128,7 @@ if (mode === 'post') {
       const id = out.data?.dyn_id_str ?? out.data?.dyn_id
       if (id == null || !String(id)) throw Error('平台未返回动态回执，请先回读核查')
       if (guard) await guard.store.settle(guard.token, { status: 'sent', receipt: String(id) })
-      record({ type: 'dynamic', target: 'dynamic:' + id, note: String(text).slice(0, 40), auto: true })
+      await flushQuotaReceipts(guard.store)
       console.log(`  已发布  dyn_id=${id}`)
       console.log(`  https://t.bilibili.com/${id}`)
     } else {
@@ -135,13 +136,13 @@ if (mode === 'post') {
       console.log('  发布失败，请检查接口状态')
     }
     process.exit(r.ok && out.code === 0 ? 0 : 1)
-  } catch {
+  } catch (error) {
     if (guard && guard.store.read().pending[guard.token]?.phase === 'prepared') {
       await guard.store.settle(guard.token, { status: 'not-sent', verified: true })
     }
-    console.error('发送失败或结果未知，请先回读核查（不自动重试）')
+    console.error(error.message)
     process.exit(1)
-  }
+  } finally { await releaseQuota() }
 }
 
 if (mode === 'check') {

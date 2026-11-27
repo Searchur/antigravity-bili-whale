@@ -10,6 +10,7 @@ import { preferenceMatches } from '../lib/feed-preferences.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
 import { execFileSync } from '../lib/capture.mjs'
+import { saveCoverImage } from '../lib/cover-image.mjs'
 import { config } from '../lib/config.mjs'
 import { resolveWatchProfile, checkWatchDuration } from '../lib/watch-options.mjs'
 import { NODE_EXE } from '../lib/nodebin.mjs'
@@ -147,7 +148,7 @@ const coverFile = path.join(shots, 'covers', `${bvid}.jpg`)
 let coverData
 try {
   const r = await fetch(d.pic, { headers: { 'user-agent': UA, referer: `https://www.bilibili.com/video/${bvid}/` } })
-  fs.writeFileSync(coverFile, Buffer.from(await r.arrayBuffer()))
+  await saveCoverImage(r, coverFile)
   coverData = { ok: true, file: coverFile }
 } catch (e) { coverData = { ok: false, error: String(e.message) } }
 

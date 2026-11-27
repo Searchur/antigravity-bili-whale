@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { saveCoverImage } from '../lib/cover-image.mjs'
 import path from 'node:path'
 import { dataPath, dshPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
@@ -17,7 +18,7 @@ for (const bv of process.argv.slice(2)) {
     const v = d.data
     const cover = path.join(outDir, `${bv}.jpg`)
     const img = await fetch(v.pic, { headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/' } })
-    fs.writeFileSync(cover, Buffer.from(await img.arrayBuffer()))
+    await saveCoverImage(img, cover)
     console.log(`\n===== ${bv} =====`)
     console.log(`标题: ${v.title}`)
     console.log(`UP: ${v.owner?.name} (mid ${v.owner?.mid})   播放=${v.stat?.view} 点赞=${v.stat?.like} 弹幕=${v.stat?.danmaku} 回复=${v.stat?.reply}`)
@@ -26,5 +27,6 @@ for (const bv of process.argv.slice(2)) {
     console.log(`简介: ${String(v.desc ?? '').slice(0, 400)}`)
   } catch (e) {
     console.log(`${bv}: 失败 ${e.message}`)
+    process.exitCode = 1
   }
 }

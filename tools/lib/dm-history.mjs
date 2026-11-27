@@ -53,7 +53,12 @@ export function normalizeMessage(row) {
   const type=Number(row.msg_type ?? 1)
   const share=type===7?parseShareCard(row.content):null
   let withdrawn=null
-  if(type===5){try{const v=JSON.parse(String(row.content));withdrawn=String(v?.msg_key ?? v?.msg_key_str ?? v)}catch{withdrawn=String(row.content??'')}}
+  if(type===5){
+    try {
+      const value=parseJsonExact(row.content)
+      withdrawn=String(value?.msg_key_str ?? value?.msg_key ?? value)
+    } catch { withdrawn=String(row.content??'') }
+  }
   let text=String(row.content??'')
   let image=null
   try {

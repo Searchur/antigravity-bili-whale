@@ -103,14 +103,33 @@ if (opt['migrate-preview'] || opt['claim-legacy']) {
     console.log('  node tools/bili.mjs fav --claim-legacy 0,2 --go       # 只认领第 0、2 条')
     process.exit(0)
   }
-  // 认领前必须核验当前登录账号，避免把旧记录并到错误的人身上
-  const account = verifiedFavoriteAccount(await apiGet('https://api.bilibili.com/x/web-interface/nav', H, { noCache: true }), selfMid)
+  if (!GO) { console.error('认领旧收藏需要 --go；可用 --dry 预览。'); process.exit(2) }
   const raw = String(opt['claim-legacy'] ?? '').trim()
-  const indices = !raw || raw === 'all' ? undefined : raw.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n))
-  if (raw && raw !== 'all' && (!indices || !indices.length)) { console.error('--claim-legacy 需要 all 或逗号分隔的序号'); process.exit(2) }
-  const { ledger, claimed, remaining } = claimLegacyFavorites(d, account, { indices })
-  save(ledger)
-  console.log(`已认领 ${claimed.length} 条到账号 ${account}；仍有 ${remaining} 条未归属。`)
+  if (raw !== 'all' && !/^\d+(?:\s*,\s*\d+)*$/.test(raw)) throw Error('--claim-legacy 需要 all 或逗号分隔的序号')
+  const selected = raw === 'all' ? legacy : [...new Set(raw.split(',').map(Number))].map(index => {
+    const item = legacy.find(entry => entry.index === index)
+    if (!item) throw Error('指定的序号不是未认领收藏')
+    return item
+  })
+  const nav = await apiGet('https://api.bilibili.com/x/web-interface/nav', H, { noCache: true })
+  const release = await acquireProcessLock(FAV_LOG, { retries: 40 })
+  try {
+    const account = verifiedFavoriteAccount(nav, config({ fresh: true }).self?.mid)
+    if (account !== selfMid) throw Error('收藏账号已变化，请重新核验')
+    const current = load()
+    const available = legacyFavoriteItems(current)
+    const indices = selected.map(({ index, item }) => {
+      const key = JSON.stringify(item)
+      if (JSON.stringify(current.items[index]) === key) return index
+      const matches = available.filter(entry => JSON.stringify(entry.item) === key)
+      if (matches.length !== 1) throw Error('旧收藏已变化，请重新预览')
+      return matches[0].index
+    })
+    if (new Set(indices).size !== indices.length) throw Error('旧收藏已变化，请重新预览')
+    const { ledger, claimed, remaining } = claimLegacyFavorites(current, account, { indices })
+    save(ledger)
+    console.log(`已认领 ${claimed.length} 条到账号 ${account}；仍有 ${remaining} 条未归属。`)
+  } finally { await release() }
   console.log('认领后的记录会参与 --list、去重和当日额度计算。')
   process.exit(0)
 }

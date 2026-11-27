@@ -13,6 +13,19 @@ function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
 }
 
+test('R01 global entry opens the UI without querying or returning private bootstrap data', async () => {
+  const privateReads = []
+  const api = Object.fromEntries(['getSettings', 'getStatus', 'getAbout'].map(name => [
+    name, () => { privateReads.push(name); return { marker: 'fixture-private-calendar' } },
+  ]))
+  const router = createMcpRouter({ api })
+  const { result } = await router.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: { name: 'open_bili_whale', arguments: {} } })
+  assert.deepEqual(privateReads, [])
+  assert.deepEqual(result.structuredContent, { ok: true })
+  assert.doesNotMatch(JSON.stringify(result.content), /fixture-private-calendar/)
+})
+
 test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and 2 read/write model tools', async () => {
   const dir = mkTmp('ag-whale-mcp-')
   const api = createApiHandlers({

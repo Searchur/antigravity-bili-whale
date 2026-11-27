@@ -64,6 +64,24 @@ const state = {
 
 const qrFlow = { gen: 0, id: null, timer: null }
 const root = document.getElementById('root')
+let savedIdentity = ''
+let identityRevision = 0
+let editsDuringSave = null
+
+function rememberSavedConfig(config) {
+  const key = JSON.stringify([String(config.self?.mid ?? ''), String(config.owner?.mid ?? '')])
+  if (key !== savedIdentity) {
+    savedIdentity = key
+    identityRevision++
+    Object.assign(state, {
+      status: null, lifeState: null, lifeLoaded: false, lifeSearchItems: null,
+      lifeQuery: '', lifeReceipt: '', lifeVerified: false, lifeError: '', memoryExport: null,
+      calMonth: '', calSelectedDate: '', diagExport: null, diagErr: '',
+      depsData: null, depsLoaded: false, ownerCheck: null, ownerCheckErr: '',
+    })
+  }
+  state.savedJson = JSON.stringify(config)
+}
 
 function mount(...nodes) {
   root.replaceChildren(...nodes.filter(Boolean))
@@ -80,7 +98,7 @@ function applySavedAccount(account) {
   const saved = JSON.parse(state.savedJson)
   state.cfg.self = self
   saved.self = self
-  state.savedJson = JSON.stringify(saved)
+  rememberSavedConfig(saved)
   state.accountRevision++
 }
 
@@ -88,7 +106,7 @@ const bridge = createMcpBridge({
   onInitialResult: (payload) => {
     if (payload?.settings?.config && !state.cfg) {
       state.cfg = payload.settings.config
-      state.savedJson = JSON.stringify(payload.settings.config)
+      rememberSavedConfig(payload.settings.config)
       state.status = payload.status ?? state.status
       if (payload.models) state.modelCatalog = payload.models
       if (payload.about) state.about = payload.about
@@ -182,6 +200,7 @@ const actions = {
   setCfg(pathArr, value, shouldRender = false) {
     if (!state.cfg) return
     setPath(state.cfg, pathArr, value)
+    editsDuringSave?.push([pathArr, structuredClone(value)])
     if (shouldRender) render()
     else updateSaveStatePill()
   },
@@ -193,8 +212,7 @@ const actions = {
 
   selectModel(role, modelId) {
     if (!state.cfg || !modelId) return
-    setPath(state.cfg, ['models', role === 'worker' ? 'worker' : 'main'], modelId)
-    render()
+    actions.setCfg(['models', role === 'worker' ? 'worker' : 'main'], modelId, true)
   },
 
   async logout() {
@@ -223,14 +241,17 @@ const actions = {
   async verifyOwner() {
     const mid = String(state.cfg?.owner?.mid ?? '').trim()
     const name = String(state.cfg?.owner?.name ?? '').trim()
+    const revision = identityRevision
+    const stillCurrent = () => revision === identityRevision && mid === String(state.cfg?.owner?.mid ?? '').trim() && name === String(state.cfg?.owner?.name ?? '').trim()
     state.busy = 'verify_owner'
     state.ownerCheck = null
     state.ownerCheckErr = ''
     render()
     try {
-      state.ownerCheck = await bridge.callTool('whale_app_ops', { action: 'verify_owner', mid, name })
+      const check = await bridge.callTool('whale_app_ops', { action: 'verify_owner', mid, name })
+      if (stillCurrent()) state.ownerCheck = { ...check, checkedMid: mid }
     } catch (e) {
-      state.ownerCheckErr = e.message
+      if (stillCurrent()) state.ownerCheckErr = e.message
     } finally {
       state.busy = ''
       render()
@@ -238,8 +259,8 @@ const actions = {
   },
 
   applyOwnerName(actualName) {
-    if (!state.cfg || !actualName) return
-    setPath(state.cfg, ['owner', 'name'], actualName)
+    if (!actualName || state.ownerCheck?.actualName !== actualName || state.ownerCheck.checkedMid !== String(state.cfg?.owner?.mid ?? '').trim()) return
+    actions.setCfg(['owner', 'name'], actualName)
     if (state.ownerCheck) {
       state.ownerCheck = {
         ...state.ownerCheck,
@@ -252,12 +273,14 @@ const actions = {
   },
 
   async bootstrap() {
+    const revision = state.accountRevision
     state.busy = 'load'
     render()
     try {
       const res = await bridge.callTool('whale_app_bootstrap')
+      if (revision !== state.accountRevision) return
       state.cfg = res.settings?.config ?? {}
-      state.savedJson = JSON.stringify(state.cfg)
+      rememberSavedConfig(state.cfg)
       state.accountRevision++
       state.personaText = res.persona?.text ?? ''
       state.personaBytes = res.persona?.bytes ?? 0
@@ -271,7 +294,7 @@ const actions = {
       state.ready = true
       state.banner = null
     } catch (e) {
-      setBanner('err', '加载配置失败：' + e.message)
+      if (revision === state.accountRevision) setBanner('err', '加载配置失败：' + e.message)
     } finally {
       state.busy = ''
       render()
@@ -334,14 +357,19 @@ const actions = {
   },
 
   async saveSettings() {
+    if (editsDuringSave) return false
+    editsDuringSave = []
+    const accountRevision = state.accountRevision
     state.busy = 'save'
     state.banner = null
     render()
     try {
-      const res = await bridge.callTool('whale_app_settings', { action: 'save', config: state.cfg })
+      const res = await bridge.callTool('whale_app_settings', { action: 'save', config: structuredClone(state.cfg) })
       if (res.config) {
+        if (accountRevision !== state.accountRevision) res.config.self = state.cfg.self
         state.cfg = res.config
-        state.savedJson = JSON.stringify(res.config)
+        rememberSavedConfig(res.config)
+        for (const [field, value] of editsDuringSave) setPath(state.cfg, field, value)
         state.accountRevision++
       }
       if (res.warn) setBanner('warn', res.warn)
@@ -351,6 +379,7 @@ const actions = {
       setBanner('err', '保存失败：' + e.message)
       return false
     } finally {
+      editsDuringSave = null
       state.busy = ''
       render()
     }
@@ -446,10 +475,13 @@ const actions = {
 
   async runDeps() {
     const accountRevision = state.accountRevision
+    const revision = identityRevision
     state.busy = 'deps'
     render()
     try {
       const { report: j } = await bridge.callTool('whale_app_ops', { action: 'deps' })
+      if (revision !== identityRevision) return
+      if (j?.self && state.accountRevision === accountRevision) applySavedAccount(j.self)
       if (Array.isArray(j?.cards) && j.cards.length > 0) {
         state.depsData = j
       } else {
@@ -469,8 +501,8 @@ const actions = {
         }
       }
       state.depsLoaded = true
-      if (j?.self && state.accountRevision === accountRevision) applySavedAccount(j.self)
     } catch {
+      if (revision !== identityRevision) return
       state.depsData = {
         ok: false,
         cards: [
@@ -493,12 +525,14 @@ const actions = {
   },
 
   async exportDiagnostics() {
+    const revision = identityRevision
     state.busy = 'export_diag'
     state.diagExport = null
     state.diagErr = ''
     render()
     try {
       const res = await bridge.callTool('whale_app_ops', { action: 'export_diag' })
+      if (revision !== identityRevision) return
       state.diagExport = {
         label: '脱敏诊断日志',
         filename: res.filename,
@@ -507,7 +541,7 @@ const actions = {
         bytes: res.bytes,
       }
     } catch (e) {
-      state.diagErr = '导出诊断日志失败：' + e.message
+      if (revision === identityRevision) state.diagErr = '导出诊断日志失败：' + e.message
     } finally {
       state.busy = ''
       render()
@@ -537,13 +571,17 @@ const actions = {
   },
 
   async refreshStatus() {
+    const revision = identityRevision
     try {
-      state.status = await bridge.callTool('whale_app_ops', { action: 'status' })
+      const status = await bridge.callTool('whale_app_ops', { action: 'status' })
+      if (revision !== identityRevision) return
+      state.status = status
       render()
     } catch {}
   },
 
   async refreshMemoryOverview() {
+    const revision = identityRevision
     state.busy = 'memory'
     render()
     try {
@@ -551,11 +589,12 @@ const actions = {
         bridge.callTool('whale_app_ops', { action: 'status' }),
         bridge.callTool('whale_app_life', { action: 'status', params: {} }),
       ])
+      if (revision !== identityRevision) return
       state.status = st
       if (lf.state) state.lifeState = lf.state
       state.lifeLoaded = true
     } catch (e) {
-      state.lifeError = e.message
+      if (revision === identityRevision) state.lifeError = e.message
     } finally {
       state.busy = ''
       render()
@@ -563,18 +602,20 @@ const actions = {
   },
 
   async searchExperiences() {
+    const revision = identityRevision
     state.busy = 'life'
     state.lifeError = ''
     render()
     try {
       const limit = [20, 50, 100].includes(Number(state.lifeLimit)) ? Number(state.lifeLimit) : 20
       const res = await bridge.callTool('whale_app_life', { action: 'search', params: { query: state.lifeQuery, limit } })
+      if (revision !== identityRevision) return
       if (res.state) state.lifeState = res.state
       state.lifeSearchLimitUsed = Number(res.limit) || limit
       const raw = res.result
       state.lifeSearchItems = Array.isArray(raw) ? raw : (Array.isArray(raw?.items) ? raw.items : (Array.isArray(raw?.events) ? raw.events : []))
     } catch (e) {
-      state.lifeError = e.message
+      if (revision === identityRevision) state.lifeError = e.message
     } finally {
       state.busy = ''
       render()
@@ -582,12 +623,14 @@ const actions = {
   },
 
   async runLife(action, params = {}) {
+    const revision = identityRevision
     state.busy = 'life'
     state.lifeError = ''
     if (action === 'export') state.memoryExport = null
     render()
     try {
       const res = await bridge.callTool('whale_app_life', { action, params })
+      if (revision !== identityRevision) return
       if (res.state) state.lifeState = res.state
       state.lifeLoaded = true
       if (action === 'export') {
@@ -600,7 +643,7 @@ const actions = {
         }
       }
     } catch (e) {
-      state.lifeError = e.message
+      if (revision === identityRevision) state.lifeError = e.message
     } finally {
       state.busy = ''
       render()

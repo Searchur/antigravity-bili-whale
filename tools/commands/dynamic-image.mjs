@@ -3,7 +3,8 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { bundledStickerRoot, userStickerRoot, shotsPath, workDirPath } from '../lib/paths.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
-import { gate, record } from '../lib/quota-gate.mjs'
+import { gate, lockQuotaForSend, flushQuotaReceipts } from '../lib/quota-gate.mjs'
+import { uploadPic } from '../lib/upload-pic.mjs'
 import { guardSend } from '../lib/life-runtime.mjs'
 import { config } from '../lib/config.mjs'
 import { enforceOutboundSafety } from '../lib/content-safety.mjs'
@@ -140,6 +141,7 @@ if (atMid) console.log(`     @节点: raw_text="@${atName ?? ''} "  type=2  biz_
 
 const request = {
   channel: 'dynamic',
+  quotaTarget: 'dynamic',
   scene: 'public-comment',
   target: String(nav.data?.mid ?? ''),
   text: String(text || '[图文动态]'),
@@ -151,23 +153,14 @@ requireWritePreview('dynamic-image', { request, atMid, atName }, { dry: isDry, c
 if (isDry) { console.log('\n[dry] 预检通过，未上传、未发布。'); process.exit(0) }
 
 let guard = null
+const releaseQuota = await lockQuotaForSend({ type: 'dynamic' })
 try {
   guard = await guardSend(request)
   console.log('\n[1/2] 上传图片…')
-  const fd = new FormData()
-  const mime = kind === 'png' ? 'image/png' : kind === 'jpg' ? 'image/jpeg' : 'image/gif'
-  fd.append('file_up', new Blob([buf], { type: mime }), `upload.${kind}`)
-  fd.append('category', 'daily')
-  fd.append('csrf', String(cred.bili_jct))
-  const up = await fetch('https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs', {
-    method: 'POST',
-    headers: { 'user-agent': UA, referer: REF, cookie: cookieHeader },
-    body: fd,
-  })
-  const upJson = await exactJson(up).catch(() => ({ code: -1 }))
-  console.log(`     HTTP ${up.status}  code=${upJson.code} ${upJson.message ?? ''}`)
-  if (upJson.code !== 0) throw Error('上传失败: ' + JSON.stringify(upJson).slice(0, 300))
-  const { image_url: imgSrc, image_width: w, image_height: h, img_size: kb } = upJson.data ?? {}
+  const { image_url: imgSrc, image_width: w, image_height: h, img_size: kb } = await uploadPic(
+    imagePath, cred.bili_jct, { 'user-agent': UA, referer: REF, cookie: cookieHeader },
+    { expectedHash: crypto.createHash('sha256').update(buf).digest('hex') },
+  )
   console.log(`     image_url=${imgSrc}  ${w}x${h}  ${kb}KB`)
 
   console.log('\n[2/2] 发布图文动态…')
@@ -196,7 +189,7 @@ try {
     const id = out.data?.dyn_id_str ?? out.data?.dyn_id
     if (!id) throw Error('接口返回成功码但没有 dyn_id，结果未确认；请先回读核查')
     if (guard) await guard.store.settle(guard.token, { status: 'sent', receipt: String(id) })
-    record({ type: 'dynamic', target: 'dynamic:' + id, note: String(text || '[图文动态]').slice(0, 40), auto: true })
+    await flushQuotaReceipts(guard.store)
     console.log(`\n已发布  dyn_id=${id}`)
     console.log(`   https://t.bilibili.com/${id}`)
     process.exit(0)
@@ -214,4 +207,4 @@ try {
   }
   console.error('✗ ' + String(e?.message ?? e))
   process.exit(1)
-}
+} finally { await releaseQuota() }

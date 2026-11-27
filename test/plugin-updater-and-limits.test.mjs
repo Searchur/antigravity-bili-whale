@@ -468,6 +468,10 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
       // Seed 26 searchable experience events to verify search limit 20 vs 50
       const { lifeStore } = await import('../tools/lib/life-runtime.mjs')
       const store = lifeStore(cfg, { dshHome: dir, now: () => day2 })
+      const earlierStore = lifeStore(cfg, { dshHome: dir, now: () => day1 })
+      for (const [i, s] of [earlierStore, store, store].entries()) {
+        await s.recordDelivery({ channel:'wake', status:'accepted', requestId:`calendar-wake-${i}`, attempt:1 })
+      }
       await store.record('video-read', { target: 'BV1xyz', text: 'AI工具评测合集', data: { title: 'AI工具评测合集' } })
       await store.record('received', { actor: '12345', text: '大鲸鱼你好', data: { channel: 'bili-dm' } })
       for (let i = 1; i <= 26; i++) {
@@ -483,6 +487,7 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
       assert.equal(cal.totals.ownerInteract, 1)
       assert.equal(cal.totals.fanInteract, 3)
       assert.equal(cal.totals.wakes, 3)
+      assert.equal(cal.totals.opportunitiesUsed, 3)
       assert.equal(cal.totals.safetyBlocked, 1)
       assert.equal(cal.days['2026-11-24'].shares, 1)
       assert.equal(cal.days['2026-11-24'].fanInteract, 2)

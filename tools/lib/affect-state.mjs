@@ -4,6 +4,7 @@ import {chatConfig} from './chat-config.mjs'
 import {normalizeListen} from './config.mjs'
 import {initialAffect,advance,dayKey,HOUR,DAY,hash,fail,note,activeTopic,selectable,parseEffects,applyEffects,settleTopics,affectContext,publicTopic,publicTopics} from './affect-engine.mjs'
 import {inWindow} from './night-plan.mjs'
+import {AFFECT_WORKER_TIMEOUT_MS} from './affect-config.mjs'
 const uid=()=>crypto.randomUUID()
 const enabled=(s,c)=>c.enabled&&c.affect.enabled&&!c.paused&&!s.settings.paused
 const version=s=>s.settings.permissionVersion??0
@@ -121,18 +122,18 @@ export function affectSendCheck(s,request,c,full,at){
   if(p.textHash!==hash(request.text)||!p.covered)return 'affect-body-unverified'
   return null
 }
-export function bindAffectSend(s,p,at){
+export function bindAffectSend(s,p,at,owner){
   if(p.dmAttachmentOf||p.dmImageOnly)return
   const a=s.affect;if(!a||a.paused)return
   if(p.affectPlanId){const plan=a.pendingInitiative;plan.operationId=p.operationId;return}
   if(p.channel==='comment'&&p.scene==='public-comment'&&p.share){
     const bv=String(p.video??p.target??'');p.affectTopicRefs=publicTopics(a,at).filter(t=>t.sources.some(e=>e.target===bv)).slice(0,3).map(t=>({topicId:t.id,revision:t.revision}));p.affectPublicShare=true;return
   }
-  if(p.channel!=='dm'||p.scene!=='private-reply')return
+  if(p.channel!=='dm'||p.scene!=='private-reply'||String(p.target)!==String(owner))return
   p.affectTopicRefs=a.topics.filter(t=>selectable(t,at)).sort((x,y)=>y.priority-x.priority).slice(0,3).map(t=>({topicId:t.id,revision:t.revision}))
 }
 export function affectDispatched(s,p){if(p.affectPlanId&&s.affect?.pendingInitiative?.id===p.affectPlanId)s.affect.pendingInitiative.status='dispatching'}
-export function affectSettled(s,p,event,at,c){
+export function affectSettled(s,p,event,at,c,owner){
   const a=s.affect;if(!a)return
   advance(a,at,c.affect,{paused:a.paused})
   if(p.affectPlanId){const plan=a.pendingInitiative;if(plan?.id!==p.affectPlanId)return
@@ -145,7 +146,7 @@ export function affectSettled(s,p,event,at,c){
     const t=a.topics.find(t=>t.id===plan.topicId);if(t&&event){t.lastReceipt=event.receipt;t.lastSentEventId=event.id}
     return
   }
-  if(!event)return
+  if(!event||(p.channel==='dm'&&String(p.target)!==String(owner)))return
   const refs=(p.affectTopicRefs??[]).filter(r=>a.topics.some(t=>t.id===r.topicId&&t.revision===r.revision&&!t.creditReleased))
   if(!refs.length)return
   for(const r of refs){const t=a.topics.find(t=>t.id===r.topicId);t.status='needs-reconcile';t.lastOperationId=p.operationId;t.lastReceipt=event.receipt;t.lastSentEventId=event.id;t.lastDiscussedAt=at;t.reconcile={refs:[r],text:event.text,hash:event.hash,eventId:event.id,operationId:p.operationId,at,attempt:0,initiative:!!p.affectPublicShare,visibility:p.affectPublicShare?'public':'private'}}
@@ -164,7 +165,7 @@ export function attachAffect(api,cfg){
       a.jobs=a.jobs.filter(j=>j.status!=='failed')
       if(a.daily.analysis>=c.analysisDailyMax||a.lastAnalysisAt&&now()-a.lastAnalysisAt<120000)return null
       const job=a.jobs.filter(j=>j.status==='queued'&&j.notBefore<=now()).sort((x,y)=>(x.thread==='background')-(y.thread==='background')||x.createdAt-y.createdAt)[0];if(!job)return null
-      job.topics=candidateTopics(a,job,now());job.status='running';job.lease=uid();job.expiresAt=now()+45000;job.attempt++;job.permission=version(s);job.configHash=signature(cfg);job.inputDigest=hash([job.sources,job.topics]);a.daily.analysis++;a.lastAnalysisAt=now()
+      job.topics=candidateTopics(a,job,now());job.status='running';job.lease=uid();job.expiresAt=now()+AFFECT_WORKER_TIMEOUT_MS;job.attempt++;job.permission=version(s);job.configHash=signature(cfg);job.inputDigest=hash([job.sources,job.topics]);a.daily.analysis++;a.lastAnalysisAt=now()
       return structuredClone(job)
     })},
     commitAffectJob(id,lease,raw){return tx(s=>{
@@ -197,7 +198,7 @@ export function attachAffect(api,cfg){
       if(a.daily.coverage>=c.coverageDailyMax)return null
       const t=a.topics.find(t=>t.status==='needs-reconcile'&&t.reconcile&&t.reconcile.attempt<2&&(!t.reconcile.expiresAt||t.reconcile.expiresAt<=now())&&t.expiresAt>now());if(!t)return null
       const group=batch?a.topics.filter(x=>x.status==='needs-reconcile'&&x.reconcile?.operationId===t.reconcile.operationId&&x.reconcile.text===t.reconcile.text&&x.reconcile.attempt<2&&(!x.reconcile.expiresAt||x.reconcile.expiresAt<=now())&&x.expiresAt>now()).slice(0,3):[t]
-      const lease=uid();for(const x of group){const r=x.reconcile;r.attempt++;r.lease=lease;r.expiresAt=now()+45000;r.permission=version(s);r.configHash=signature(cfg)}
+      const lease=uid();for(const x of group){const r=x.reconcile;r.attempt++;r.lease=lease;r.expiresAt=now()+AFFECT_WORKER_TIMEOUT_MS;r.permission=version(s);r.configHash=signature(cfg)}
       a.daily.coverage++;return {...structuredClone(t.reconcile),topic:{id:t.id,revision:t.revision,summary:t.summary},...(group.length>1?{batchTopics:group.map(x=>({id:x.id,revision:x.revision,summary:x.summary}))}:{})}
     })},
     failAffectCoverage(job,code='AFFECT_COVERAGE_FAILED'){return tx(s=>{for(const ref of job.batchTopics??[job.topic]){const t=s.affect.topics.find(t=>t.id===ref.id&&t.revision===ref.revision),r=t?.reconcile;if(!r||r.lease!==job.lease)continue;r.expiresAt=now()+120000;r.lastError=/^[A-Z_]+$/.test(code)?code:'AFFECT_COVERAGE_FAILED';note(s.affect,now(),'coverage-retry',{topicId:t.id,attempt:r.attempt,code:r.lastError})}})},

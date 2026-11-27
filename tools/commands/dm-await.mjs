@@ -8,7 +8,7 @@ import { readHistory } from '../lib/dm-history.mjs'
 import { acquireProcessLock } from '../lib/process-lock.mjs'
 import { exactJson } from '../lib/json-exact.mjs'
 import { guardedFetch as fetch } from '../lib/traffic.mjs'
-import { isFollowerOfWhale } from '../lib/relation.mjs'
+import { checkRelation } from '../lib/relation.mjs'
 import { checkFanQuota } from '../lib/fan-quota.mjs'
 import { dmListenerScope } from '../lib/dm-listener-scope.mjs'
 import { apiGet } from '../lib/bili-api.mjs'
@@ -21,13 +21,15 @@ const cfg = config()
 const scope = dmListenerScope(cfg)
 const { account: selfMid, owner, stateFile: file, receiptsFile } = scope ?? {}
 const ownerName = String(cfg.owner?.name ?? '主人')
-const dmOwnerOn = cfg.listen?.dmOwner === true
-const dmFanOn = cfg.listen?.dmFan === true
 
 function checkScope() {
-  const current = dmListenerScope(config({ fresh: true }))
+  const currentConfig = config({ fresh: true })
+  const current = dmListenerScope(currentConfig)
   if (current?.stateFile !== file) throw Error('B 站账号或主人已变化，停止旧私信任务')
+  return currentConfig.listen
 }
+
+const channelOn = (message, listen) => listen[message.isFan ? 'dmFan' : 'dmOwner'] === true
 
 function save(state) {
   checkScope()
@@ -54,7 +56,7 @@ function acknowledge(state, message) {
     fanCursors[message.mid] = {
       lastSeen: message.ts,
       lastKey: message.key,
-      lastKeys: [...new Set([...(same ? (prev.lastKeys ?? []) : []), message.key])],
+      lastKeys: [...new Set([...(same ? (prev.lastKeys ?? (prev.lastKey ? [prev.lastKey] : [])) : []), message.key])],
     }
     return { ...state, fanCursors, pending: undefined, queue: state.queue ?? [], at: new Date().toISOString() }
   }
@@ -72,9 +74,7 @@ function acknowledge(state, message) {
 }
 
 const UNCONFIRMED_MAX = 50
-function markUnconfirmed(state, receipt) {
-  const p = state.pending
-  if (!p || p.receipt !== receipt) return null
+function markUnconfirmed(state, p) {
   const entry = { key: p.key, mid: p.mid, isFan: !!p.isFan, ts: p.ts, receipt: p.receipt, text: String(p.text ?? '').slice(0, 200), at: new Date().toISOString() }
   const list = [...(state.unconfirmed ?? []).filter(x => x.key !== entry.key), entry].slice(-UNCONFIRMED_MAX)
   const next = acknowledge({ ...state, unconfirmed: list }, p)
@@ -82,8 +82,14 @@ function markUnconfirmed(state, receipt) {
 }
 
 function emit(message) {
-  checkScope()
+  if (!channelOn(message, checkScope())) return empty()
   console.log(json ? JSON.stringify(message) : `DM_HIT mid=${message.mid} fan=${!!message.isFan} text=${message.text}`)
+  return 0
+}
+
+function empty() {
+  console.log(json ? JSON.stringify({ hit: false }) : '无新私信')
+  return 1
 }
 
 async function pollFanSessions(headers, state, nav) {
@@ -118,11 +124,17 @@ async function pollFanSessions(headers, state, nav) {
     }
 
     if (senderUid && senderUid !== talker) continue
-    if (lastTs <= Number(cursor.lastSeen ?? 0)) continue
+    const lastSeen = Number(cursor.lastSeen ?? 0)
+    const lastKey = String(sess.last_msg?.msg_key ?? '')
+    const known = cursor.lastKeys ?? (cursor.lastKey ? [cursor.lastKey] : [])
+    if (lastTs < lastSeen || (lastTs === lastSeen &&
+        (lastTs <= fanBaselineAt || (lastKey && known.includes(lastKey))))) continue
 
-    const isFan = await isFollowerOfWhale(talker, headers)
-    if (!isFan) {
-      fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+    const relation = await checkRelation(talker, headers)
+    if (!relation.ok) continue
+    const skipped = { lastSeen: lastTs, lastKey, lastKeys: lastKey ? [lastKey] : [] }
+    if (!relation.isFollower) {
+      fanCursors[talker] = skipped
       continue
     }
     const fq = checkFanQuota({
@@ -133,7 +145,7 @@ async function pollFanSessions(headers, state, nav) {
     })
     if (!fq.allowed) {
       // 超出当日限额的来信推进游标，避免次日积压倒灌或每次轮询重复打关系接口
-      fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
+      fanCursors[talker] = skipped
       continue
     }
 
@@ -157,10 +169,7 @@ async function pollFanSessions(headers, state, nav) {
 }
 
 async function main() {
-  if (!scope || (!dmOwnerOn && !dmFanOn)) {
-    console.log(json ? JSON.stringify({ hit: false }) : '私信监听未开启')
-    return 1
-  }
+  if (!scope) return empty()
   let state = {}
   try {
     state = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -169,22 +178,22 @@ async function main() {
     if (e.code !== 'ENOENT') throw Error('私信状态无法读取，已停止推进已读位置：' + e.message)
   }
   const ackIndex = argv.indexOf('--ack')
-  if (ackIndex >= 0) {
-    if (!state.pending || state.pending.receipt !== argv[ackIndex + 1]) {
+  const unconfirmedIndex = argv.indexOf('--mark-unconfirmed')
+  if (ackIndex >= 0 || unconfirmedIndex >= 0) {
+    const receipt = argv[(ackIndex >= 0 ? ackIndex : unconfirmedIndex) + 1]
+    const queued = state.queue ?? []
+    const message = receipt && (state.pending?.receipt === receipt ? state.pending : queued.find(m => m.receipt === receipt))
+    if (!message) {
       console.error('私信确认凭据不匹配，未推进已读状态')
       return 2
     }
-    save(acknowledge(state, state.pending))
-    console.log('私信交付已确认')
-    return 0
-  }
-
-  const unconfirmedIndex = argv.indexOf('--mark-unconfirmed')
-  if (unconfirmedIndex >= 0) {
-    const next = markUnconfirmed(state, argv[unconfirmedIndex + 1])
-    if (!next) { console.error('没有与该回执匹配的待确认私信'); return 2 }
+    const next = ackIndex >= 0 ? acknowledge(state, message) : markUnconfirmed(state, message)
+    if (message !== state.pending) {
+      next.pending = state.pending
+      next.queue = queued.filter(m => m !== message)
+    }
     save(next)
-    console.log('私信结果未确认，已转入待核查')
+    console.log(ackIndex >= 0 ? '私信交付已确认' : '私信结果未确认，已转入待核查')
     return 0
   }
 
@@ -195,12 +204,17 @@ async function main() {
     return 0
   }
 
-  if (state.pending && !argv.includes('--baseline')) {
-    emit(state.pending)
-    return 0
-  }
+  const listen = checkScope()
+  if (!listen.dmOwner && !listen.dmFan) return empty()
+  const explicitBaseline = argv.includes('--baseline')
+  if (explicitBaseline && !listen.dmOwner) return empty()
+  if (state.pending && channelOn(state.pending, listen) && !explicitBaseline) return emit(state.pending)
 
-  if (!state.queue?.length || argv.includes('--baseline')) {
+  // A paused channel keeps its queue and its existing receipt, while the other channel can drain.
+  const queued = [...(state.pending ? [state.pending] : []), ...(state.queue ?? [])]
+  state = { ...state, pending: undefined, queue: queued }
+
+  if (!queued.some(message => channelOn(message, listen)) || explicitBaseline) {
     const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
     const headers = {
       'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -213,10 +227,10 @@ async function main() {
     checkScope()
 
     const combined = []
-    if (dmOwnerOn && owner) {
-      const explicitBaseline = argv.includes('--baseline')
+    if (listen.dmOwner && owner) {
       const baseline = explicitBaseline || (state.lastSeen === undefined && fs.existsSync(dataPath('dm-await-state.json')))
       const result = await readHistory(owner, headers, state, { baseline, nav })
+      if (!checkScope().dmOwner) return empty()
       if (baseline) {
         const latest = result.all.at(-1)
         const ts = latest?.ts ?? 0
@@ -227,7 +241,7 @@ async function main() {
           lastKey: latest?.key,
           lastKeys: result.all.filter(r => r.ts === ts).map(r => r.key),
           pending: undefined,
-          queue: [],
+          queue: queued.filter(m => m.isFan),
         }
         if (explicitBaseline) {
           save(state)
@@ -242,24 +256,23 @@ async function main() {
       }
     }
 
-    if (dmFanOn && !argv.includes('--baseline')) {
+    if (listen.dmFan && !explicitBaseline) {
       const fanRes = await pollFanSessions(headers, state, nav)
+      if (!checkScope().dmFan) return empty()
       state = { ...state, fanCursors: fanRes.fanCursors, fanBaselineAt: fanRes.fanBaselineAt }
       combined.push(...fanRes.messages)
     }
 
     combined.sort((a, b) => a.ts - b.ts)
-    state = { ...state, queue: combined }
+    state = { ...state, queue: [...state.queue, ...combined] }
     save(state)
   }
 
-  if (!state.queue.length) {
-    console.log(json ? JSON.stringify({ hit: false }) : '无新私信')
-    return 1
-  }
-
-  const [row, ...rest] = state.queue
-  const receipt = crypto.randomUUID()
+  const currentListen = checkScope()
+  const index = state.queue.findIndex(message => channelOn(message, currentListen))
+  if (index === -1) return empty()
+  const [row] = state.queue.splice(index, 1)
+  const receipt = row.receipt || crypto.randomUUID()
   const message = {
     hit: true,
     isFan: !!row.isFan,
@@ -268,22 +281,21 @@ async function main() {
     text: row.text,
     image: row.image ?? null,
     share: row.share ?? null,
-    contentKind: row.type === 7 ? 'share' : 'message',
+    contentKind: row.contentKind ?? (row.type === 7 ? 'share' : 'message'),
     ts: row.ts,
     key: row.key,
     receipt,
   }
+  if (!channelOn(message, checkScope())) return empty()
   if (message.isFan) recordFanReceipt(receipt, message.mid)
-  state = { ...state, queue: rest }
   if (peek) save({ ...state, pending: message })
   else save(acknowledge(state, message))
-  emit(message)
-  return 0
+  return emit(message)
 }
 
 let release
 try {
-  if (scope && (dmOwnerOn || dmFanOn)) {
+  if (scope) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
     release = await acquireProcessLock(file, { retries: 20, delayMs: 50 })
   }

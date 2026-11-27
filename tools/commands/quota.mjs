@@ -1,8 +1,9 @@
-import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { dataPath } from '../lib/paths.mjs'
 import { chatConfig } from '../lib/chat-config.mjs'
 import { config } from '../lib/config.mjs'
-import { atomicWriteJson } from '../lib/life-persistence.mjs'
+import { appendQuotaRows, readQuotaLog, flushQuotaReceipts, recoverQuotaReceipts } from '../lib/quota-ledger.mjs'
+import { lifeStore } from '../lib/life-runtime.mjs'
 import { localDay } from '../lib/local-date.mjs'
 
 const FILE = dataPath('quota.json')
@@ -11,13 +12,14 @@ let corrupt = false
 const load = () => {
   const cfg = config()
   const defaults = { shareDaily: cfg.quota?.shareDaily ?? 3, log: [] }
-  let raw = {}
-  try { raw = JSON.parse(fs.readFileSync(FILE, 'utf8')) }
-  catch { if (fs.existsSync(FILE)) corrupt = true }
-  return { ...defaults, log: Array.isArray(raw.log) ? raw.log : [] }
+  try { return { ...defaults, log: readQuotaLog() } }
+  catch (error) {
+    corrupt = true
+    console.error('额度账本无法读取：' + error.message)
+    return defaults
+  }
 }
 
-const save = (q) => atomicWriteJson(FILE, { log: q.log ?? [] })
 const today = () => localDay()
 const dayOf = (at) => localDay(at)
 const usedToday = (q) => q.log.filter((x) => dayOf(x.at) === today()).length
@@ -32,9 +34,18 @@ for (let i = 1; i < argv.length; i += 1) {
     else { opt[argv[i].slice(2)] = v; i += 1 }
   } else if (!opt._a) opt._a = argv[i]
 }
+let reservations = []
+if (['check', 'status', 'record'].includes(cmd)) {
+  reservations = await recoverQuotaReceipts((account, owner) => lifeStore(config(), { account, owner }))
+  await flushQuotaReceipts(lifeStore())
+}
 const q = load()
+const settled = new Set(q.log.map(row => row.operationId))
+const unresolved = reservations.filter(row => !settled.has(row.operationId))
+if (corrupt && cmd !== 'check') process.exit(2)
 
 if (cmd === 'status') {
+  if (unresolved.length) console.log(`待核查的发送有 ${unresolved.length} 条，按派发日期暂占额度。`)
   const cfg = config()
   const chat = chatConfig(cfg.chat)
   const used = usedToday(q)
@@ -52,6 +63,7 @@ if (cmd === 'status') {
 }
 
 if (cmd === 'check') {
+  q.log.push(...unresolved)
   if (corrupt) {
     console.log('✗ 额度账本损坏（quota.json 不是合法 JSON）→ 状态未知，拒绝发言。')
     console.log(`   请检查 ${FILE}。`)
@@ -131,8 +143,8 @@ if (cmd === 'check') {
 
 if (cmd === 'record') {
   const type = typeof opt.type === 'string' ? opt.type : 'unknown'
-  q.log.push({ at: new Date().toISOString(), type, auto: !!opt.auto || !!opt.share, share: !!opt.share, target: opt.target ?? null, note: opt.note ?? null })
-  save(q)
+  q.log = await appendQuotaRows([{ operationId: typeof opt.operation === 'string' ? opt.operation : crypto.randomUUID(),
+    at: new Date().toISOString(), type, auto: !!opt.auto || !!opt.share, share: !!opt.share, target: opt.target ?? null, note: opt.note ?? null }])
   const usedAutoComment = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'comment' && x.auto && !x.share).length
   const usedShare = q.log.filter((x) => dayOf(x.at) === today() && x.share).length
   const usedDynamic = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'dynamic').length

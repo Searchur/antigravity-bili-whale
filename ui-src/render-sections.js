@@ -224,20 +224,20 @@ export function renderAccountTab(state, actions) {
     row('大鲸鱼 B 站昵称（只读）', '来自 B 站账号信息接口。', textCtrl(getPath(cfg, ['self', 'name']), () => {}, { readOnly: true, placeholder: '扫码后自动获取' })))
 
   const oc = state.ownerCheck
+  const verifyButton = el('button', {
+    type: 'button', className: 'btn', onClick: actions.verifyOwner,
+    disabled: !!state.busy || !String(cfg.owner?.mid ?? '').trim(),
+  }, state.busy === 'verify_owner' ? '正在查询 B 站…' : '检查 UID 与昵称是否对应')
   const ownerCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('h2', {}, '主人信息'),
-      el('button', {
-        type: 'button',
-        className: 'btn',
-        disabled: !!state.busy || !String(getPath(cfg, ['owner', 'mid']) ?? '').trim(),
-        onClick: actions.verifyOwner,
-      }, state.busy === 'verify_owner' ? '正在查询 B 站…' : '检查 UID 与昵称是否对应')),
+      verifyButton),
     el('p', { className: 'card-sub' }, '填写你自己的 B 站 UID 和昵称，大鲸鱼据此识别「谁是主人」、定向私信与 @ 分享。填写 UID 后可点击右上角按钮核验是否与 B 站实际账号一致。'),
     row('主人 UID（mid）', '用来识别「谁是你」、谁回复了她、谁给她点了赞。', textCtrl(getPath(cfg, ['owner', 'mid']), v => {
       state.ownerCheck = null
       state.ownerCheckErr = ''
       actions.setCfg(['owner', 'mid'], v)
+      verifyButton.disabled = !!state.busy || !v.trim()
     }, { placeholder: '例如 12345678' })),
     row('主人 B 站昵称', '@ 分享或互动提到你时使用（可只填 UID 再点检查自动填入）。', textCtrl(getPath(cfg, ['owner', 'name']), v => {
       state.ownerCheck = null
@@ -362,8 +362,8 @@ export function renderPersonaTab(state, actions) {
 
   const plan = state.status?.plan
   const planBadge = plan?.action === 'wake' && plan?.atText
-    ? el('span', { className: 'pill info' }, `当前计划：${plan.atText}（今日已醒 ${plan.wakes ?? 0} 次）`)
-    : (plan ? el('span', { className: 'pill' }, `今日已醒 ${plan.wakes ?? 0} 次`) : null)
+    ? el('span', { className: 'pill info' }, `当前计划：${plan.atText}（今日已用 ${plan.wakes ?? 0} 次机会）`)
+    : (plan ? el('span', { className: 'pill' }, `今日已用 ${plan.wakes ?? 0} 次机会`) : null)
 
   const nightCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },

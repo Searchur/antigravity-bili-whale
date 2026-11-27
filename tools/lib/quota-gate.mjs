@@ -3,6 +3,9 @@ import { execFileSync } from './capture.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NODE_EXE } from './nodebin.mjs'   // 2026-10-21：别用 process.execPath（Electron 里它是主程序 ✗）
+import { acquireProcessLock } from './process-lock.mjs'
+import { dataPath } from './paths.mjs'
+export { flushQuotaReceipts } from './quota-ledger.mjs'
 
 const QUOTA = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'commands', 'quota.mjs')
 
@@ -10,7 +13,7 @@ function run(args) {
   try {
     return { code: 0, out: execFileSync(NODE_EXE, [QUOTA, ...args], { encoding: 'utf8' }).trim() }
   } catch (e) {
-    return { code: e.status ?? 1, out: String(e.stdout ?? e.message).trim() }
+    return { code: e.status ?? 1, out: [e.stdout, e.stderr].filter(Boolean).join('\n').trim() || e.message }
   }
 }
 
@@ -24,8 +27,13 @@ export function gate({ type, target = '', auto = true, share = false }) {
   return r.code === 0
 }
 
-/** 发成功之后记账（失败也算失败，不该记账） */
-export function record({ type, target = '', note = '', auto = true, share = false }) {
-  const r = run(['record', '--type', type, '--target', target, '--note', String(note).slice(0, 40), ...(share ? ['--share'] : auto ? ['--auto'] : [])])
-  console.log(`[限额闸] ${r.out}`)
+export async function lockQuotaForSend(options) {
+  const release = await acquireProcessLock(dataPath('quota-send'), { retries: 40 })
+  try {
+    if (!gate(options)) throw Error('额度检查未通过，停止发送')
+    return release
+  } catch (error) {
+    await release()
+    throw error
+  }
 }

@@ -76,7 +76,7 @@ function formatPlanStatus(plan) {
   const wakes = Number(plan.wakes ?? 0)
   const label = PLAN_ACTION_LABELS[plan.action] || '待排期'
   const timePart = plan.action === 'done' || !plan.atText ? '' : ` · ${plan.atText}`
-  return `${label}${timePart}（已醒 ${wakes} 次）`
+  return `${label}${timePart}（已用 ${wakes} 次机会）`
 }
 
 const EVENT_KIND_LABELS = {
@@ -124,6 +124,18 @@ function channelLabel(ch) {
  * - 下半区：极简长期记忆管理（仅显示活跃记忆数统计、过往经历搜索支持 20/50/100 条、时间戳导出备份）。
  */
 export function renderMemoryTab(state, actions) {
+  const sentButtons = []
+  function confirmSentButton(item) {
+    const button = el('button', {
+      type: 'button', className: 'btn sm primary',
+      disabled: !!state.busy || !state.lifeVerified || !state.lifeReceipt.trim(),
+      onClick: () => actions.runLife('resolve', {
+        id: item.id, status: 'sent', receipt: state.lifeReceipt.trim(), confirmed: state.lifeVerified,
+      }),
+    }, '确认已发出')
+    sentButtons.push(button)
+    return button
+  }
   const st = state.status ?? {}
   const life = state.lifeState
   const activeMemoriesCount = (life?.memories ?? []).filter(m => m.active).length
@@ -140,6 +152,7 @@ export function renderMemoryTab(state, actions) {
   const { year, month, cells } = buildMonthGrid(activeMonth)
 
   const summaryBlock = el('div', { className: 'cal-summary-box' },
+    cal.incomplete ? el('p', { role:'status' }, '部分长期记录读取或校验失败，日历仅统计已核实的记录。') : null,
     el('div', { className: 'cal-section-head' },
       el('div', { className: 'inline' },
         el('strong', {}, '累计总计'),
@@ -152,7 +165,7 @@ export function renderMemoryTab(state, actions) {
       metricTile('自主评论', `${totals.autoComments} 条`),
       metricTile('主人互动', `${totals.ownerInteract} 次`, ownerSubText(totals)),
       metricTile('粉丝互动', `${totals.fanInteract} 次`, fanSubText(totals)),
-      metricTile('作息唤醒', `${totals.wakes} 次`),
+      metricTile('作息唤醒', `${totals.wakes} 次`, totals.opportunitiesUsed > 0 ? `近期窗口已用 ${totals.opportunitiesUsed} 次机会` : ''),
       metricTile('安全拦截', `${totals.safetyBlocked} 次`)))
 
   const calendarPanel = el('div', { className: 'cal-panel' },
@@ -210,7 +223,7 @@ export function renderMemoryTab(state, actions) {
       metricTile('自主评论', isToday ? `${dayStat.autoComments} / ${st.autoCommentDailyMax ?? 3} 条` : `${dayStat.autoComments} 条`),
       metricTile('主人互动', `${dayStat.ownerInteract} 次`, ownerSubText(dayStat)),
       metricTile('粉丝互动', `${dayStat.fanInteract} 次`, fanSubText(dayStat)),
-      metricTile('作息唤醒', `${dayStat.wakes} 次`),
+      metricTile('作息唤醒', `${dayStat.wakes} 次`, dayStat.opportunitiesUsed > 0 ? `当日窗口已用 ${dayStat.opportunitiesUsed} 次机会` : ''),
       metricTile('安全审核拦截', `${dayStat.safetyBlocked} 次`)),
     el('div', { className: 'day-events-wrap' },
       el('div', { className: 'row-hint', style: { fontWeight: 600, marginBottom: '6px' } },
@@ -296,11 +309,14 @@ export function renderMemoryTab(state, actions) {
             el('label', { className: 'switch' },
               el('input', { type: 'checkbox', checked: state.lifeVerified, onChange: e => { state.lifeVerified = e.target.checked; actions.rerender() } }),
               el('span', {}, '我已到 B 站核查')),
-            el('input', { className: 'input', value: state.lifeReceipt, placeholder: '已发出请填回执 ID', onInput: e => { state.lifeReceipt = e.target.value; actions.rerender() } })),
+            el('input', { className: 'input', value: state.lifeReceipt, placeholder: '已发出请填回执 ID', onInput: e => {
+              state.lifeReceipt = e.target.value
+              for (const button of sentButtons) button.disabled = !!state.busy || !state.lifeVerified || !state.lifeReceipt.trim()
+            } })),
           ...life.pending.map(p => el('div', { className: 'inline', style: { justifyContent: 'space-between', marginTop: '8px' } },
             el('span', {}, `${channelLabel(p.channel)} → ${p.target}`),
             el('div', { className: 'inline' },
-              el('button', { type: 'button', className: 'btn sm primary', disabled: !!state.busy || !state.lifeVerified || !state.lifeReceipt, onClick: () => actions.runLife('resolve', { id: p.id, status: 'sent', receipt: state.lifeReceipt, confirmed: state.lifeVerified }) }, '确认已发出'),
+              confirmSentButton(p),
               el('button', { type: 'button', className: 'btn sm', disabled: !!state.busy || !state.lifeVerified, onClick: () => actions.runLife('resolve', { id: p.id, status: 'not-sent', confirmed: state.lifeVerified }) }, '确认未发出')))))
       : null)
 

@@ -1,4 +1,5 @@
 import { el, getPath, row, selectCtrl } from './render-sections.js'
+import { belowQuotaThreshold, remainingQuotaPercent } from '../lib/quota-percentage.js'
 
 const LIGHT_MODEL_RE = /(?:^|[^a-z0-9])(?:lite|mini)(?:$|[^a-z0-9])|flashlite/i
 
@@ -44,7 +45,7 @@ function tagClass(tagTitle) {
 
 function renderQuota(fraction) {
   if (typeof fraction !== 'number' || Number.isNaN(fraction)) return null
-  const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)))
+  const pct = remainingQuotaPercent(fraction)
   const fillCls = pct <= 20 ? 'low' : pct <= 50 ? 'mid' : ''
   return el('span', { className: 'quota-wrap' },
     el('span', { className: 'quota-bar' },
@@ -136,10 +137,10 @@ export function renderModelsTab(state, actions) {
     ? { role: '后台 Worker 模型', model: workerLive }
     : (mainLive ? { role: '前台主线模型', model: mainLive } : null)
   const lowQuotaPct = lowHit
-    ? Math.max(0, Math.min(100, Math.round(lowHit.model.remainingFraction * 100)))
+    ? remainingQuotaPercent(lowHit.model.remainingFraction)
     : null
   const serverQuota = state.status?.modelQuota
-  const localBelow = minQuotaVal > 0 && lowHit !== null && lowHit.model.remainingFraction * 100 < minQuotaVal
+  const localBelow = minQuotaVal > 0 && lowHit !== null && belowQuotaThreshold(lowHit.model.remainingFraction, minQuotaVal)
   const quotaPausedNow = Boolean(serverQuota?.paused || localBelow)
   const quotaBannerText = serverQuota?.paused && serverQuota.reason
     ? serverQuota.reason

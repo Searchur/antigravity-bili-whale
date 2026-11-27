@@ -176,7 +176,7 @@ export function attachCognition(api,{event,account,owner,cfg}){
       const key='incoming:'+channel+':'+input.messageId,old=cognitionIndexes(s).byKey.get(key)
       if(old)return old
       if((s.settings.archivedEventKeys??[]).includes(key))return {id:key,key,archived:true}
-      const c=cognitiveState(s),prior=c.working.outbound.filter(x=>now()-x.at<DAY&&['apiAccepted','visibilityConfirmed'].includes(x.phase))
+      const c=cognitiveState(s),prior=c.working.outbound.filter(x=>x.channel==='dm'&&String(x.target)===String(owner)&&x.at<=now()&&now()-x.at<DAY&&['apiAccepted','visibilityConfirmed'].includes(x.phase))
       const match=input.replyTo?prior.find(x=>x.id===input.replyTo||x.receipt===input.replyTo):prior.length===1?prior[0]:null
       const episodeId=match?.episodeId??'episode:'+uid()
       const shared=input.contentKind==='share'
