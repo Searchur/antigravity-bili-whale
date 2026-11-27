@@ -1,4 +1,5 @@
 import { el, row, selectCtrl, renderExportResult } from './sections.mjs'
+import { deriveActivityStatus } from '../../src/shared/activity-status.mjs'
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
 
@@ -235,35 +236,64 @@ export function renderMemoryTab(state, actions) {
             el('span', { className: `pill ${ev.kind === 'safety' ? 'warn' : ev.kind === 'owner' ? 'info' : ''}` }, ev.label),
             el('span', { className: 'day-event-text' }, ev.text || '-'))))))
 
+  const activity = deriveActivityStatus({
+    savedConfig: state.savedCfg ?? state.cfg,
+    draftConfig: state.cfg,
+    status: st,
+    life,
+  })
+  const renderActivityAction = (act) => {
+    if (!act) return null
+    const cls = ['btn', act.style || ''].filter(Boolean).join(' ')
+    if (act.type === 'goto_tab') {
+      return el('button', {
+        type: 'button',
+        className: cls,
+        disabled: !!state.busy,
+        onClick: () => actions.switchTab(act.tab),
+      }, act.label)
+    }
+    if (act.type === 'pause') {
+      return el('button', {
+        type: 'button',
+        className: cls,
+        disabled: !!state.busy,
+        onClick: () => actions.toggleActivityPause(act.value),
+      }, act.label)
+    }
+    return null
+  }
+
   const activityCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
         el('h2', {}, '活动统计与日历查看'),
-        life
-          ? el('span', { className: 'pill ' + (life.paused ? 'warn' : 'ok') }, el('span', { className: 'dot' }), life.paused ? '主动活动已暂停' : '正常运行中')
-          : null,
-        st.modelQuota?.paused
-          ? el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), `配额保护已暂停（剩余 ${st.modelQuota.remainingPercent}% < ${st.modelQuota.threshold}%）`)
-          : null),
+        el('span', { className: ['pill', activity.badge.kind].filter(Boolean).join(' ') },
+          activity.badge.kind ? el('span', { className: 'dot' }) : null,
+          activity.badge.text)),
       el('div', { className: 'inline' },
-        life
-          ? el('button', {
-              type: 'button',
-              className: 'btn ' + (life.paused ? 'primary' : 'danger'),
-              disabled: !!state.busy,
-              onClick: () => actions.runLife('pause', { value: !life.paused }),
-            }, life.paused ? '恢复主动活动' : '暂停主动活动')
-          : null,
+        renderActivityAction(activity.primaryAction),
+        renderActivityAction(activity.secondaryAction),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.refreshMemoryOverview }, '刷新概览'))),
+    activity.notice
+      ? el('div', { className: `banner ${activity.notice.kind}`, style: { marginTop: '4px', marginBottom: '10px' } }, activity.notice.text)
+      : null,
+    state.activityError
+      ? el('div', { className: 'banner err', style: { marginTop: '4px', marginBottom: '10px' } }, state.activityError)
+      : null,
     summaryBlock,
     el('div', { className: 'cal-layout' }, calendarPanel, detailPanel),
     st.scheduler?.lastError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, '最近调度异常：' + st.scheduler.lastError.message) : null)
+
+  const memoryBadge = !activity.identity.ready
+    ? el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '未绑定账号与主人')
+    : (life ? el('span', { className: 'pill' }, `活跃记忆 ${activeMemoriesCount} 条 · 近期经历 ${life.events ?? 0} 条`) : null)
 
   const memoryCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
         el('h2', {}, '大鲸鱼的长期记忆'),
-        life ? el('span', { className: 'pill' }, `活跃记忆 ${activeMemoriesCount} 条 · 近期经历 ${life.events ?? 0} 条`) : null),
+        memoryBadge),
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('status') }, '刷新记忆'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('export') }, state.busy === 'life' ? '导出中…' : '导出记忆备份'))),

@@ -153,6 +153,13 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     assert.equal(sidecarCard.ok, true)
     assert.ok(sidecarCard.version.includes('9999'))
 
+    // Life actions: missing account gives friendly error instead of raw storage error, and status exposes identity
+    const beforeBindStatus = await api.getStatus()
+    assert.equal(beforeBindStatus.identity.hasAccount, false)
+    assert.equal(beforeBindStatus.identity.hasOwner, true)
+    assert.equal(beforeBindStatus.identity.ready, false)
+    await assert.rejects(() => api.lifeAction('pause', { value: true }), /尚未登录大鲸鱼 B 站账号/)
+
     // Life actions: strictly limited to Tab 6 UI actions (status / pause / search / export / resolve)
     const cfgFile = path.join(dir, 'config.json')
     const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
@@ -160,9 +167,11 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     const paused = await api.lifeAction('pause', { value: true })
     assert.equal(paused.ok, true)
     assert.equal(paused.result.paused, true)
+    assert.equal(paused.state.identity.ready, true)
     const resumed = await api.lifeAction('pause', { value: false })
     assert.equal(resumed.ok, true)
     assert.equal(resumed.result.paused, false)
+    assert.ok(invalidateCalls >= 3)
     const searched = await api.lifeAction('search', { query: '测试', limit: 20 })
     assert.equal(searched.ok, true)
     assert.ok(Array.isArray(searched.result))

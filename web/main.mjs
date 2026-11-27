@@ -18,6 +18,7 @@ const state = {
   busy: '',
   banner: null,
   cfg: null,
+  savedCfg: null,
   savedJson: '',
   accountRevision: 0,
   personaText: '',
@@ -59,6 +60,7 @@ const state = {
   lifeVerified: false,
   lifeSearchItems: null,
   memoryExport: null,
+  activityError: '',
   lifeError: '',
 }
 
@@ -75,11 +77,12 @@ function rememberSavedConfig(config) {
     identityRevision++
     Object.assign(state, {
       status: null, lifeState: null, lifeLoaded: false, lifeSearchItems: null,
-      lifeQuery: '', lifeReceipt: '', lifeVerified: false, lifeError: '', memoryExport: null,
+      lifeQuery: '', lifeReceipt: '', lifeVerified: false, activityError: '', lifeError: '', memoryExport: null,
       calMonth: '', calSelectedDate: '', diagExport: null, diagErr: '',
       depsData: null, depsLoaded: false, ownerCheck: null, ownerCheckErr: '',
     })
   }
+  state.savedCfg = structuredClone(config)
   state.savedJson = JSON.stringify(config)
 }
 
@@ -583,6 +586,8 @@ const actions = {
   async refreshMemoryOverview() {
     const revision = identityRevision
     state.busy = 'memory'
+    state.activityError = ''
+    state.lifeError = ''
     render()
     try {
       const [st, lf] = await Promise.all([
@@ -594,11 +599,32 @@ const actions = {
       if (lf.state) state.lifeState = lf.state
       state.lifeLoaded = true
     } catch (e) {
-      if (revision === identityRevision) state.lifeError = e.message
+      if (revision === identityRevision) state.activityError = e.message
     } finally {
       state.busy = ''
       render()
     }
+  },
+
+  async toggleActivityPause(value) {
+    const revision = identityRevision
+    state.busy = 'activity_pause'
+    state.activityError = ''
+    render()
+    let updated = false
+    try {
+      const res = await bridge.callTool('whale_app_life', { action: 'pause', params: { value: Boolean(value) } })
+      if (revision !== identityRevision) return
+      if (res.state) state.lifeState = res.state
+      state.lifeLoaded = true
+      updated = true
+    } catch (e) {
+      if (revision === identityRevision) state.activityError = e.message
+    } finally {
+      state.busy = ''
+      render()
+    }
+    if (updated) void actions.refreshStatus()
   },
 
   async searchExperiences() {

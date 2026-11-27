@@ -808,10 +808,39 @@ export function createApiHandlers({
     }
   }
 
+  function identitySummary(cfg) {
+    const accountMid = String(cfg?.self?.mid ?? '').trim()
+    const ownerMid = String(cfg?.owner?.mid ?? '').trim()
+    return {
+      accountMid,
+      ownerMid,
+      hasAccount: Boolean(accountMid),
+      hasOwner: Boolean(ownerMid),
+      ready: Boolean(accountMid && ownerMid),
+    }
+  }
+
+  function assertIdentityReadyForAction(cfg, actionLabel) {
+    const id = identitySummary(cfg)
+    if (id.ready) return id
+    if (!id.hasAccount && !id.hasOwner) {
+      throw Error(`请先在「大鲸鱼与主人」完成 B 站扫码登录并填写主人 UID，保存后再${actionLabel}。`)
+    }
+    if (!id.hasAccount) {
+      throw Error(`尚未登录大鲸鱼 B 站账号，请先在「大鲸鱼与主人」扫码登录后再${actionLabel}。`)
+    }
+    throw Error(`尚未配置主人 UID，请先在「大鲸鱼与主人」填写并保存主人信息后再${actionLabel}。`)
+  }
+
   async function getStatus() {
     const dp = dataPathsFor(whaleHome, { cfgFile })
     const readJson = p => { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return null } }
     const cfg = readConfig()
+    const cred = credState()
+    const identity = {
+      ...identitySummary(cfg),
+      credentialsPresent: Boolean(cred.hasSess && cred.hasJct),
+    }
     const quota = readJson(dp.quota) ?? { log: [] }
     const today = new Date().toLocaleDateString('sv-SE')
     const todays = (quota.log ?? []).filter(x => new Date(x.at).toLocaleDateString('sv-SE') === today)
@@ -825,6 +854,7 @@ export function createApiHandlers({
       today,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       dataDir: whaleHome,
+      identity,
       sidecarRunning: !!live.running,
       sidecarPid: live.pid ?? null,
       shares: todays.filter(x => x.share).length,
@@ -926,13 +956,18 @@ export function createApiHandlers({
 
   async function lifeAction(action, b = {}) {
     const cfg = readConfig()
+    const identity = identitySummary(cfg)
     const store = lifeStore(cfg, { whaleHome })
     const live = await ipcClient('/status')
+    const statusWithMeta = () => ({
+      ...store.status(),
+      identity,
+    })
     if (!action || action === 'status') {
       return {
         ok: true,
         state: {
-          ...store.status(),
+          ...statusWithMeta(),
           affectWorker: live.affectWorker ?? { status: 'unavailable' },
           formationWorker: live.formationWorker ?? { status: 'unavailable', reason: '后台守护未运行' },
         },
@@ -940,7 +975,11 @@ export function createApiHandlers({
     }
     let result
     switch (action) {
-      case 'pause': result = await store.pause(b.value === true); break
+      case 'pause':
+        assertIdentityReadyForAction(cfg, '控制主动活动')
+        result = await store.pause(b.value === true)
+        await ipcClient('/invalidate', { method: 'POST', body: { resetPlan: false } }).catch(() => {})
+        break
       case 'export': {
         result = store.export()
         const now = new Date()
@@ -958,21 +997,22 @@ export function createApiHandlers({
           bytes: Buffer.byteLength(serialized, 'utf8'),
           exportedAt: now.toISOString(),
           result,
-          state: store.status(),
+          state: statusWithMeta(),
         }
       }
       case 'search': {
         const limit = Math.min(100, Math.max(1, Math.floor(Number(b.limit) || 20)))
         result = store.search(String(b.query ?? ''), { archives: true, limit })
-        return { ok: true, result, limit, state: store.status() }
+        return { ok: true, result, limit, state: statusWithMeta() }
       }
       case 'resolve':
         if (b.confirmed !== true) throw Error('请先回读平台确认发送结果')
+        assertIdentityReadyForAction(cfg, '结案未确认发送')
         result = await store.settle(String(b.id), { status: b.status, receipt: b.receipt, verified: true })
         break
       default: throw Error('未知的记忆管理操作：' + action)
     }
-    return { ok: true, result, state: store.status() }
+    return { ok: true, result, state: statusWithMeta() }
   }
 
   async function wakeNow() {

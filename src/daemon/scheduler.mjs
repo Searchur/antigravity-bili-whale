@@ -887,6 +887,12 @@ function initializeScheduler(host, opts, health) {
     }
     const cfg = readCfgNow()
     const identity = captureDeliveryIdentity(cfg)
+    if (!identity.account) {
+      throw Error('尚未登录大鲸鱼 B 站账号，请先在「大鲸鱼与主人」扫码登录')
+    }
+    if (!identity.owner) {
+      throw Error('尚未配置主人 UID，请先在「大鲸鱼与主人」填写并保存主人信息')
+    }
     assertDeliveryIdentity(readCfgNow(), identity)
     const life = getLife(cfg)
     if (lifeConfig(cfg.life).paused || life.read().settings.paused) {

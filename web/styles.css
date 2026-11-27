@@ -1057,6 +1057,7 @@ html, body {
   white-space: pre-wrap;
 }
 .banner.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+.banner.info { background: var(--info-bg); color: var(--fg-2); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent); }
 .banner.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
 .banner.err { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
 
