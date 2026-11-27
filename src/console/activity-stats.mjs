@@ -107,7 +107,7 @@ export function buildActivityCalendar({
     if (!b) continue
     if (entry.share) {
       b.shares++
-      pushItem(b, entry.at, 'share', '分享给主人', entry.note || entry.target || '分享了一条视频')
+      pushItem(b, entry.at, 'share', '主动分享', entry.note || entry.target || '分享了一条视频')
     } else if (entry.type === 'dynamic') {
       b.dynamics++
       pushItem(b, entry.at, 'dynamic', '公开动态', entry.note || entry.target || '发布了一条公开动态')
@@ -117,7 +117,7 @@ export function buildActivityCalendar({
     }
   }
 
-  // 2. memory 事件与归档：看片 / 主人互动 / 作息唤醒
+  // 2. memory 事件与归档：观看视频 / 主人互动 / 作息唤醒
   const ownerMid = String(cfg?.owner?.mid ?? '').trim()
   const diagnostics = []
   const events = loadAllLifeEvents(store, diagnostics)
@@ -202,7 +202,7 @@ export function buildActivityCalendar({
     const parts = []
     if (dm > 0) parts.push(`私信 ${dm} 条`)
     if (cm > 0) parts.push(`评论 ${cm} 条`)
-    if (ms > 0) parts.push(`@总结 ${ms} 次`)
+    if (ms > 0) parts.push(`@ 总结 ${ms} 次`)
     const fanAt = Number.isFinite(Number(fq?.lastAt)) && Number(fq.lastAt) > 0
       ? Number(fq.lastAt)
       : Math.min(nowMs, Date.parse(`${d}T23:59:59`))

@@ -53,7 +53,7 @@ export async function verifyAccount(input, { fetch: fetcher = globalThis.fetch, 
   const { data } = await request(fetcher, 'https://api.bilibili.com/x/web-interface/nav', { credentials, signal })
   if (data?.isLogin !== true || !/^[1-9]\d{0,19}$/.test(String(data?.mid ?? ''))
     || (typeof data.mid === 'number' && !Number.isSafeInteger(data.mid)))
-    throw new AuthError('登录验证失败，旧登录态未替换。')
+    throw new AuthError('登录验证失败，原登录状态未替换。')
   let name = typeof data.uname === 'string' ? data.uname.slice(0, 200) : ''
   for (const secret of Object.values(credentials)) if (secret) name = name.split(secret).join('[redacted]')
   return { mid: String(data.mid), name }

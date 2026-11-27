@@ -143,7 +143,7 @@ export function createApiHandlers({
     } catch (e) {
       if (e.code !== 'ENOENT') {
         diagnose('settings-config-read', e)
-        throw Error('配置文件损坏或不可读取，未使用默认值覆盖')
+        throw Error('配置文件损坏或不可读取，未使用默认值覆盖。')
       }
     }
     const merged = withoutRetiredListening({ ...merge(BASE_DEFAULTS, user), __hasUserFile: Object.keys(user).length > 0 })
@@ -214,7 +214,7 @@ export function createApiHandlers({
       const current = readConfig()
       writeConfig({ ...current, self: account })
     } catch {
-      return { ...account, warn: '登录态已保存，但账号显示信息未更新；请重新读取配置。' }
+      return { ...account, warn: '登录状态已保存，但账号显示信息未更新；请重新读取配置。' }
     }
     await ipcClient('/invalidate', { method: 'POST', body: { resetPlan: false } }).catch(() => {})
     return account
@@ -306,14 +306,14 @@ export function createApiHandlers({
     const next = merge(cur, filtered)
     const rotateDays = Number(next.sessionRotateDays ?? DEFAULTS.sessionRotateDays)
     if (!Number.isFinite(rotateDays) || rotateDays < 0 || rotateDays > 365) {
-      throw Error('会话轮换天数须为 0–365')
+      throw Error('会话轮换天数须为 0–365。')
     }
     next.sessionRotateDays = Math.floor(rotateDays)
     next.personaOncePerSession = true
     next.browse = { enabled: next.browse?.enabled === true }
 
     const n = next.night
-    if (!Array.isArray(n.windows) || !n.windows.length) throw Error('至少要有一个作息窗口')
+    if (!Array.isArray(n.windows) || !n.windows.length) throw Error('至少需要配置一个作息时间窗。')
     n.windows = n.windows.map(w => (w && typeof w === 'object'
       ? {
           ...w,
@@ -341,10 +341,10 @@ export function createApiHandlers({
     const likeTags = cleanTags(next.preferences?.like)
     const dislikeTags = cleanTags(next.preferences?.dislike)
     if (likeTags.length > MAX_LIKE_TAGS) {
-      throw Error(`喜欢的类型最多设置 ${MAX_LIKE_TAGS} 个（每次醒来最多按前 ${MAX_LIKE_TAGS} 个主题搜索，过多容易触发 B 站限流）`)
+      throw Error(`喜欢的主题标签最多设置 ${MAX_LIKE_TAGS} 个（每次唤醒最多按已选主题检索，过多容易触发 B 站限流）。`)
     }
     if (dislikeTags.length > MAX_DISLIKE_TAGS) {
-      throw Error(`不喜欢的类型最多设置 ${MAX_DISLIKE_TAGS} 个`)
+      throw Error(`屏蔽的主题标签最多设置 ${MAX_DISLIKE_TAGS} 个。`)
     }
     next.preferences = { ...(next.preferences ?? {}), like: likeTags, dislike: dislikeTags }
 
@@ -373,8 +373,8 @@ export function createApiHandlers({
       key => JSON.stringify(cur.night?.[key]) !== JSON.stringify(next.night?.[key]),
     ) || cur.browse?.enabled !== next.browse?.enabled
     const ipc = await ipcClient('/invalidate', { method: 'POST', body: { resetPlan: schedulingChanged } })
-    const reloadWarning = ipc.running ? null : '设置已保存，但后台守护尚未运行（将在后台守护启动时自动加载）'
-    const quotaWarning = next.quota.shareDaily > 3 ? '分享条数 >3：容易触发 B 站限流/风控' : null
+    const reloadWarning = ipc.running ? null : '配置已保存，但后台守护尚未运行，将在后台守护启动时自动加载。'
+    const quotaWarning = next.quota.shareDaily > 3 ? '每日分享上限超过 3 条，容易触发 B 站限流或风控。' : null
     const { config } = await getSettings()
     return { ok: true, config, configPath: cfgFile, warn: reloadWarning ?? quotaWarning }
   }
@@ -389,7 +389,7 @@ export function createApiHandlers({
 
   async function savePersona(rawText) {
     const text = String(rawText ?? '')
-    if (text.length > MAX_PERSONA_CHARS) throw Error(`人设正文超过 ${MAX_PERSONA_CHARS} 字上限（当前 ${text.length} 字），请精简后再保存`)
+    if (text.length > MAX_PERSONA_CHARS) throw Error(`人设正文超过 ${MAX_PERSONA_CHARS} 字上限（当前 ${text.length} 字），请精简后再保存。`)
     fs.mkdirSync(path.dirname(personaFile), { recursive: true })
     fs.writeFileSync(personaFile, text, 'utf8')
     const bytes = Buffer.byteLength(text, 'utf8')
@@ -398,8 +398,8 @@ export function createApiHandlers({
       bytes,
       maxChars: MAX_PERSONA_CHARS,
       detail: text.trim()
-        ? `已保存（${text.length} 字 / ${bytes} 字节）—— 从下一次唤醒开始生效`
-        : '已清空 —— 回到仅使用设置里的基础称呼',
+        ? `人设已保存（${text.length} 字 / ${bytes} 字节），将于下一次唤醒生效。`
+        : '人设已清空，将仅使用基础称呼配置。',
     }
   }
 
@@ -429,7 +429,7 @@ export function createApiHandlers({
     const json = await res.json()
     if (json?.code !== 0 || !json?.data?.card?.name) {
       const msg = json?.message || '未找到该 UID 对应的 B 站账号'
-      throw Error(`核验失败：${msg}（code=${json?.code ?? 'unknown'}）`)
+      throw Error(`核验失败：${msg}（code=${json?.code ?? 'unknown'}）。`)
     }
     const actualName = String(json.data.card.name).trim()
     const sign = String(json.data.card.sign ?? '').trim().slice(0, 80)
@@ -453,8 +453,8 @@ export function createApiHandlers({
       expectedName,
       sign,
       detail: matched
-        ? `核验通过：UID ${mid} 与昵称「${actualName}」完全对应`
-        : `不一致：UID ${mid} 在 B 站的实际昵称是「${actualName}」，与当前填写的「${expectedName}」不同`,
+        ? `核验通过：UID ${mid} 与昵称「${actualName}」一致。`
+        : `核验不一致：UID ${mid} 在 B 站的实际昵称为「${actualName}」，与当前填写的「${expectedName}」不同。`,
     }
   }
 
@@ -523,7 +523,7 @@ export function createApiHandlers({
       targetPath: entry.target,
       mode: 'parent_dir',
       exists: false,
-      detail: '该文件尚未生成，已为你打开其所在目录。',
+      detail: '该文件尚未生成，已打开其所在目录。',
     }
   }
 
@@ -567,7 +567,7 @@ export function createApiHandlers({
         note: viaIpc.note || '',
       }
     }
-    return fallbackModelCatalog('未能读取 Antigravity 实时模型清单，请确认后台守护已启动后点击刷新')
+    return fallbackModelCatalog('未能读取 Antigravity 实时模型清单，请确认后台守护已启动后点击刷新。')
   }
 
   function formatDepsCards(rawItems, scheduler, livePid = null) {
@@ -575,7 +575,7 @@ export function createApiHandlers({
     for (const it of rawItems || []) {
       const rawName = String(it.name || '')
       const detail = String(it.detail || '')
-      // 跳过生物钟（已归类到「动态与记忆」）及独立数据目录（已归类到「关于与更新 -> 安装路径与移植说明」）
+      // 跳过生物钟（已归类到「动态与记忆」）及独立数据目录（已归类到「关于与更新 → 目录路径与项目说明」）
       if (rawName.includes('生物钟') || rawName.includes('独立数据目录')) continue
 
       let key = 'other'
@@ -590,26 +590,26 @@ export function createApiHandlers({
         key = 'node'
         name = 'Node.js 运行环境'
         version = detail.trim()
-        summary = it.ok ? '满足插件脚本与后台守护最低版本要求（Node 24+）' : '版本过低，请升级至 Node.js 24 LTS+'
+        summary = it.ok ? '满足插件脚本与后台守护最低版本要求（Node 24+）。' : '版本过低，请升级至 Node.js 24 LTS+。'
       } else if (rawName.startsWith('node 运行时')) {
         key = 'node-bin'
         location = detail.trim()
       } else if (rawName.startsWith('ffmpeg')) {
         key = 'ffmpeg'
-        name = 'ffmpeg（视频抽帧看画面）'
+        name = 'ffmpeg（视频抽帧组件）'
         optional = true
         const [firstLine, secondLine] = detail.split('\n').map(s => s.trim())
         const verMatch = firstLine.match(/ffmpeg\s+version\s+([^\s]+)/i)
         const cleanVer = verMatch ? verMatch[1].replace(/-www\.[^-]+$/i, '') : firstLine.slice(0, 36)
         version = it.ok ? (cleanVer.startsWith('v') ? cleanVer : `v${cleanVer}`) : '未安装'
         location = (secondLine || '').replace(/^路径[：:]\s*/, '')
-        summary = it.ok ? '支持视频关键帧抽取与画面理解' : '视频抽帧必需组件：未安装时仅能读取字幕/弹幕/热评，无法查看视频画面（可自行安装：winget install Gyan.FFmpeg）'
+        summary = it.ok ? '支持视频关键帧抽取与画面理解。' : '视频抽帧必需组件：未安装时仅能读取字幕、弹幕与热评，无法查看视频画面（可运行 winget install Gyan.FFmpeg 安装）。'
       } else if (rawName.includes('cookie')) {
         key = 'bilibili'
-        name = '大鲸鱼 B 站登录态'
+        name = '大鲸鱼 B 站登录状态'
         const m = detail.match(/已登录：(.+?)（mid (\d+)）/)
         version = it.ok ? (m ? `${m[1]}（UID ${m[2]}）` : detail) : '尚未登录'
-        summary = it.ok ? '凭据校验有效，仅当前 Windows 用户可读' : '尚未连接大鲸鱼 B 站账号，请前往扫码登录'
+        summary = it.ok ? '登录凭据校验有效，仅当前 Windows 用户可读。' : '尚未连接大鲸鱼 B 站账号，请前往「账号与主人」扫码登录。'
         if (!it.ok) action = 'goto_login'
       } else if (rawName.includes('限流')) {
         key = 'rate'
@@ -645,13 +645,13 @@ export function createApiHandlers({
 
     cards.push({
       key: 'sidecar',
-      name: '后台守护进程（Sidecar）',
+      name: '后台守护（Sidecar）',
       ok: Boolean(scheduler?.ok),
       status: scheduler?.ok ? 'ok' : 'error',
       version: scheduler?.ok ? (livePid ? `运行中 · PID ${livePid}` : '运行中') : '未连接',
       location: '',
       detail: scheduler?.reason || '',
-      fix: scheduler?.ok ? '' : '请确认插件已启用，或重启 Antigravity App 后稍等几秒再检测。',
+      fix: scheduler?.ok ? '' : '请确认插件已启用，或重启 Antigravity 后稍等几秒再检测。',
       action: null,
     })
 
@@ -676,13 +676,13 @@ export function createApiHandlers({
     return [
       {
         key: 'sidecar',
-        name: '后台守护进程（Sidecar）',
+        name: '后台守护（Sidecar）',
         ok: Boolean(scheduler?.ok),
         status: scheduler?.ok ? 'ok' : 'error',
         version: scheduler?.ok ? (livePid ? `运行中 · PID ${livePid}` : '运行中') : '未连接',
         location: '',
         detail: scheduler?.reason || '',
-        fix: scheduler?.ok ? '' : '请确认插件已启用，或重启 Antigravity App 后稍等几秒再检测。',
+        fix: scheduler?.ok ? '' : '请确认插件已启用，或重启 Antigravity 后稍等几秒再检测。',
         action: null,
       },
       {
@@ -692,29 +692,29 @@ export function createApiHandlers({
         status: nodeOk ? 'ok' : 'error',
         version: `v${process.versions.node}`,
         location: process.execPath || '',
-        detail: nodeOk ? '满足插件脚本与后台守护最低版本要求（Node 24+）' : '版本过低，请升级至 Node.js 24 LTS+',
+        detail: nodeOk ? '满足插件脚本与后台守护最低版本要求（Node 24+）。' : '版本过低，请升级至 Node.js 24 LTS+。',
         fix: '',
         action: null,
       },
       {
         key: 'ffmpeg',
-        name: 'ffmpeg（视频抽帧看画面）',
+        name: 'ffmpeg（视频抽帧组件）',
         ok: Boolean(ff.ok),
         status: ff.ok ? 'ok' : 'optional',
         version: ff.ok ? (ffCleanVer.startsWith('v') ? ffCleanVer : `v${ffCleanVer}`) : '未安装',
         location: ff.path || '',
-        detail: ff.ok ? '支持视频关键帧抽取与画面理解' : '视频抽帧必需组件：未安装时仅能读取字幕/弹幕/热评，无法查看视频画面（可自行安装：winget install Gyan.FFmpeg）',
+        detail: ff.ok ? '支持视频关键帧抽取与画面理解。' : '视频抽帧必需组件：未安装时仅能读取字幕、弹幕与热评，无法查看视频画面（可运行 winget install Gyan.FFmpeg 安装）。',
         fix: '',
         action: null,
       },
       {
         key: 'bilibili',
-        name: '大鲸鱼 B 站登录态',
+        name: '大鲸鱼 B 站登录状态',
         ok: false,
         status: 'error',
         version: cred.present ? '待重新校验' : '尚未登录',
         location: '',
-        detail: cred.present ? `本地存在凭据，但本次在线校验未完成（${shortReason}）` : '尚未连接大鲸鱼 B 站账号，请前往扫码登录',
+        detail: cred.present ? `本地存在登录凭据，但本次在线校验未完成（${shortReason}）。` : '尚未连接大鲸鱼 B 站账号，请前往「账号与主人」扫码登录。',
         fix: '',
         action: cred.present ? null : 'goto_login',
       },
@@ -725,7 +725,7 @@ export function createApiHandlers({
         status: 'error',
         version: '检测未完成',
         location: '',
-        detail: `未能完成本次环境子进程检测（${shortReason}），请点击「重新检测」`,
+        detail: `未能完成本次环境子进程检测（${shortReason}），请点击「重新检测」。`,
         fix: '',
         action: null,
       },
@@ -736,7 +736,7 @@ export function createApiHandlers({
         status: 'error',
         version: '检测未完成',
         location: '',
-        detail: '请点击「重新检测」或导出诊断日志排查',
+        detail: '请点击「重新检测」或导出诊断日志排查。',
         fix: '',
         action: null,
       },
@@ -758,8 +758,8 @@ export function createApiHandlers({
   async function checkDeps() {
     const live = await ipcClient('/status')
     const scheduler = live.running
-      ? (live.schedulerStatus ?? { ok: true, reason: `后台守护运行中（PID ${live.pid}）` })
-      : { ok: false, reason: '后台守护未连接（请确认 Antigravity 已启动插件 Sidecar）' }
+      ? (live.schedulerStatus ?? { ok: true, reason: `后台守护运行中（PID ${live.pid}）。` })
+      : { ok: false, reason: '后台守护未连接，请确认 Antigravity 已启动插件 Sidecar。' }
     const livePid = live.running ? live.pid : null
 
     if (!fs.existsSync(biliMjs)) {
@@ -827,12 +827,12 @@ export function createApiHandlers({
     const id = identitySummary(cfg)
     if (id.ready) return id
     if (!id.hasAccount && !id.hasOwner) {
-      throw Error(`请先在「大鲸鱼与主人」完成 B 站扫码登录并填写主人 UID，保存后再${actionLabel}。`)
+      throw Error(`请先在「账号与主人」完成 B 站扫码登录并填写主人 UID，保存后再${actionLabel}。`)
     }
     if (!id.hasAccount) {
-      throw Error(`尚未登录大鲸鱼 B 站账号，请先在「大鲸鱼与主人」扫码登录后再${actionLabel}。`)
+      throw Error(`尚未登录大鲸鱼 B 站账号，请先在「账号与主人」扫码登录后再${actionLabel}。`)
     }
-    throw Error(`尚未配置主人 UID，请先在「大鲸鱼与主人」填写并保存主人信息后再${actionLabel}。`)
+    throw Error(`尚未配置主人 UID，请先在「账号与主人」填写并保存主人信息后再${actionLabel}。`)
   }
 
   async function getStatus() {
@@ -1009,7 +1009,7 @@ export function createApiHandlers({
         return { ok: true, result, limit, state: statusWithMeta() }
       }
       case 'resolve':
-        if (b.confirmed !== true) throw Error('请先回读平台确认发送结果')
+        if (b.confirmed !== true) throw Error('请先到 B 站核查并确认发送结果。')
         assertIdentityReadyForAction(cfg, '结案未确认发送')
         result = await store.settle(String(b.id), { status: b.status, receipt: b.receipt, verified: true })
         break
@@ -1021,16 +1021,16 @@ export function createApiHandlers({
   async function wakeNow() {
     const res = await ipcClient('/wake-now', { method: 'POST', body: {}, timeoutMs: 70_000 })
     if (!res?.running) {
-      throw Error(res?.error || '后台守护未运行，请确认插件已启用或重启 Antigravity App 后再试')
+      throw Error(res?.error || '后台守护未运行，请确认插件已启用或重启 Antigravity 后再试。')
     }
     if (res.ok === false) {
-      throw Error(res.error || '立即唤醒失败')
+      throw Error(res.error || '立即唤醒失败。')
     }
     return {
       ok: true,
       atText: res.atText || '',
       requestId: res.requestId || '',
-      detail: res.detail || '已立即唤醒大鲸鱼，正在后台逛 B 站并看视频。',
+      detail: res.detail || '已立即唤醒大鲸鱼，正在后台自主浏览并观看视频。',
     }
   }
 

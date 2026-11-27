@@ -66,7 +66,7 @@ function ownerSubText(s) {
 
 function fanSubText(s) {
   const base = `私信 ${s.fanDm ?? 0} · 评论 ${s.fanComment ?? 0}`
-  return (s.fanMention ?? 0) > 0 ? `${base} · @总结 ${s.fanMention}` : base
+  return (s.fanMention ?? 0) > 0 ? `${base} · @ 总结 ${s.fanMention}` : base
 }
 
 const PLAN_ACTION_LABELS = {
@@ -124,8 +124,8 @@ function channelLabel(ch) {
 
 /**
  * Tab 6：动态与记忆
- * - 上半区：累计总计 + 今日/任意日期互动统计日历（看片/分享/动态/主人互动/粉丝互动/唤醒/安全拦截）。
- * - 下半区：极简长期记忆管理（仅显示活跃记忆数统计、过往经历搜索支持 20/50/100 条、时间戳导出备份）。
+ * - 上半区：累计总计 + 今日/任意日期互动统计日历（观看视频/主动分享/公开动态/自主评论/主人互动/粉丝互动/作息唤醒/安全拦截）。
+ * - 下半区：极简长期记忆管理（仅显示活跃记忆数统计、过往经历检索支持 20/50/100 条、时间戳导出备份）。
  */
 export function renderMemoryTab(state, actions) {
   const sentButtons = []
@@ -163,9 +163,9 @@ export function renderMemoryTab(state, actions) {
         metaPill(`活跃 ${cal.activeDays ?? 0} 天`),
         metaPill(`共 ${totals.total ?? 0} 项活动`, 'info'))),
     el('div', { className: 'metric-grid' },
-      metricTile('累计看片', `${totals.watched} 条`),
-      metricTile('累计分享', `${totals.shares} 条`),
-      metricTile('累计动态', `${totals.dynamics} 条`),
+      metricTile('观看视频', `${totals.watched} 条`),
+      metricTile('主动分享', `${totals.shares} 条`),
+      metricTile('公开动态', `${totals.dynamics} 条`),
       metricTile('自主评论', `${totals.autoComments} 条`),
       metricTile('主人互动', `${totals.ownerInteract} 次`, ownerSubText(totals)),
       metricTile('粉丝互动', `${totals.fanInteract} 次`, fanSubText(totals)),
@@ -175,7 +175,7 @@ export function renderMemoryTab(state, actions) {
   const calendarPanel = el('div', { className: 'cal-panel' },
     el('div', { className: 'cal-nav' },
       el('button', { type: 'button', className: 'btn sm cal-nav-btn', onClick: () => actions.shiftCalMonth(-1) }, '上月'),
-      el('span', { className: 'cal-month-title' }, `${year}年${month}月`),
+      el('span', { className: 'cal-month-title' }, `${year} 年 ${month} 月`),
       el('div', { className: 'cal-nav-group' },
         el('button', { type: 'button', className: 'btn sm cal-nav-btn', onClick: actions.jumpCalToday }, '今天'),
         el('button', { type: 'button', className: 'btn sm cal-nav-btn', onClick: () => actions.shiftCalMonth(1) }, '下月'))),
@@ -222,13 +222,13 @@ export function renderMemoryTab(state, actions) {
       : null,
     el('div', { className: 'day-stat-grid' },
       metricTile('观看视频', `${dayStat.watched} 条`),
-      metricTile('主动分享给主人', isToday ? `${dayStat.shares} / ${st.sharesMax ?? 3} 条` : `${dayStat.shares} 条`),
-      metricTile('发布公开动态', isToday ? `${dayStat.dynamics} / ${st.dynamicDailyMax ?? 1} 条` : `${dayStat.dynamics} 条`),
+      metricTile('主动分享', isToday ? `${dayStat.shares} / ${st.sharesMax ?? 3} 条` : `${dayStat.shares} 条`),
+      metricTile('公开动态', isToday ? `${dayStat.dynamics} / ${st.dynamicDailyMax ?? 1} 条` : `${dayStat.dynamics} 条`),
       metricTile('自主评论', isToday ? `${dayStat.autoComments} / ${st.autoCommentDailyMax ?? 3} 条` : `${dayStat.autoComments} 条`),
       metricTile('主人互动', `${dayStat.ownerInteract} 次`, ownerSubText(dayStat)),
       metricTile('粉丝互动', `${dayStat.fanInteract} 次`, fanSubText(dayStat)),
       metricTile('作息唤醒', `${dayStat.wakes} 次`, dayStat.opportunitiesUsed > 0 ? `当日窗口已用 ${dayStat.opportunitiesUsed} 次机会` : ''),
-      metricTile('安全审核拦截', `${dayStat.safetyBlocked} 次`)),
+      metricTile('安全拦截', `${dayStat.safetyBlocked} 次`)),
     el('div', { className: 'day-events-wrap' },
       el('div', { className: 'row-hint hint-title' },
         dayEvents.length > 0 ? `当日活动明细（最近 ${dayEvents.length} 条）` : '当日活动明细'),
@@ -289,13 +289,13 @@ export function renderMemoryTab(state, actions) {
   const memoryCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
-        el('h2', {}, '大鲸鱼的长期记忆'),
+        el('h2', {}, '长期记忆'),
         memoryBadge),
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('status') }, '刷新记忆'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: () => actions.runLife('export') }, state.busy === 'life' ? '导出中…' : '导出记忆备份'))),
-    el('p', { className: 'card-sub' }, '所有长期记忆均由 Antigravity 内置模型自动归纳维护并在后台生效；页面不平铺展示记忆条目，可通过下方搜索过往经历或导出带时间戳的备份文件查看。'),
-    row('搜索她的过往经历', '输入关键词检索她看过哪些视频、聊过哪些话题（默认最多显示 20 条，可按需切换至 50 / 100 条）。',
+    el('p', { className: 'card-sub' }, '所有长期记忆均由 Antigravity 内置模型自动归纳维护并在后台生效；页面不平铺展示记忆条目，可通过下方检索过往经历或导出带时间戳的备份文件查看。'),
+    row('检索过往经历', '输入关键词检索大鲸鱼观看过的视频与聊过的话题；默认最多显示 20 条，可按需切换至 50 或 100 条。',
       el('div', { className: 'inline' },
         el('input', {
           className: 'input',
@@ -331,7 +331,7 @@ export function renderMemoryTab(state, actions) {
     (life?.pending ?? []).length > 0
       ? el('div', { className: 'item-card warn' },
           el('strong', {}, `未确认发送核查（${life.pending.length} 条）`),
-          el('div', { className: 'row-hint hint-mt' }, '以下发送因网络超时结果未知；请到 B 站确认是否已发出后再手动结案，避免重复发送。'),
+          el('div', { className: 'row-hint hint-mt' }, '以下发送因网络超时结果未知，请前往 B 站确认是否已发出后再手动结案，避免重复发送。'),
           el('div', { className: 'inline mt-8' },
             el('label', { className: 'switch' },
               el('input', { type: 'checkbox', checked: state.lifeVerified, onChange: e => { state.lifeVerified = e.target.checked; actions.rerender() } }),

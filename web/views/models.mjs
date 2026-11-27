@@ -1,5 +1,5 @@
 /**
- * Tab 3 视图（模型选择）：渲染 Antigravity 内置模型清单、角色切换、剩余配额保护与会话轮换设置。
+ * Tab 3 视图（模型与配额）：渲染 Antigravity 内置模型清单、用途切换、剩余配额保护与会话轮换设置。
  */
 import { el, getPath, row, selectCtrl, statusPill, metaPill, banner } from './sections.mjs'
 import { belowQuotaThreshold, remainingQuotaPercent } from '../../src/shared/quota-percentage.mjs'
@@ -91,7 +91,7 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
 }
 
 /**
- * Tab 3：模型选择（含剩余配额保护阈值与会话轮换周期）
+ * Tab 3：模型与配额（含剩余配额保护阈值与会话轮换周期）
  */
 export function renderModelsTab(state, actions) {
   const cfg = state.cfg
@@ -137,7 +137,7 @@ export function renderModelsTab(state, actions) {
   const mainLive = isLive ? resolveQuotaModel(catalog, mainId) : null
   const workerLive = isLive ? resolveQuotaModel(catalog, workerId) : null
   const lowHit = workerLive && (!mainLive || workerLive.remainingFraction < mainLive.remainingFraction)
-    ? { role: '后台 Worker 模型', model: workerLive }
+    ? { role: '后台辅助模型', model: workerLive }
     : (mainLive ? { role: '前台主线模型', model: mainLive } : null)
   const lowQuotaPct = lowHit
     ? remainingQuotaPercent(lowHit.model.remainingFraction)
@@ -168,18 +168,18 @@ export function renderModelsTab(state, actions) {
 
   const sessionCard = el('div', { className: 'card' },
     el('h2', {}, '配额保护与会话轮换'),
-    el('p', { className: 'card-sub' }, '设置剩余配额保护红线避免把 Antigravity 配额耗尽；定期轮换新会话可控制长对话上下文开销，长期记忆无缝续接。'),
+    el('p', { className: 'card-sub' }, '设置剩余配额保护阈值以避免耗尽 Antigravity 配额；定期轮换新会话可控制上下文开销，长期记忆自动续接。'),
     row(
-      '模型剩余配额低于多少不再活动',
-      '当所选模型剩余配额低于设定比例时，自动暂停看视频、私信/评论自动回复及后台归纳等全部活动，配额恢复后自动恢复运行。',
+      '配额保护阈值',
+      '所选模型剩余配额低于该比例时，自动暂停视频观看、私信与评论自动回复及后台归纳等全部活动，配额恢复后自动解除。',
       selectCtrl(
         String(minQuotaVal),
         minQuotaOptions,
         v => actions.setCfg(['models', 'minQuotaPercent'], Number(v), true),
       )),
     row(
-      '自动轮换新会话周期',
-      '每过指定天数趁大鲸鱼空闲时自动开一个干净新会话；选「不自动轮换」则持续复用同一会话。',
+      '会话自动轮换周期',
+      '每隔指定天数在空闲时自动新建会话以控制上下文长度；选择「不自动轮换」则持续复用同一会话。',
       selectCtrl(
         String(rotateVal),
         rotateOptions,
@@ -190,7 +190,7 @@ export function renderModelsTab(state, actions) {
     el('div', { className: 'card' },
       el('div', { className: 'card-head' },
         el('div', { className: 'inline' },
-          el('h2', {}, 'Antigravity 内置模型选择'),
+          el('h2', {}, '内置模型选择'),
           isLive
             ? statusPill('ok', `已读取 ${catalog.liveCount} 个实时模型档位`)
             : statusPill('warn', '自适应档位模式'),
@@ -203,13 +203,13 @@ export function renderModelsTab(state, actions) {
           disabled: !!state.busy,
           onClick: actions.refreshModels,
         }, state.busy === 'models' ? '读取中…' : '刷新模型列表')),
-      el('p', { className: 'card-sub' }, '全程仅使用当前 Antigravity 内置模型，无需外部 API Key。先点选上方要配置的角色，再在下方直接点击模型档位即可（记得点右上角「保存配置」）。'),
+      el('p', { className: 'card-sub' }, '全程仅使用 Antigravity 内置模型，无需外部 API Key。先选择上方要配置的模型用途，再点击下方模型档位；修改后请点击右上角「保存配置」生效。'),
       quotaBannerText ? banner('warn', quotaBannerText) : null,
       el('div', { className: 'role-grid' },
-        roleCard('main', '前台主线模型', '负责刷视频、看画面、聊私信与评论互动（建议均衡或高表现模型）', mainId),
-        roleCard('worker', '后台 Worker 模型', '负责记忆归纳与外发内容安全语义复审，运行完自动归档（建议省配额轻量模型）', workerId)),
+        roleCard('main', '前台主线模型', '负责视频观看、画面理解、私信对话与评论互动；建议选择均衡或高性能模型。', mainId),
+        roleCard('worker', '后台辅助模型', '负责长期记忆归纳、心情分析与外发安全语义复审，运行后自动归档；建议选择低消耗轻量模型。', workerId)),
       !isLive && catalog?.note
-        ? banner('warn', `${catalog.note}。后台守护启动后点击右上角「刷新模型列表」即可拉取完整清单。`)
+        ? banner('warn', `${catalog.note.replace(/。$/, '')}。后台守护启动后点击右上角「刷新模型列表」即可拉取完整清单。`)
         : null,
       state.modelsError
         ? banner('err', state.modelsError)

@@ -24,7 +24,7 @@ export function parseManualCookie(input = {}) {
   if (credentials.sessdata.length < 20 || credentials.sessdata.length > 8192
     || !/^[0-9a-fA-F]{32}$/.test(credentials.bili_jct)
     || Object.values(credentials).some(value => /[\r\n;\x00-\x1f\x7f]/.test(value) || value.length > 8192))
-    throw new AuthError('凭据不完整或格式无效，请重新扫码登录。')
+    throw new AuthError('登录凭据不完整或格式无效，请重新扫码登录。')
   return credentials
 }
 
@@ -48,7 +48,7 @@ export function createCredentialStore({ file, verify, protect = protectCredentia
       const account = await verify(credentials, { signal })
       check()
       if (signal?.aborted) throw new AuthError('登录已取消，未保存。')
-      if (read(file) !== oldText) throw new AuthError('登录态已在别处变化，请重新扫码。')
+      if (read(file) !== oldText) throw new AuthError('登录状态已在别处变化，请重新扫码。')
       const temp = `${file}.${randomUUID()}.tmp`
       try {
         if (fs.existsSync(file) && fs.lstatSync(file).isSymbolicLink()) throw Error()
@@ -64,7 +64,7 @@ export function createCredentialStore({ file, verify, protect = protectCredentia
         fs.renameSync(temp, file)
       } catch (error) {
         if (error instanceof AuthError) throw error
-        throw new AuthError('凭据保存失败，旧登录态未替换；请检查文件权限。')
+        throw new AuthError('登录凭据保存失败，原登录状态未替换；请检查文件权限。')
       } finally {
         if (fs.existsSync(temp)) fs.unlinkSync(temp)
       }

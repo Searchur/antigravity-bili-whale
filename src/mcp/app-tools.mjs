@@ -14,7 +14,7 @@ export function appToolDefinitions() {
     {
       name: 'open_bili_whale',
       title: '哔哩哔哩大鲸鱼',
-      description: '打开哔哩哔哩大鲸鱼全页管理控制台（大鲸鱼与主人、人设与作息、内置模型选择、视频观看设置、分享与监听与安全审核、动态与记忆、环境与依赖、关于与更新）。',
+      description: '打开哔哩哔哩大鲸鱼全页管理控制台（账号与主人、人设与作息、模型与配额、视频观看、互动与安全、动态与记忆、环境与依赖、关于与更新）。',
       inputSchema: {
         type: 'object',
         properties: {},

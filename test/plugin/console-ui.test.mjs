@@ -43,7 +43,7 @@ test('D07 changing the saved owner clears cached experiences and discards late s
   assert.match(ui.root.textContent, /old owner memory/)
   delayed = true
   const oldSearch = ui.click('搜索')
-  ui.click('大鲸鱼与主人')
+  ui.click('账号与主人')
   ui.change(ui.input('例如 12345678'), '444')
   await ui.click('保存配置')
   ui.click('动态与记忆')
@@ -58,7 +58,7 @@ test('D26 late owner verification cannot apply a nickname to another UID', async
   const pending = Promise.withResolvers()
   const ui = await openConsole(t, (_, args) => args.action === 'verify_owner' ? pending.promise : undefined)
   ui.change(ui.input('例如 12345678'), '111')
-  const lookup = ui.click('检查 UID')
+  const lookup = ui.click('核验主人信息')
   ui.change(ui.input('例如 12345678'), '222')
   pending.resolve({ matched: false, actualName: 'old name', detail: 'old' })
   await lookup
@@ -83,7 +83,7 @@ test('D27 edits typed during save remain dirty and survive the response', async 
 
 test('D31 typing or clearing an owner UID toggles verification without replacing the input', async t => {
   const ui = await openConsole(t)
-  const field = ui.input('例如 12345678'), verify = ui.button('检查 UID')
+  const field = ui.input('例如 12345678'), verify = ui.button('核验主人信息')
   assert.equal(verify.disabled, true)
   ui.change(field, '111')
   assert.equal(verify.disabled, false)

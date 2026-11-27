@@ -380,7 +380,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(bundle.includes('点击任意日期查看分类统计'), false)
     assert.equal(bundle.includes('model-desc'), false)
     assert.equal(bundle.includes('悬停版本可查看完整路径'), false)
-    assert.ok(bundle.includes('模型剩余配额低于多少不再活动'))
+    assert.ok(bundle.includes('配额保护阈值'))
     assert.ok(bundle.includes('配额保护与会话轮换'))
     assert.ok(bundle.includes('活动统计与日历查看'))
 
@@ -389,7 +389,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
       const uiSrc = fs.readFileSync(path.resolve(uiFile), 'utf8')
       assert.equal(/\btitle\s*:/.test(uiSrc), false, `${uiFile} must not set native hover title attribute`)
     }
-    assert.ok(bundle.includes('马上唤醒她'))
+    assert.ok(bundle.includes('立即唤醒'))
     assert.ok(bundle.includes('路径：'))
     assert.ok(bundle.includes('cal-nav-group'))
     assert.ok(bundle.includes('活跃度：'))
@@ -398,9 +398,9 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(bundle.includes('最多 100 条'))
     assert.ok(bundle.includes('env-row'))
     assert.ok(bundle.includes('about-hero-card'))
-    assert.ok(bundle.includes('每日最多发公开动态条数'))
-    assert.ok(bundle.includes('私信轮询时间间隔'))
-    assert.ok(bundle.includes('评论与 @ 轮询时间间隔'))
+    assert.ok(bundle.includes('每日公开动态上限'))
+    assert.ok(bundle.includes('私信轮询间隔'))
+    assert.ok(bundle.includes('评论与 @ 轮询间隔'))
     assert.ok(bundle.includes('打开所在目录'))
     assert.ok(bundle.includes('定位文件'))
 
@@ -804,15 +804,15 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.equal(bundle.includes('复制仓库地址'), false)
     assert.ok(bundle.includes('固定拼图格数'))
     assert.ok(bundle.includes('16,24,36,48,60'))
-    assert.ok(bundle.includes('允许看完视频后自主发表评论（不 @ 主人）'))
-    assert.ok(bundle.includes('每日最多自主发表评论条数'))
-    assert.ok(bundle.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
+    assert.ok(bundle.includes('允许观看后自主发表评论'))
+    assert.ok(bundle.includes('每日自主评论上限'))
+    assert.ok(bundle.includes('允许主人 @ 时自主判断是否观看视频'))
     assert.ok(bundle.includes('每 300 秒（5 分钟）检查一次（默认）'))
-    // 主人 @ 自主判断开关归属「分享与监听」页而非「视频观看设置」页
+    // 主人 @ 自主判断开关归属「互动与安全」页而非「视频观看」页
     const watchSrc = fs.readFileSync(path.resolve('web/views/watch.mjs'), 'utf8')
     const sectionsSrc = fs.readFileSync(path.resolve('web/views/sections.mjs'), 'utf8')
     assert.equal(watchSrc.includes('switchCtrl'), false)
-    assert.ok(sectionsSrc.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
+    assert.ok(sectionsSrc.includes('允许主人 @ 时自主判断是否观看视频'))
     // 关于页以纯文本展示仓库地址且不含 link-btn
     const aboutSrc = fs.readFileSync(path.resolve('web/views/about.mjs'), 'utf8')
     assert.equal(aboutSrc.includes('link-btn'), false)

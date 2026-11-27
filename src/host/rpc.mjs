@@ -156,7 +156,7 @@ export function fallbackModelCatalog(reason = '') {
   return {
     ...normalizeModelCatalog({}),
     source: 'fallback',
-    note: reason || '未连接到 Antigravity Language Server，暂时仅显示自适应档位',
+    note: reason || '未连接到 Antigravity Language Server，暂时仅显示自适应档位。',
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * 后台生物钟与监听主调度器：协调按作息看片、手动唤醒、私信/评论监听、配额守卫与后台 Worker。
+ * 后台生物钟与监听主调度器：协调按作息观看视频、手动唤醒、私信/评论监听、配额守卫与后台辅助模型任务。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -875,39 +875,39 @@ function initializeScheduler(host, opts, health) {
   try { log(`[bili-whale] 后台生物钟守护已启动（每 ${TICK_MS / 1000}s tick · 数据目录 ${whaleHome}）`) } catch {}
 
   async function wakeNow() {
-    if (stopped) throw Error('后台守护已停止运行')
+    if (stopped) throw Error('后台守护已停止运行。')
     if (!host.sessionController?.prompt || (host.sessionController.available && !host.sessionController.available())) {
-      throw Error('尚未连接到 Antigravity 会话接口，请稍候片刻或重启 Antigravity App 后再试')
+      throw Error('尚未连接到 Antigravity 会话接口，请稍候片刻或重启 Antigravity 后再试。')
     }
     if (wakeRunner.current) {
-      throw Error('大鲸鱼当前正在执行唤醒轮次中，请等本轮结束再唤醒')
+      throw Error('大鲸鱼当前正在执行唤醒轮次，请等待本轮结束后再试。')
     }
     if (!hasValidCredentials()) {
-      throw Error('尚未登录大鲸鱼 B 站账号，请先在「大鲸鱼与主人」扫码登录')
+      throw Error('尚未登录大鲸鱼 B 站账号，请先在「账号与主人」扫码登录。')
     }
     if (networkPaused()) {
-      throw Error('当前处于 B 站接口风控或限流冷却期，暂不可立即唤醒')
+      throw Error('当前处于 B 站接口限流或风控冷却期，暂不可立即唤醒。')
     }
     const cfg = readCfgNow()
     const identity = captureDeliveryIdentity(cfg)
     if (!identity.account) {
-      throw Error('尚未登录大鲸鱼 B 站账号，请先在「大鲸鱼与主人」扫码登录')
+      throw Error('尚未登录大鲸鱼 B 站账号，请先在「账号与主人」扫码登录。')
     }
     if (!identity.owner) {
-      throw Error('尚未配置主人 UID，请先在「大鲸鱼与主人」填写并保存主人信息')
+      throw Error('尚未配置主人 UID，请先在「账号与主人」填写并保存主人信息。')
     }
     assertDeliveryIdentity(readCfgNow(), identity)
     const life = getLife(cfg)
     if (lifeConfig(cfg.life).paused || life.read().settings.paused) {
-      throw Error('主动活动已暂停，请先在「动态与记忆」恢复主动活动')
+      throw Error('主动活动已暂停，请先在「动态与记忆」恢复主动活动。')
     }
     const qPaused = await checkQuotaPaused(true)
     if (qPaused) {
-      throw Error(`${qPaused.reason}（可在「模型选择」调低配额保护阈值或等待配额恢复）`)
+      throw Error(`${qPaused.reason.replace(/。$/, '')}，可在「模型与配额」调低配额保护阈值或等待配额恢复。`)
     }
     const busy = await refreshBusyState()
     if (busy === 'still-working') {
-      throw Error('大鲸鱼的会话仍在处理上一轮任务，请稍后再试')
+      throw Error('大鲸鱼会话仍在处理上一轮任务，请稍后再试。')
     }
 
     const nowMs = Date.now()
@@ -977,13 +977,13 @@ function initializeScheduler(host, opts, health) {
       return reqId
     })
 
-    if (acceptedRequest !== reqId) throw Error('大鲸鱼当前正在执行唤醒轮次中，请等本轮结束再唤醒')
+    if (acceptedRequest !== reqId) throw Error('大鲸鱼当前正在执行唤醒轮次，请等待本轮结束后再试。')
     armPlanTimer()
     return {
       ok: true,
       atText,
       requestId: reqId,
-      detail: `已立即唤醒大鲸鱼（${atText}），正在后台逛 B 站并看视频。`,
+      detail: `已立即唤醒大鲸鱼（${atText}），正在后台自主浏览并观看视频。`,
     }
   }
 

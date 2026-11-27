@@ -38,7 +38,7 @@ const safetyReviewer = createSafetyReviewer({ rpc, config: readCfgSafe })
 
 const biliMjs = biliCliPath
 let sched = null
-let schedStatus = { ok: false, reason: '初始化中', at: new Date().toISOString() }
+let schedStatus = { ok: false, reason: '初始化中…', at: new Date().toISOString() }
 
 try {
   sched = startScheduler({ rpc, sessionController }, {
@@ -51,8 +51,8 @@ try {
   schedStatus = {
     ok: true,
     reason: rpc.available()
-      ? '后台守护运行中（每 60 秒 tick，已连接 Antigravity）'
-      : '后台守护已启动，等待 Antigravity 会话环境变量就绪',
+      ? '后台守护运行中（每 60 秒轮询，已连接 Antigravity）。'
+      : '后台守护已启动，等待 Antigravity 会话环境变量就绪。',
     at: new Date().toISOString(),
   }
 } catch (e) {
@@ -72,7 +72,7 @@ const ipc = await startSidecarIpc({
   onSafetyCheck: (payload) => safetyReviewer.review(payload),
   onInvalidate: (resetPlan) => { sched?.invalidate(resetPlan) },
   onTriggerTick: () => { sched?.tick?.() },
-  onWakeNow: () => (sched?.wakeNow ? sched.wakeNow() : Promise.reject(new Error('生物钟调度器未初始化'))),
+  onWakeNow: () => (sched?.wakeNow ? sched.wakeNow() : Promise.reject(new Error('作息调度器未初始化。'))),
 })
 
 log(`[bili-whale] Sidecar IPC 已就绪（127.0.0.1:${ipc.port} · rpcAvailable=${rpc.available()}）`)

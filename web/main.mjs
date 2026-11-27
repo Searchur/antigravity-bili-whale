@@ -235,7 +235,7 @@ const actions = {
       applySavedAccount({ mid: '', name: '' })
       state.depsLoaded = false
       const confirmed = res.remoteRevoked || res.remoteStatus === 'no_credentials'
-      state.logoutMsg = { kind: confirmed ? 'ok' : 'warn', text: res.detail || '已清除本地凭据' }
+      state.logoutMsg = { kind: confirmed ? 'ok' : 'warn', text: res.detail || '已清除本地登录凭据。' }
     } catch (e) {
       state.logoutMsg = { kind: 'err', text: '退出登录失败：' + e.message }
     } finally {
@@ -272,7 +272,7 @@ const actions = {
         ...state.ownerCheck,
         matched: true,
         expectedName: actualName,
-        detail: `已同步为 B 站实际昵称「${actualName}」（记得点击右上角「保存配置」）`,
+        detail: `已同步为 B 站实际昵称「${actualName}」，请点击右上角「保存配置」生效。`,
       }
     }
     render()
@@ -333,7 +333,7 @@ const actions = {
   async applyUpdate(ref = 'main') {
     state.busy = 'update_apply'
     state.updateError = ''
-    state.updateResult = { kind: 'warn', text: '正在从 GitHub 下载最新版插件压缩包、校验完整性并更新本地文件（约 5–20 秒）…' }
+    state.updateResult = { kind: 'warn', text: '正在从 GitHub 下载最新插件压缩包、校验完整性并更新本地文件（约 5–20 秒）…' }
     render()
     try {
       const res = await bridge.callTool('whale_app_ops', { action: 'update_apply', ref })
@@ -398,7 +398,7 @@ const actions = {
     try {
       const res = await bridge.callTool('whale_app_persona', { action: 'save', text: state.personaText })
       state.personaBytes = res.bytes ?? 0
-      state.personaMsg = { kind: 'ok', text: res.detail || '已保存' }
+      state.personaMsg = { kind: 'ok', text: res.detail || '人设已保存。' }
     } catch (e) {
       state.personaMsg = { kind: 'err', text: e.message }
     } finally {
@@ -415,7 +415,7 @@ const actions = {
     try {
       const res = await bridge.callTool('whale_app_ops', { action: 'wake_now' })
       ok = true
-      state.wakeMsg = { kind: 'ok', text: res.detail || '已立即唤醒大鲸鱼，正在后台逛 B 站并看视频。' }
+      state.wakeMsg = { kind: 'ok', text: res.detail || '已立即唤醒大鲸鱼，正在后台自主浏览并观看视频。' }
     } catch (e) {
       state.wakeMsg = { kind: 'err', text: '唤醒失败：' + e.message }
     } finally {
@@ -500,7 +500,7 @@ const actions = {
               ok: false,
               status: 'error',
               version: '检测异常',
-              detail: '本次环境检测未能返回完整结果，请稍后点击「重新检测」',
+              detail: '本次环境检测未能返回完整结果，请稍后点击「重新检测」。',
               action: null,
             },
           ],
@@ -518,7 +518,7 @@ const actions = {
             ok: false,
             status: 'error',
             version: '暂不可用',
-            detail: '未能连接到插件环境检测接口，请确认插件正在运行后点击「重新检测」',
+            detail: '未能连接到插件环境检测接口，请确认插件正在运行后点击「重新检测」。',
             action: null,
           },
         ],
@@ -697,16 +697,16 @@ function render() {
   if (!state.ready || !state.cfg) {
     mount(
       state.banner ? el('div', { className: 'banner ' + state.banner.kind }, state.banner.text) : null,
-      el('div', { className: 'loading-box' }, '正在读取哔哩哔哩大鲸鱼控制台…'))
+      el('div', { className: 'loading-box' }, '正在加载控制台配置…'))
     return
   }
 
   const tabs = [
-    ['account', '大鲸鱼与主人'],
+    ['account', '账号与主人'],
     ['persona', '人设与作息'],
-    ['models', '模型选择'],
-    ['watch', '视频观看设置'],
-    ['interact', '分享与监听'],
+    ['models', '模型与配额'],
+    ['watch', '视频观看'],
+    ['interact', '互动与安全'],
     ['memory', '动态与记忆'],
     ['env', '环境与依赖'],
     ['about', '关于与更新'],

@@ -8,7 +8,7 @@
  * 4. paused_manual     —— 仅手动暂停主动活动
  * 5. paused_quota      —— 仅模型配额保护自动暂停全部后台活动
  * 6. loading           —— 身份与守护正常，等待读取长期状态快照
- * 7. standby           —— 一切就绪但自动看片与私信/评论监听均未开启
+ * 7. standby           —— 一切就绪但自动观看视频与私信/评论监听均未开启
  * 8. running           —— 一切就绪且已开启自动活动，正常运行中
  */
 
@@ -63,18 +63,18 @@ export function deriveActivityStatus({ savedConfig = null, draftConfig = null, s
   // 1. 前置身份未就绪（最高优先级：不可写长期状态、不触发调度与监听）
   if (!identity.ready) {
     let badgeText = '未绑定账号与主人'
-    let baseNotice = '请先在「大鲸鱼与主人」完成大鲸鱼 B 站扫码登录并填写主人 UID，保存后才会启用后台活动、暂停控制与长期记忆。'
+    let baseNotice = '请先在「账号与主人」完成大鲸鱼 B 站扫码登录并填写主人 UID，保存后才会启用后台活动、暂停控制与长期记忆。'
     if (!identity.hasAccount && identity.hasOwner) {
       badgeText = '尚未登录大鲸鱼账号'
-      baseNotice = '尚未登录大鲸鱼 B 站账号；请先在「大鲸鱼与主人」扫码登录后再启用后台活动、暂停控制与长期记忆。'
+      baseNotice = '尚未登录大鲸鱼 B 站账号；请先在「账号与主人」扫码登录后再启用后台活动、暂停控制与长期记忆。'
     } else if (identity.hasAccount && !identity.hasOwner) {
       badgeText = '尚未配置主人 UID'
       baseNotice = identity.unsavedOwnerDraft
         ? '检测到已填写主人 UID 但尚未保存；请先点击右上角「保存配置」，保存后才会启用后台活动、暂停控制与长期记忆。'
-        : '尚未配置主人 UID；请先在「大鲸鱼与主人」填写并保存主人信息后再启用后台活动、暂停控制与长期记忆。'
+        : '尚未配置主人 UID；请先在「账号与主人」填写并保存主人信息后再启用后台活动、暂停控制与长期记忆。'
     }
     const quotaNote = quotaPaused
-      ? ` 此外，当前模型剩余配额低于保护阈值${quotaClause ? `（${quotaClause}）` : ''}，完成配置后也会受配额保护暂停（可在「模型选择」调整）。`
+      ? ` 此外，当前模型剩余配额低于保护阈值${quotaClause ? `（${quotaClause}）` : ''}，完成配置后也会受配额保护暂停（可在「模型与配额」调整）。`
       : ''
     return {
       code: 'identity_missing',
@@ -99,8 +99,8 @@ export function deriveActivityStatus({ savedConfig = null, draftConfig = null, s
       notice: {
         kind: 'err',
         text: manualPaused
-          ? '后台守护进程（Sidecar）当前未连接，定时看片、私信/评论监听与自动归纳不会执行；同时你已手动暂停主动活动，可前往「环境与依赖」排查。'
-          : '后台守护进程（Sidecar）当前未连接，定时看片、私信/评论监听与自动归纳当前不会执行，请前往「环境与依赖」排查。',
+          ? '后台守护（Sidecar）当前未连接，定时观看视频、私信与评论监听及自动归纳不会执行；同时主动活动已手动暂停，可前往「环境与依赖」排查。'
+          : '后台守护（Sidecar）当前未连接，定时观看视频、私信与评论监听及自动归纳当前不会执行，请前往「环境与依赖」排查。',
       },
       primaryAction: { type: 'goto_tab', tab: 'env', label: '查看环境状态', style: 'primary' },
       secondaryAction: manualPaused
@@ -119,7 +119,7 @@ export function deriveActivityStatus({ savedConfig = null, draftConfig = null, s
       badge: { kind: 'warn', text: '已暂停（手动 + 配额保护）' },
       notice: {
         kind: 'warn',
-        text: `你已手动暂停主动活动；同时当前模型${quotaClause ? `（${quotaClause}）` : ''}已触发配额保护暂停全部后台活动。解除手动暂停后，仍需等待配额恢复或调低阈值才会恢复自动活动。`,
+        text: `已手动暂停主动活动，同时当前模型${quotaClause ? `（${quotaClause}）` : ''}已触发配额保护暂停全部后台活动。解除手动暂停后，仍需等待配额恢复或调低阈值才会恢复自动活动。`,
       },
       primaryAction: { type: 'pause', value: false, label: '恢复主动活动', style: 'primary' },
       secondaryAction: { type: 'goto_tab', tab: 'models', label: '调整配额保护', style: '' },
@@ -136,7 +136,7 @@ export function deriveActivityStatus({ savedConfig = null, draftConfig = null, s
       badge: { kind: 'warn', text: '主动活动已手动暂停' },
       notice: {
         kind: 'warn',
-        text: '已手动暂停按作息看片、主动外发与后台记忆归纳（已开启的被动私信/评论回复不受影响）；点击「恢复主动活动」即可恢复。',
+        text: '已手动暂停按作息观看视频、主动外发与后台记忆归纳（已开启的被动私信与评论回复不受影响）；点击「恢复主动活动」即可恢复。',
       },
       primaryAction: { type: 'pause', value: false, label: '恢复主动活动', style: 'primary' },
       secondaryAction: null,
@@ -146,8 +146,8 @@ export function deriveActivityStatus({ savedConfig = null, draftConfig = null, s
   // 5. 仅配额保护自动暂停（不展示冲突的「正常运行中」与「暂停主动活动」）
   if (quotaPaused) {
     const reasonText = quota?.reason
-      ? `${quota.reason}。配额恢复后将自动解除，也可前往「模型选择」调整保护阈值。`
-      : `当前模型剩余配额低于保护阈值${quotaClause ? `（${quotaClause}）` : ''}，已自动暂停看视频、私信/评论回复与后台归纳等全部活动；配额恢复后将自动解除，也可前往「模型选择」调整保护阈值。`
+      ? `${quota.reason.replace(/。$/, '')}。配额恢复后将自动解除，也可前往「模型与配额」调整保护阈值。`
+      : `当前模型剩余配额低于保护阈值${quotaClause ? `（${quotaClause}）` : ''}，已自动暂停视频观看、私信与评论回复及后台归纳等全部活动；配额恢复后将自动解除，也可前往「模型与配额」调整保护阈值。`
     return {
       code: 'paused_quota',
       identity,
@@ -184,7 +184,7 @@ export function deriveActivityStatus({ savedConfig = null, draftConfig = null, s
       badge: { kind: 'info', text: '已就绪 · 待命中' },
       notice: {
         kind: 'info',
-        text: '账号与守护均已就绪，当前未开启自动看片或私信/评论监听（仍可在「人设与作息」手动立即唤醒，或前往「分享与监听」开启自动开关）。',
+        text: '账号与守护均已就绪，当前未开启自动观看视频或私信与评论监听（仍可在「人设与作息」手动立即唤醒，或前往「互动与安全」开启自动开关）。',
       },
       primaryAction: { type: 'pause', value: true, label: '暂停主动活动', style: 'danger' },
       secondaryAction: null,

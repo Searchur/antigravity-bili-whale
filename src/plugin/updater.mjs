@@ -209,7 +209,7 @@ export async function checkForUpdate({
   let summary = '缺少可比较的版本或提交信息，暂时无法确认是否已是最新。'
   if (compareSemver(latestVersion, local.version) > 0) {
     status = 'update_available'
-    summary = `发现新版本 v${latestVersion}（当前 v${local.version}）`
+    summary = `发现新版本 v${latestVersion}（当前 v${local.version}）。`
   } else if (mainVersion && compareSemver(mainVersion, local.version) < 0) {
     status = release ? 'up_to_date' : 'incomplete'
     summary = `当前安装版本 v${local.version} 高于 main 分支版本 v${mainVersion}。`
@@ -220,7 +220,7 @@ export async function checkForUpdate({
     if (baseline && baseline !== mainCommit.sha) {
       status = 'commit_available'
       targetRef = 'main'
-      summary = `main 分支有新提交（${mainCommit.shortSha}：${mainCommit.message || '代码更新'}）`
+      summary = `main 分支有新提交（${mainCommit.shortSha}：${mainCommit.message || '代码更新'}）。`
     } else if (baseline === mainCommit.sha) {
       status = 'up_to_date'
       summary = '当前安装与远端 main 提交一致。'
@@ -359,7 +359,7 @@ export async function applyPluginUpdate({
       updatedEntries,
       updatedAt,
       requiresRestart: true,
-      message: `已更新至 v${manifest.version}${commitSha ? `（${commitSha.slice(0, 7)}）` : ''}。请重启 Antigravity App（或在插件页停用再重新启用）以加载新版。`,
+      message: `已更新至 v${manifest.version}${commitSha ? `（${commitSha.slice(0, 7)}）` : ''}。请重启 Antigravity（或在插件页停用再重新启用）以加载新版。`,
     }
   } finally {
     try { fs.rmSync(workDir, { recursive: true, force: true }) }

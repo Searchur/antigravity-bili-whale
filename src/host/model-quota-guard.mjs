@@ -87,7 +87,7 @@ export function evaluateModelQuota(catalog, rawModelCfg) {
     modelLabel,
     resetTime: hit.resetTime || null,
     reason: paused
-      ? `模型「${modelLabel}」剩余配额 ${remainingPercent}% 低于保护阈值 ${threshold}%，已暂停全部后台活动`
+      ? `模型「${modelLabel}」剩余配额 ${remainingPercent}% 低于保护阈值 ${threshold}%，已暂停全部后台活动。`
       : '',
   }
 }

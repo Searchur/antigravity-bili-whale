@@ -1,5 +1,5 @@
 /**
- * Tab 4 视图（视频观看设置）：渲染自主看片、主人评论区 @ 总结与粉丝评论区 @ 总结三类独立规则。
+ * Tab 4 视图（视频观看）：渲染自主观看、主人评论区 @ 观看与总结及粉丝评论区 @ 观看与总结三类独立规则。
  */
 import { el, getPath, row, selectCtrl, metaPill, banner } from './sections.mjs'
 
@@ -48,19 +48,19 @@ function renderWatchMethodBlock(pathPrefix, viewCfg, actions, { durationSamples 
 
   return el('div', {},
     row(
-      '每隔多少秒抽一帧',
-      '每条观看视频均读取文字并按固定间隔抽帧看画面：首帧即为间隔时刻（0 秒不抽），时长不能整除时尾帧向上取整。',
+      '抽帧时间间隔',
+      '每条观看视频均读取文字并按固定间隔抽帧：首帧从间隔时刻起算（0 秒不抽），时长不能整除时尾帧向上取整。',
       selectCtrl(frameEverySec, [
         ['5', '每 5 秒抽 1 帧（超精细）'],
         ['10', '每 10 秒抽 1 帧（较细）'],
         ['15', '每 15 秒抽 1 帧（默认）'],
         ['20', '每 20 秒抽 1 帧'],
         ['30', '每 30 秒抽 1 帧（省配额）'],
-        ['60', '每 60 秒抽 1 帧（长片概览）'],
+        ['60', '每 60 秒抽 1 帧（长视频概览）'],
       ], v => actions.setCfg([...pathPrefix, 'frameEverySec'], Number(v), true))),
     row(
-      '单条视频最多抽帧上限',
-      '限制单条视频最多抽取的总帧数；超过上限时自动按整片等间隔采样。',
+      '单条视频抽帧上限',
+      '限制单条视频最多抽取的总帧数；超过上限时自动按整条视频等间隔采样。',
       selectCtrl(maxFrames, maxFrameOpts, v => actions.setCfg([...pathPrefix, 'maxFrames'], Number(v), true))),
     row(
       '固定拼图格数',
@@ -80,20 +80,20 @@ function renderWatchMethodBlock(pathPrefix, viewCfg, actions, { durationSamples 
 function renderDurationStrip(autoMaxMin, confirmMaxMin, roleLabel) {
   return el('div', { className: 'rule-strip' },
     el('div', { className: 'rule-tier ok' },
-      el('div', { className: 'rule-tier-k' }, `≤ ${autoMaxMin} 分钟：直接看并总结`),
-      el('div', { className: 'rule-tier-v' }, `无需等待确认，直接看完并回复${roleLabel}。`)),
+      el('div', { className: 'rule-tier-k' }, `≤ ${autoMaxMin} 分钟：直接观看并总结`),
+      el('div', { className: 'rule-tier-v' }, `无需等待确认，直接观看并回复${roleLabel}。`)),
     confirmMaxMin > autoMaxMin
       ? el('div', { className: 'rule-tier warn' },
           el('div', { className: 'rule-tier-k' }, `${autoMaxMin}–${confirmMaxMin} 分钟：先回复询问确认`),
-          el('div', { className: 'rule-tier-v' }, `先告知视频时长，等${roleLabel}回复确认后再看并总结。`))
+          el('div', { className: 'rule-tier-v' }, `先告知视频时长，待${roleLabel}回复确认后再观看并总结。`))
       : null,
     el('div', { className: 'rule-tier err' },
-      el('div', { className: 'rule-tier-k' }, `> ${confirmMaxMin} 分钟：一律不看`),
-      el('div', { className: 'rule-tier-v' }, '直接礼貌回复说明超过时长上限，不消耗看片配额。')))
+      el('div', { className: 'rule-tier-k' }, `> ${confirmMaxMin} 分钟：拒绝观看`),
+      el('div', { className: 'rule-tier-v' }, '直接礼貌回复说明超过时长上限，不消耗视频观看配额。')))
 }
 
 /**
- * Tab 4：视频观看设置（三类完全独立配置，每条观看视频均读文字并按固定间隔抽帧拼图）
+ * Tab 4：视频观看（三类独立规则，每条观看视频均读取文字并按固定间隔抽帧拼图）
  */
 export function renderWatchTab(state, actions) {
   const cfg = state.cfg
@@ -105,15 +105,15 @@ export function renderWatchTab(state, actions) {
   const commentOwner = getPath(cfg, ['listen', 'commentOwner']) === true
   const mentionSummaryOwner = getPath(cfg, ['listen', 'mentionSummaryOwner']) === true
 
-  // 一、自主看视频
+  // 一、自主观看
   const maxDurMin = Math.min(30, Math.max(1, Number(auto.maxDurationMin ?? 10)))
   const minDurSec = Number(auto.minDurationSec ?? 60)
   const autoCard = el('div', { className: 'card' },
-    el('h2', {}, '一、大鲸鱼自主看视频设置'),
-    el('p', { className: 'card-sub' }, '控制按作息自主刷 B 站时挑视频的时长硬限制与抽帧拼图设置（每条观看视频均读取文字并抽帧看画面）。'),
+    el('h2', {}, '一、自主观看'),
+    el('p', { className: 'card-sub' }, '控制按作息计划自主观看视频的时长硬限制与抽帧拼图参数；每条观看视频均读取文字信息并按固定间隔抽帧。'),
     row(
       '自主观看最长时长',
-      '超过该时长的视频在选片与深看阶段都会被代码硬拦截跳过，不纳入本轮观看。',
+      '超过该时长的视频将在筛选与深度观看阶段直接跳过，不纳入本轮观看。',
       selectCtrl(maxDurMin, [
         ['5', '5 分钟以内'],
         ['10', '10 分钟以内（默认）'],
@@ -128,7 +128,7 @@ export function renderWatchTab(state, actions) {
       })),
     row(
       '自主观看最短时长',
-      '过滤掉太短的碎片/水视频，避免浪费深看名额。',
+      '过滤过短的视频，避免占用深度观看名额。',
       selectCtrl(minDurSec, [
         ['0', '不限制（0 秒）'],
         ['15', '至少 15 秒'],
@@ -141,29 +141,29 @@ export function renderWatchTab(state, actions) {
       durationSamples: [{ label: '自主观看最长', min: maxDurMin }],
     }))
 
-  // 二、主人评论区 @ 看视频与总结
+  // 二、主人评论区 @ 观看与总结
   const ownerAutoMax = Number(ownerM.autoMaxMin ?? 10)
   const ownerConfirmMax = Math.max(ownerAutoMax, Number(ownerM.confirmMaxMin ?? 20))
   const ownerReplyStyle = ownerM.replyStyle || 'comment'
   const ownerMentionReady = commentOwner && mentionSummaryOwner
 
   const ownerConfirmOptions = [
-    [String(ownerAutoMax), `不设确认档（超过 ${ownerAutoMax} 分钟直接不看）`],
+    [String(ownerAutoMax), `不设确认档（超过 ${ownerAutoMax} 分钟拒绝观看）`],
     ...[8, 10, 15, 20, 30, 45, 60].filter(m => m > ownerAutoMax).map(m => [String(m), m === 20 ? `${m} 分钟（默认）` : `${m} 分钟`]),
   ]
 
   const ownerCard = el('div', { className: 'card' },
-    el('h2', {}, '二、主人评论区 @ 她看视频与总结设置'),
-    el('p', { className: 'card-sub' }, '当你在 B 站视频评论区 @ 大鲸鱼且她判断需要先看视频再回复你时生效（每条观看视频均读取文字并抽帧看画面，仅认「主人信息」里配置的 UID）。'),
+    el('h2', {}, '二、主人评论区 @ 观看与总结'),
+    el('p', { className: 'card-sub' }, '主人在 B 站视频评论区 @ 大鲸鱼且判定需先观看视频再回复时生效（仅识别「账号与主人」中配置的主人 UID，每条观看视频均读取文字并抽帧）。'),
     !ownerMentionReady
-      ? banner('warn', '提示：尚未开启主人评论区 @ 监听或「主人 @ 自主判断是否看视频」开关，可前往「分享与监听 → 四、评论区互动」开启。', {
+      ? banner('warn', '尚未开启主人评论区监听或「允许主人 @ 时自主判断是否观看视频」开关，可前往「互动与安全 → 四、评论区被动回复」开启。', {
           action: el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'),
         })
       : null,
     renderDurationStrip(ownerAutoMax, ownerConfirmMax, '主人'),
     row(
-      '直接看并总结的时长上限',
-      '小于等于该时长的视频，判断需看视频后会直接观看并回复。',
+      '直接观看并总结上限',
+      '不超过该时长的视频在判定需观看后会直接观看并回复。',
       selectCtrl(ownerAutoMax, [
         ['3', '3 分钟以内'],
         ['5', '5 分钟以内'],
@@ -179,16 +179,16 @@ export function renderWatchTab(state, actions) {
         actions.rerender()
       })),
     row(
-      '需先回复主人确认的时长上限',
-      '介于两档之间时先评论问你确不确定看；超过该上限一律不看。',
+      '询问确认时长上限',
+      '介于两档之间的视频会先回复询问主人是否观看；超过该上限一律不观看。',
       selectCtrl(ownerConfirmMax, ownerConfirmOptions, v => actions.setCfg(['watch', 'ownerMention', 'confirmMaxMin'], Number(v), true))),
     row(
-      '总结结果的回复方式',
-      '选择直接回复在原视频评论区，或发 B 站私信给你。',
+      '总结回复方式',
+      '选择在原视频评论区回复主人，或通过 B 站私信发送给主人。',
       selectCtrl(ownerReplyStyle, [
-        ['comment', '在原视频评论区直接回复你（默认）'],
-        ['dm', '通过 B 站私信发给你（需互关，不发公开评论）'],
-        ['both', '评论区回复 + B 站私信同步发'],
+        ['comment', '在原视频评论区回复主人（默认）'],
+        ['dm', '通过 B 站私信发送给主人（需互关，不发公开评论）'],
+        ['both', '评论区回复并同步发送 B 站私信'],
       ], v => actions.setCfg(['watch', 'ownerMention', 'replyStyle'], v, true))),
     renderWatchMethodBlock(['watch', 'ownerMention'], ownerM, actions, {
       durationSamples: ownerConfirmMax > ownerAutoMax
@@ -196,25 +196,25 @@ export function renderWatchTab(state, actions) {
         : [{ label: '主人 @ 最长', min: ownerAutoMax }],
     }))
 
-  // 三、粉丝（仅已关注大鲸鱼）评论区 @ 看视频与总结（无确认档）
+  // 三、粉丝评论区 @ 观看与总结（仅限已关注粉丝，无确认档）
   const fanAutoMax = Number(fanM.autoMaxMin ?? 10)
   const fanMentionReady = getPath(cfg, ['listen', 'commentFan']) === true && getPath(cfg, ['listen', 'mentionSummaryFan']) === true
   const mentionTotalDaily = Math.min(10, Math.max(1, Number(fanLimits.mentionTotalDaily ?? 5)))
 
   const fanCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
-      el('h2', {}, '三、粉丝评论区 @ 她看视频与总结设置'),
-      metaPill('仅限已关注大鲸鱼的粉丝', 'info')),
-    el('p', { className: 'card-sub' }, '系统会通过 B 站关注关系接口实时校验对方是否已关注大鲸鱼；未关注的路人 @ 请求一律忽略。粉丝不设询问确认档，超限直接礼貌拒绝（每条观看视频均读取文字并抽帧看画面）。'),
+      el('h2', {}, '三、粉丝评论区 @ 观看与总结'),
+      metaPill('仅限已关注粉丝', 'info')),
+    el('p', { className: 'card-sub' }, '通过 B 站关注关系接口实时校验对方是否已关注大鲸鱼，未关注用户的 @ 请求一律忽略；粉丝不设询问确认档，超限直接礼貌拒绝。'),
     !fanMentionReady
-      ? banner('warn', '提示：尚未开启粉丝评论区 @ 总结监听，可前往「分享与监听 → 四、评论区互动」按需开启。', {
+      ? banner('warn', '尚未开启粉丝评论区 @ 总结监听，可前往「互动与安全 → 四、评论区被动回复」按需开启。', {
           action: el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'),
         })
       : null,
     renderDurationStrip(fanAutoMax, fanAutoMax, '该粉丝'),
     row(
-      '直接看并总结的时长上限',
-      '小于等于该时长的视频，已关注粉丝 @ 她后会直接观看并在评论区回复总结；超过则一律不看。',
+      '直接观看并总结上限',
+      '不超过该时长的视频在收到已关注粉丝 @ 请求后会直接观看并在评论区回复总结；超过上限一律不观看。',
       selectCtrl(fanAutoMax, [
         ['2', '2 分钟以内'],
         ['3', '3 分钟以内'],
@@ -229,8 +229,8 @@ export function renderWatchTab(state, actions) {
         actions.rerender()
       })),
     row(
-      '每位粉丝每天最多 @ 总结次数',
-      '防止个别粉丝高频 @ 看片刷爆模型配额。',
+      '单粉丝每日 @ 总结上限',
+      '限制单个粉丝每日可触发 @ 总结的次数，防止过度消耗模型配额。',
       selectCtrl(Number(fanLimits.mentionPerUserDaily ?? 1), [
         ['1', '每人每天最多 1 次（默认）'],
         ['2', '每人每天最多 2 次'],
@@ -239,7 +239,7 @@ export function renderWatchTab(state, actions) {
       ], v => actions.setCfg(['fanLimits', 'mentionPerUserDaily'], Number(v), true))),
     row(
       '全天粉丝 @ 总结总上限',
-      '每天响应所有粉丝 @ 看片总结的总次数上限。',
+      '每天响应所有粉丝 @ 总结请求的总次数上限。',
       selectCtrl(mentionTotalDaily, [
         ['3', '每天最多 3 次'],
         ['5', '每天最多 5 次（默认）'],
