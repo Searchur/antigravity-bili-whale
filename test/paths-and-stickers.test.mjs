@@ -32,7 +32,8 @@ test('42 bundled stickers work out of the box without manual copy', () => {
   const happy = getSticker('开心')
   assert.equal(happy.name, '开心')
   assert.ok(fs.existsSync(happy.path))
-  assert.ok(stickerHint().includes('bili_stickers'))
+  assert.ok(stickerHint().includes('bili_read'))
+  assert.ok(stickerHint().includes('stickers list'))
 })
 
 test('default models use Antigravity built-in flash + flash_lite', () => {

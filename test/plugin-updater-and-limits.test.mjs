@@ -776,7 +776,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     const fakeBili = path.join(dir, 'fake-bili.mjs')
     fs.writeFileSync(fakeBili, `for (const p of ${JSON.stringify(sheetPaths)}) console.log('SHEET: ' + p)\n`)
     const runner = createModelToolRunner({ whaleHome: dir, cfgFile: path.join(dir, 'config.json'), biliMjs: fakeBili })
-    const res = await runner('bili_inspect', { command: 'watch-video', args: ['BV1xx411c7mD'] })
+    const res = await runner('bili_read', { command: 'watch-video', args: ['BV1xx411c7mD'] })
     assert.equal(res.isError, false)
     assert.equal(res.content.filter(c => c.type === 'image').length, 4)
 

@@ -67,5 +67,5 @@ export function getSticker(id, { root = resolveStickerRoot() } = {}) {
 export function stickerHint(options) {
   const data = listStickers(options)
   if (!data.total) return ''
-  return '表情包 ' + data.total + ' 张：' + JSON.stringify(data.items.slice(0, 8).map(x => x.name || x.mood)) + '。需要时用 bili_stickers（list / get）取准确路径；可配图，也可不配。'
+  return '表情包 ' + data.total + ' 张：' + JSON.stringify(data.items.slice(0, 8).map(x => x.name || x.mood)) + '。需要时用 bili_read（stickers list / stickers get）取准确路径；可配图，也可不配。'
 }

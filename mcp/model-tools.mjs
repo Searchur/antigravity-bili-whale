@@ -11,60 +11,25 @@ const IMAGE_MIMES = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'imag
 
 const GROUPS = [
   {
-    name: 'bili_browse',
-    title: 'B站选片与检索',
-    description: '只读浏览与选题工具。支持命令：feed（按口味选题）、discover（按新鲜度选片）、round（批量找片深读汇总）、search（WBI 关键词搜索）、whois（按 mid 查昵称）、covers（抓取封面图）。',
-    commands: ['feed', 'discover', 'round', 'search', 'whois', 'covers'],
-    timeoutMs: 180_000,
-  },
-  {
-    name: 'bili_inspect',
-    title: 'B站视频深读与画面抽帧',
-    description: '视频内容与评论深读工具。支持命令：debrief（一条龙：封面+简介+字幕+弹幕热区+热评+画面抽帧，自动附带画面图）、watch-video（抽帧拼图并附带画面图）、subtitles（官方字幕辅助查看）、comments（热评/最新评论）、batch-debrief（有限并发深读）、read-shot（按路径读取 shots 缓存内的封面或抽帧图）。',
-    commands: ['debrief', 'watch-video', 'subtitles', 'comments', 'batch-debrief', 'read-shot'],
+    name: 'bili_read',
+    title: 'B站只读浏览、深读看图与状态查询',
+    description: '全部只读工具，不产生 B 站外发副作用。支持命令：选片检索（feed / discover / round / search / whois / covers）、视频深读与画面抽帧（debrief / watch-video / subtitles / comments / batch-debrief / read-shot，debrief 与 watch-video 自动附带画面图）、收件箱与复核（comment-digest / likes / thread / check-comment / check-dynamic / check-mention / recon）、记忆与状态（life / quota / night / traffic）、表情包目录（stickers，传 ["list"] 或 ["get","名称"]）以及运维规范（deps / selftest / session / behavior / config / read-prompt）。',
+    commands: [
+      'feed', 'discover', 'round', 'search', 'whois', 'covers',
+      'debrief', 'watch-video', 'subtitles', 'comments', 'batch-debrief', 'read-shot',
+      'comment-digest', 'likes', 'thread', 'check-comment', 'check-dynamic', 'check-mention', 'recon',
+      'life', 'quota', 'night', 'traffic',
+      'stickers',
+      'deps', 'selftest', 'session', 'behavior', 'config', 'read-prompt',
+    ],
     timeoutMs: 300_000,
   },
   {
-    name: 'bili_interact',
-    title: 'B站公开互动写操作（强制 --dry/--go）',
-    description: '评论、动态、点赞、收藏、关注工具。支持命令：comment、comment-del、dynamic、dynamic-image、like、fav、follow。写操作先用 --dry 预览，再用相同参数改为 --go。',
-    commands: ['comment', 'comment-del', 'dynamic', 'dynamic-image', 'like', 'fav', 'follow'],
+    name: 'bili_write',
+    title: 'B站外发写操作（强制 --dry/--go 与安全审核）',
+    description: '全部 B 站公开互动与私信写操作工具。支持命令：公开互动（comment / comment-del / dynamic / dynamic-image / like / fav / follow）与私信（dm / dm-batch，须附带本任务的 --account 大鲸鱼UID 与 --to 收信人UID）。所有外发写操作须先 --dry 预览再以相同参数改 --go 发送，系统自动执行外发安全审核。',
+    commands: ['comment', 'comment-del', 'dynamic', 'dynamic-image', 'like', 'fav', 'follow', 'dm', 'dm-batch'],
     timeoutMs: 360_000,
-  },
-  {
-    name: 'bili_dm',
-    title: 'B站主人私信与粉丝来信回复（强制 --dry/--go）',
-    description: '主人私信及粉丝来信回复。支持命令：dm（主人私信或持有效来信回执回复粉丝）、dm-batch（主人多段私信）。先 --dry 预览再 --go 发送。',
-    commands: ['dm', 'dm-batch'],
-    timeoutMs: 360_000,
-  },
-  {
-    name: 'bili_inbox',
-    title: 'B站收件箱与发送复核',
-    description: '只读收件箱与发后回读复核工具。支持命令：comment-digest（回复+@ 汇总）、likes（收到的赞）、thread（评论楼中楼结构）、check-comment（按 rpid 核实评论存在）、check-dynamic（查动态结构）、check-mention（核查动态 @ 提及）、recon（评论区侦查）。',
-    commands: ['comment-digest', 'likes', 'thread', 'check-comment', 'check-dynamic', 'check-mention', 'recon'],
-    timeoutMs: 120_000,
-  },
-  {
-    name: 'bili_life',
-    title: '鲸鱼长期记忆与作息状态',
-    description: '长期记忆、额度与作息工具。支持命令：life（有界记忆与上下文检索）、quota（分享/评论/动态额度查询）、night（作息状态）、traffic（请求保护只读状态）。',
-    commands: ['life', 'quota', 'night', 'traffic'],
-    timeoutMs: 120_000,
-  },
-  {
-    name: 'bili_stickers',
-    title: '鲸鱼表情包目录（42 张随包内置）',
-    description: '查询随插件内置的 42 张表情包路径（无需手动复制）。支持命令：list（分页列出目录）、get（按 ID 或情绪名取本地图片绝对路径，供 dm/comment --pic 使用）。',
-    commands: ['list', 'get'],
-    timeoutMs: 30_000,
-  },
-  {
-    name: 'bili_ops',
-    title: '鲸鱼运维与规范阅读',
-    description: '运维与行为规范工具。支持命令：deps（依赖体检）、selftest（启动自检）、session（确认当前登录账号）、behavior（行为规范）、config（只读查看选片参数）、read-prompt（读取已授权的唤醒上下文文件）。',
-    commands: ['deps', 'selftest', 'session', 'behavior', 'config', 'read-prompt'],
-    timeoutMs: 120_000,
   },
 ]
 
@@ -204,32 +169,36 @@ export function createModelToolRunner({
       isError: true,
       content: [{ type: 'text', text: '该模型工具仅提供公开资料和本任务授权的上下文，管理数据请在控制台查看。' }],
     })
-    if (toolName === 'bili_life' && command === 'life') {
+    if (toolName === 'bili_read' && command === 'life') {
       extra = modelLifeArgs(extra)
       if (!extra) return restricted()
     }
-    if (toolName === 'bili_life' && command === 'quota') {
+    if (toolName === 'bili_read' && command === 'quota') {
       if (extra[0] === 'status') extra = ['status', '--summary-only']
       else if (extra[0] !== 'check') return restricted()
     }
-    if (toolName === 'bili_life' && command === 'traffic') {
+    if (toolName === 'bili_read' && command === 'traffic') {
       if (extra.length === 0) extra = ['status']
       else if (!(extra.length === 1 && extra[0] === 'status')) return restricted()
     }
-    if (toolName === 'bili_ops' && command === 'config') {
+    if (toolName === 'bili_read' && command === 'config') {
       if (extra.length === 0) extra = ['show']
       else if (!(extra.length === 1 && extra[0] === 'show')) return restricted()
     }
-    if (toolName === 'bili_dm') {
+    if (toolName === 'bili_read' && command === 'stickers') {
+      if (!extra.length) extra = ['list']
+      else if (!['list', 'get'].includes(extra[0])) return restricted()
+    }
+    if (toolName === 'bili_write' && (command === 'dm' || command === 'dm-batch')) {
       const hasUid = flag => extra.filter(value => value === flag).length === 1 && /^[1-9]\d{0,19}$/.test(extra[extra.indexOf(flag) + 1] ?? '')
       if (extra.includes('--status') || !hasUid('--account') || !hasUid('--to')) {
         return { isError: true, content: [{ type: 'text', text: '私信操作需要本任务的 --account 大鲸鱼UID 和 --to 收信人UID。' }] }
       }
     }
-    if (toolName === 'bili_life' && command === 'night' && (extra.length !== 1 || extra[0] !== 'status')) return restricted()
+    if (toolName === 'bili_read' && command === 'night' && (extra.length !== 1 || extra[0] !== 'status')) return restricted()
 
     // Portable built-in helper: read oversized prompt materialized in whale-work/.prompts/
-    if (toolName === 'bili_ops' && command === 'read-prompt') {
+    if (toolName === 'bili_read' && command === 'read-prompt') {
       const name = extra[0]
       if (!/^[a-f0-9]{48}\.json$/.test(name)) return restricted()
       const target = path.join(promptsDir, name)
@@ -245,7 +214,7 @@ export function createModelToolRunner({
     }
 
     // Portable built-in helper: read cover / frame image strictly inside shots/
-    if (toolName === 'bili_inspect' && command === 'read-shot') {
+    if (toolName === 'bili_read' && command === 'read-shot') {
       const rawPath = String(extra[0] ?? '').trim()
       const resolved = path.isAbsolute(rawPath) ? rawPath : path.join(shotsDir, rawPath)
       const img = readShotImageBlock(shotsDir, resolved)
@@ -258,7 +227,7 @@ export function createModelToolRunner({
       }
     }
 
-    const cliArgv = toolName === 'bili_stickers' ? ['stickers', command, ...extra] : [command, ...extra]
+    const cliArgv = [command, ...extra]
     const res = await runCli(cliArgv, group.timeoutMs)
     const parts = []
     if (res.stdout.trim()) parts.push(res.stdout.trim())
@@ -269,7 +238,7 @@ export function createModelToolRunner({
       text = text.slice(0, MAX_OUTPUT_CHARS) + `\n\n...(输出已截断，总长 ${text.length} 字符)`
     }
     const content = [{ type: 'text', text }]
-    if (res.ok && toolName === 'bili_inspect' && ['debrief', 'watch-video'].includes(command)) {
+    if (res.ok && toolName === 'bili_read' && ['debrief', 'watch-video'].includes(command)) {
       content.push(...extractInlineShotBlocks(shotsDir, res.stdout))
     }
     return {

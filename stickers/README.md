@@ -6,7 +6,7 @@
 
 **无需手动复制任何文件**，插件运行时会自动从自身 `stickers/` 目录读取内置表情包。
 
-在 Antigravity 中可直接通过 MCP 工具 `bili_stickers` 或命令行调用：
+在 Antigravity 中可直接通过 MCP 工具 `bili_read`（`command="stickers"`, `args=["list"]` / `["get","开心"]`）或命令行调用：
 
 ```powershell
 node tools/bili.mjs stickers list        # 分页查看目录（编号 / 名称 / 情绪）

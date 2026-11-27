@@ -251,4 +251,4 @@ for (const x of diversified) {
   perKw[x.kw] += 1; shown += 1
   console.log(`  ${String(shown).padStart(2)}. ${x.bv}  ${String(x.d).padStart(4)}s  弹幕${String(x.dm).padStart(7)}  播放${String(x.play).padStart(9)}  ${x.t.slice(0, 40)}  @${x.up} ${x._hits.length ? "[" + x._hits.join("+") + "]" : ""}`)
 }
-console.log('\n如需深看，运行：bili_inspect debrief <BV> --profile auto')
+console.log('\n如需深看，运行：bili_read debrief <BV> --profile auto')

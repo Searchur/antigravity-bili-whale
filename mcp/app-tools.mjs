@@ -136,7 +136,7 @@ export function createAppToolRunner(api) {
           ])
           return okResult(
             { ok: true, settings, status, about },
-            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.6.4'}）。`,
+            `已打开哔哩哔哩大鲸鱼控制台（数据目录：${settings.dataDir}，版本：v${about.local?.version ?? '1.6.5'}）。`,
           )
         }
         case 'whale_app_bootstrap': {

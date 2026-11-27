@@ -13,7 +13,7 @@ function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
 }
 
-test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and 8 model tools', async () => {
+test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and 2 read/write model tools', async () => {
   const dir = mkTmp('ag-whale-mcp-')
   const api = createApiHandlers({
     whaleHome: dir,
@@ -52,10 +52,15 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     const badAuth = await router.handleRequest({ jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'whale_app_auth', arguments: { action: 'cookie' } } })
     assert.equal(badAuth.result.isError, true)
 
-    // Model tools
+    // Model tools (consolidated read/write pair: bili_read + bili_write)
     const modelTools = tools.filter(t => t.name.startsWith('bili_'))
-    assert.equal(modelTools.length, 8)
+    assert.deepEqual(modelTools.map(t => t.name), ['bili_read', 'bili_write'])
     for (const t of modelTools) assert.deepEqual(t._meta.ui.visibility, ['model'])
+    const sidecarManifest = JSON.parse(fs.readFileSync(path.resolve('sidecars/whale/sidecar.json'), 'utf8'))
+    assert.deepEqual(sidecarManifest.agent_permissions.access_grants, [
+      'mcp(antigravity-bili-whale_whale/bili_read)',
+      'mcp(antigravity-bili-whale_whale/bili_write)',
+    ])
 
     // Pre-bundled single-file HTML resource exists, matches MIME type, and reflects redesigned UI
     const resRead = await router.handleRequest({ jsonrpc: '2.0', id: 3, method: 'resources/read', params: { uri: APP_URI } })
@@ -87,13 +92,13 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.equal(opsModels.result.structuredContent.ok, true)
     assert.ok(Array.isArray(opsModels.result.structuredContent.groups))
 
-    // Model tool live execution: bili_stickers list
-    const stickers = await router.handleRequest({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'bili_stickers', arguments: { command: 'list' } } })
+    // Model tool live execution: bili_read stickers list
+    const stickers = await router.handleRequest({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'stickers', args: ['list'] } } })
     assert.equal(stickers.result.isError, false)
     assert.equal(JSON.parse(stickers.result.content[0].text).total, 42)
 
-    // Disallowed command rejected cleanly
-    const badCmd = await router.handleRequest({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'bili_stickers', arguments: { command: 'comment' } } })
+    // Write command rejected cleanly under bili_read (strict read/write separation)
+    const badCmd = await router.handleRequest({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'comment' } } })
     assert.equal(badCmd.result.isError, true)
 
     // Portable read-prompt & read-shot scoped helpers
@@ -104,7 +109,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     fs.writeFileSync(path.join(pDir, promptName), JSON.stringify({
       account: '1001', owner: '2001', expiresAt: Date.now() + 60_000, text: 'hello full prompt',
     }))
-    const promptCall = { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'bili_ops', arguments: { command: 'read-prompt', args: [promptName] } } }
+    const promptCall = { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'read-prompt', args: [promptName] } } }
     const pRes = await router.handleRequest(promptCall)
     assert.equal(pRes.result.isError, false)
     assert.equal(pRes.result.content[0].text, 'hello full prompt')
@@ -114,7 +119,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     const sDir = path.join(dir, 'shots')
     fs.mkdirSync(sDir, { recursive: true })
     fs.writeFileSync(path.join(sDir, 'frame.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
-    const sRes = await router.handleRequest({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'bili_inspect', arguments: { command: 'read-shot', args: ['frame.png'] } } })
+    const sRes = await router.handleRequest({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'read-shot', args: ['frame.png'] } } })
     assert.equal(sRes.result.isError, false)
     assert.equal(sRes.result.content[1].type, 'image')
     assert.equal(sRes.result.content[1].mimeType, 'image/png')

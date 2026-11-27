@@ -31,10 +31,10 @@ export function render(report) {
   push(`播放 ${stat.view}  点赞 ${stat.like}  收藏 ${stat.favorite}  投币 ${stat.coin}  弹幕 ${stat.danmaku}  评论 ${stat.reply}`)
   if (meta.desc) push(`简介: ${meta.desc.replace(/\n+/g, ' / ').slice(0, 300)}`)
 
-  // ── ② 封面（已随响应附带，或通过 bili_inspect read-shot 查看）──
+  // ── ② 封面（已随响应附带，或通过 bili_read read-shot 查看）──
   const cover = report.cover ?? {}
   push('', '══════════ ② 封面 ══════════')
-  if (cover.ok) push(`${cover.file}（已随工具响应附带，或用 bili_inspect read-shot 查看）`)
+  if (cover.ok) push(`${cover.file}（已随工具响应附带，或用 bili_read read-shot 查看）`)
   else push(`封面下载失败：${cover.error}`)
 
   // ── ③ 官方字幕（它到底说了什么）──
@@ -103,14 +103,14 @@ export function render(report) {
       } else {
         push(`STRIP: ${st.outPng}`)
         push(`取帧方式: 每 ${st.everySeconds} 秒一帧 × ${st.rows} 行 · 裁下画面下方 32% 的字幕带`)
-        push('（可结合 bili_inspect read-shot 查看 —— 整片台词基本都在这一张图里）')
+        push('（可结合 bili_read read-shot 查看 —— 整片台词基本都在这一张图里）')
       }
     }
   }
 
   // ── 下一步（交给模型）──
   push('', '══════════ 下一步（交给模型）══════════')
-  push('结合封面与画面拼图（随工具响应附带或通过 bili_inspect read-shot 查看），再把上面各路信息合起来形成判断 —— 脚本只备素材，不作判断。')
+  push('结合封面与画面拼图（随工具响应附带或通过 bili_read read-shot 查看），再把上面各路信息合起来形成判断 —— 脚本只备素材，不作判断。')
 
   return { lines }
 }

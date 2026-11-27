@@ -7,14 +7,8 @@
   "has_web_ui": false,
   "agent_permissions": {
     "access_grants": [
-      "mcp(antigravity-bili-whale_whale/bili_browse)",
-      "mcp(antigravity-bili-whale_whale/bili_inspect)",
-      "mcp(antigravity-bili-whale_whale/bili_interact)",
-      "mcp(antigravity-bili-whale_whale/bili_dm)",
-      "mcp(antigravity-bili-whale_whale/bili_inbox)",
-      "mcp(antigravity-bili-whale_whale/bili_life)",
-      "mcp(antigravity-bili-whale_whale/bili_stickers)",
-      "mcp(antigravity-bili-whale_whale/bili_ops)"
+      "mcp(antigravity-bili-whale_whale/bili_read)",
+      "mcp(antigravity-bili-whale_whale/bili_write)"
     ]
   }
 }

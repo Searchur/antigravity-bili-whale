@@ -111,12 +111,12 @@ test('model tool can retrieve task-scoped memory but cannot read private or glob
   fs.writeFileSync(taskFile, JSON.stringify({ taskId }))
   const invoke = createModelToolRunner({ whaleHome: dir, cfgFile })
   for (const args of [['status'], ['export'], ['context', '', 'private'], ['search', '', '--private']]) {
-    assert.equal((await invoke('bili_life', { command: 'life', args })).isError, true)
+    assert.equal((await invoke('bili_read', { command: 'life', args })).isError, true)
   }
-  assert.equal((await invoke('bili_dm', { command: 'dm-await', args: ['--peek'] })).isError, true)
-  assert.equal((await invoke('bili_dm', { command: 'dm-batch', args: ['--status'] })).isError, true)
-  const authorized = await invoke('bili_life', { command: 'life', args: ['memory-catalog', taskFile, 'private-reply'] })
+  assert.equal((await invoke('bili_write', { command: 'dm-await', args: ['--peek'] })).isError, true)
+  assert.equal((await invoke('bili_write', { command: 'dm-batch', args: ['--status'] })).isError, true)
+  const authorized = await invoke('bili_read', { command: 'life', args: ['memory-catalog', taskFile, 'private-reply'] })
   assert.equal(authorized.isError, false, authorized.content[0].text)
-  const otherScope = await invoke('bili_life', { command: 'life', args: ['memory-catalog', taskFile, 'private-recommendation'] })
+  const otherScope = await invoke('bili_read', { command: 'life', args: ['memory-catalog', taskFile, 'private-recommendation'] })
   assert.equal(otherScope.isError, true)
 })

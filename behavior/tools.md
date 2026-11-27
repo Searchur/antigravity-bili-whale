@@ -1,13 +1,14 @@
 # 工具详细索引
-在 Antigravity 中优先使用插件内置 MCP 工具。
-- `bili_browse`: `feed` / `discover` / `round` / `search` / `whois` / `covers`
-- `bili_inspect`: `debrief`（支持 `--profile auto|owner|fan`）/ `watch-video` / `subtitles` / `comments` / `batch-debrief` / `read-shot`（抽帧结果会自动随工具响应附带画面图，单独查看缓存图用 `read-shot`）
-- `bili_interact`: `comment`、`comment-del`、`dynamic`、`dynamic-image`、`like`、`fav`、`follow`
-- `bili_dm`: `dm`、`dm-batch`。模型私信操作须带本任务的 `--account` 大鲸鱼 UID 和 `--to` 收信人 UID（单条 ≤300 字符）。私信监听由后台守护处理。
-- `bili_inbox`: `comment-digest` / `likes` / `thread` / `check-comment` / `check-dynamic` / `check-mention` / `recon`
-- `bili_life`: `life`、`quota`、`night`、`traffic`（仅支持 `traffic status` 只读查看）。模型按公开范围或当前任务授权读取记忆。
-- `bili_stickers`: `list` / `get`（直接读取插件自带 42 张表情包）
-- `bili_ops`: `deps`、`selftest`、`session`、`behavior`（`list` / `read <章节>`）、`config`（仅支持 `show` 查看当前生效参数）、`read-prompt`
+在 Antigravity 中优先使用插件内置的 2 个读写分离 MCP 工具：
+- `bili_read`（全部只读浏览、深读看图与状态查询，无外发副作用）：
+  - 选片与检索：`feed` / `discover` / `round` / `search` / `whois` / `covers`
+  - 视频深读与看图：`debrief`（支持 `--profile auto|owner|fan`）/ `watch-video` / `subtitles` / `comments` / `batch-debrief` / `read-shot`（抽帧结果会自动随工具响应附带画面图，单独查看缓存图用 `read-shot`）
+  - 收件箱与复核：`comment-digest` / `likes` / `thread` / `check-comment` / `check-dynamic` / `check-mention` / `recon`
+  - 记忆、额度与状态：`life` / `quota` / `night`（仅 `status`）/ `traffic`（仅 `status`）
+  - 表情包与运维：`stickers`（`["list"]` / `["get","名称"]`，读取随包内置 42 张表情包）/ `deps` / `selftest` / `session` / `behavior`（`list` / `read <章节>`）/ `config`（仅 `show`）/ `read-prompt`
+- `bili_write`（全部外发写操作，强制先 `--dry` 再 `--go` 并执行安全审核）：
+  - 公开互动：`comment`、`comment-del`、`dynamic`、`dynamic-image`、`like`、`fav`、`follow`
+  - 私信回复与分享：`dm`、`dm-batch`（须带本任务的 `--account` 大鲸鱼 UID 和 `--to` 收信人 UID，单条 ≤300 字符；私信监听由后台守护处理）
 
 命令行等价入口：`node <插件目录>/tools/bili.mjs <命令> [参数...]`。`behavior read <章节>` 重读规范。
 公开分享走 `comment --share --auto --bvid <BV号> --message <正文>`（正文须 `@ 主人昵称`），须确认已开启 `share.enabled` 且 `share.via = comment`。自主发普通顶层评论（不 `@` 主人）走 `comment --auto --bvid <BV号> --message <正文>`（须开启 `chat.autoComment`）。仅在回复允许的评论时使用该评论实际的 `type/oid/root/parent` 楼层坐标。

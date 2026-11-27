@@ -144,7 +144,7 @@ if (SHARE) {
     process.exit(3)
   }
   if (String(cfgNow.share?.via ?? 'comment') !== 'comment') {
-    console.error('当前分享通道设置为私信（share.via = dm），请改用 bili_dm --share 或在控制台切换分享通道。')
+    console.error('当前分享通道设置为私信（share.via = dm），请改用 bili_write dm --share 或在控制台切换分享通道。')
     process.exit(2)
   }
   try { message = formatShareText(message, cfgNow.owner?.name) }

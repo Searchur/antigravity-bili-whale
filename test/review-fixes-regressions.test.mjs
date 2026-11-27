@@ -51,29 +51,32 @@ test('MCP model & app tools enforce read-only traffic/config and reject retired 
   assert.deepEqual(lifeTool.inputSchema.properties.action.enum, ['status', 'pause', 'search', 'export', 'resolve'])
 
   // traffic is read-only (status only)
-  const badTraffic = await runner('bili_life', { command: 'traffic', args: ['resume'] })
+  const badTraffic = await runner('bili_read', { command: 'traffic', args: ['resume'] })
   assert.equal(badTraffic.isError, true)
   assert.match(badTraffic.content[0].text, /管理数据请在控制台查看|traffic status/)
 
   // config is read-only (show only)
-  const badConfig = await runner('bili_ops', { command: 'config', args: ['set', 'deepReadMax', '5'] })
+  const badConfig = await runner('bili_read', { command: 'config', args: ['set', 'deepReadMax', '5'] })
   assert.equal(badConfig.isError, true)
   assert.match(badConfig.content[0].text, /管理数据请在控制台查看|config show/)
 
-  // Retired commands rejected across tools
+  // Retired commands & cross read/write commands rejected
   for (const [tool, command] of [
-    ['bili_inspect', 'video'],
-    ['bili_inspect', 'ai-share'],
-    ['bili_interact', 'dynamic-edit'],
-    ['bili_life', 'expression'],
-    ['bili_life', 'corpus'],
+    ['bili_read', 'video'],
+    ['bili_read', 'ai-share'],
+    ['bili_read', 'expression'],
+    ['bili_read', 'corpus'],
+    ['bili_read', 'comment'],
+    ['bili_read', 'dm'],
+    ['bili_write', 'dynamic-edit'],
+    ['bili_write', 'debrief'],
   ]) {
     const res = await runner(tool, { command, args: [] })
     assert.equal(res.isError, true, `${tool}:${command} should be rejected`)
   }
 
   // behavior reload retired
-  const badReload = await runner('bili_ops', { command: 'behavior', args: ['reload'] })
+  const badReload = await runner('bili_read', { command: 'behavior', args: ['reload'] })
   assert.equal(badReload.isError, true)
 })
 
