@@ -1,3 +1,6 @@
+/**
+ * 哔哩哔哩大鲸鱼控制台前端主入口：维护全局视图状态、工具调用动作与 8 个 Tab 页面路由。
+ */
 import { createMcpBridge } from './bridge.mjs'
 import {
   el,

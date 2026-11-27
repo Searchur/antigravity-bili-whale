@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Antigravity B 站鲸鱼零运行时依赖 stdio MCP Server（JSON-RPC 2.0）。
+ * Antigravity 哔哩哔哩大鲸鱼零运行时依赖 stdio MCP Server（JSON-RPC 2.0）。
  *
  * - 声明 tools + resources 能力，提供 ui://antigravity-bili-whale/app.html（左侧栏全页 MCP App）。
  * - 暴露 8 个面向模型的 B 站分组工具（绕开 Windows 终端沙箱断网限制）。
@@ -110,12 +110,12 @@ export function createMcpRouter({ api = createApiHandlers(), modelRunner = creat
   return { handleRequest, dispose: () => api.dispose() }
 }
 
-// Run stdio server only when executed directly
+// 仅在直接作为主进程执行时启动 stdio MCP 服务。
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
 if (isMain) {
   const htmlPath = process.env.BILI_WHALE_APP_HTML ? path.resolve(process.env.BILI_WHALE_APP_HTML) : undefined
   const fromPlugin = path.relative(PLUGIN_ROOT, process.cwd())
-  // Windows holds an open directory handle for cwd and would block an update swap.
+  // Windows 会锁定当前工作目录句柄，可能阻塞插件原地更新切换。
   if (fromPlugin !== '..' && !fromPlugin.startsWith('..' + path.sep) && !path.isAbsolute(fromPlugin)) {
     process.chdir(resolveWorkDir('', workDirPath))
   }

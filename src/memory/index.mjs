@@ -1,10 +1,13 @@
+/**
+ * 长期记忆轻量倒排索引构建与候选召回工具。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createRequire } from 'node:module'
 import { renameWithRetry } from '../core/atomic-json.mjs'
 const require=createRequire(import.meta.url)
-// Chinese bigrams are lexical retrieval, not semantic embeddings.
+// 中文二元组用于词法召回，不作为语义向量嵌入。
 export function terms(text) {
   const out=String(text).toLowerCase().match(/[a-z0-9_]+/g)??[]
   for(const run of String(text).match(/[\u3400-\u9fff]+/g)??[]) {const a=Array.from(run);if(a.length===1)out.push(run);for(let i=0;i<a.length-1;i++)out.push(a[i]+a[i+1])}

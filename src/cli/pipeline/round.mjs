@@ -1,3 +1,6 @@
+/**
+ * 单轮自主浏览编排器：串联候选发现、优选深看与结构化结果汇总。
+ */
 import path from 'node:path'
 import {pathToFileURL} from 'node:url'
 import { workDirPath } from '../../core/paths.mjs'

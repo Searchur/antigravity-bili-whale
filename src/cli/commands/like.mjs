@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `like`：在暂停保护与写前预检下为指定 B 站视频点赞。
+ */
 import { exactJson } from '../../core/json-exact.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 import fs from 'node:fs'

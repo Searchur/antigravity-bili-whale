@@ -1,3 +1,6 @@
+/**
+ * Sidecar IPC 与控制台 API 单元测试：覆盖回环鉴权、配置读写、依赖卡片与记忆操作边界。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -22,25 +25,25 @@ test('sidecar IPC enforces token auth, serves status/models/invalidate, and clea
     protect: () => {},
   })
   try {
-    // Unauthorized requests must be rejected with 403
+    // 未鉴权请求必须返回 403
     const unauth = await fetch(`http://127.0.0.1:${ipc.port}/status`)
     assert.equal(unauth.status, 403)
     const unauthModels = await fetch(`http://127.0.0.1:${ipc.port}/models`)
     assert.equal(unauthModels.status, 403)
 
-    // Authorized client reads live status
+    // 鉴权客户端可读取实时状态
     const st = await callSidecarIpc('/status', { file: ipcFile })
     assert.equal(st.running, true)
     assert.equal(st.formationWorker.status, 'idle')
 
-    // Authorized client reads live models
+    // 鉴权客户端可读取实时模型清单
     const md = await callSidecarIpc('/models', { file: ipcFile })
     assert.equal(md.running, true)
     assert.equal(md.source, 'live')
     assert.equal(md.liveCount, 2)
     assert.equal(md.groups[0].key, 'demo')
 
-    // Authorized invalidate triggers callback
+    // 鉴权调用 invalidate 应触发热重载回调
     const inv = await callSidecarIpc('/invalidate', { method: 'POST', body: { resetPlan: true }, file: ipcFile })
     assert.equal(inv.running, true)
     assert.equal(invalidatedWith, true)
@@ -48,7 +51,7 @@ test('sidecar IPC enforces token auth, serves status/models/invalidate, and clea
     await ipc.close()
   }
 
-  // After close, ipcFile is deleted and client gracefully reports running: false
+  // 关闭后自动清理 IPC 文件，客户端平滑返回 running: false
   assert.equal(fs.existsSync(ipcFile), false)
   const after = await callSidecarIpc('/status', { file: ipcFile })
   assert.equal(after.running, false)
@@ -94,30 +97,30 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
   })
 
   try {
-    // Manual cookie endpoint must NOT exist
+    // 严禁暴露手动导入 Cookie 接口
     assert.equal(api.saveCookie, undefined)
 
-    // Initial settings defaults
+    // 校验初始配置默认值
     const s0 = await api.getSettings()
     assert.equal(s0.ok, true)
     assert.equal(s0.config.models.main, 'flash')
     assert.equal(s0.config.models.worker, 'flash_lite')
     assert.equal(s0.credentials.present, false)
 
-    // Dynamic models catalog returns live groups
+    // 动态模型清单返回实时分组结构
     const models = await api.getModels()
     assert.equal(models.source, 'live')
     assert.equal(models.liveCount, 2)
     assert.equal(models.groups[1].key, 'gemini-4-neon')
 
-    // QR login flow starts & cancels cleanly
+    // 扫码登录流程可正常启动与取消
     const qr = await api.qrStart()
     assert.equal(qr.status, 'waiting')
     assert.ok(qr.image && qr.image.startsWith('data:image/'))
     const qrCancelled = api.qrCancel(qr.id)
     assert.equal(qrCancelled.status, 'cancelled')
 
-    // Save settings including live Antigravity model IDs and owner
+    // 保存实时模型 ID、主人信息与作息配置
     const saved = await api.saveSettings({
       owner: { mid: '20001', name: '主人' },
       models: { main: 'gemini-4-neon-xhigh', worker: 'claude-sonnet-5-5-low' },
@@ -129,14 +132,14 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     assert.equal(saved.config.night.maxWakesPerDay, 2)
     assert.equal(invalidateCalls, 1)
 
-    // Persona save & read
+    // 人设正文写入与回读
     const pSave = await api.savePersona('你是一条温柔的大鲸鱼。')
     assert.equal(pSave.ok, true)
     assert.ok(pSave.bytes > 0)
     const pRead = await api.getPersona()
     assert.equal(pRead.text, '你是一条温柔的大鲸鱼。')
 
-    // Structured dependency health cards include Node version, ffmpeg, Bilibili login action, and Sidecar PID
+    // 结构化依赖卡片包含 Node.js 版本、ffmpeg、B 站登录引导与 Sidecar PID
     const deps = await api.checkDeps()
     assert.ok(Array.isArray(deps.cards))
     const nodeCard = deps.cards.find(c => c.key === 'node')
@@ -153,14 +156,14 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     assert.equal(sidecarCard.ok, true)
     assert.ok(sidecarCard.version.includes('9999'))
 
-    // Life actions: missing account gives friendly error instead of raw storage error, and status exposes identity
+    // 记忆与活动接口：未登录账号时返回友好业务提示，状态接口附带身份就绪字段
     const beforeBindStatus = await api.getStatus()
     assert.equal(beforeBindStatus.identity.hasAccount, false)
     assert.equal(beforeBindStatus.identity.hasOwner, true)
     assert.equal(beforeBindStatus.identity.ready, false)
     await assert.rejects(() => api.lifeAction('pause', { value: true }), /尚未登录大鲸鱼 B 站账号/)
 
-    // Life actions: strictly limited to Tab 6 UI actions (status / pause / search / export / resolve)
+    // 记忆管理动作严格限定为 Tab 6 白名单操作（status / pause / search / export / resolve）
     const cfgFile = path.join(dir, 'config.json')
     const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
     fs.writeFileSync(cfgFile, JSON.stringify({ ...cfg, self: { mid: '10086', name: '测试大鲸鱼' } }))

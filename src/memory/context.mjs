@@ -1,3 +1,6 @@
+/**
+ * 场景化记忆上下文编译器：按可见性与预算筛选强制规则、相关记忆、关系与心情摘要。
+ */
 import {contextScore} from './relevance.mjs'
 import crypto from 'node:crypto'
 
@@ -36,7 +39,7 @@ export function validatePolicy(input, sourceIds) {
   for(const x of p.exceptions) if(!x || typeof x.condition!=='string' || !x.condition.trim() || x.condition.length>1000 || typeof x.behavior!=='string' || !x.behavior.trim() || x.behavior.length>2000 || !Array.isArray(x.sourceIds) || !x.sourceIds.length || x.sourceIds.some(id=>!sourceIds.includes(id))) throw Error('例外必须有明确条件、行为及本提案内的真实来源')
   return {defaultBehavior:p.defaultBehavior,exceptions:p.exceptions.map(x=>({condition:x.condition,behavior:x.behavior,sourceIds:[...new Set(x.sourceIds)]}))}
 }
-// Pure compiler: no filesystem, timestamps, host calls or partial mandatory rows.
+// 纯上下文编译器：无文件 IO、无时钟、无宿主调用，不截断强制规则。
 // 2026-10-30：给联合验证脚本用（同一入口，不新增逻辑）
 export function compileContextBase(s,{query='',scene='private',limit=5000,recent=20,at=Date.now(),selection=null,excludeEventIds=[],affect=''}={}) {
   assertScene(scene)

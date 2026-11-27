@@ -1,5 +1,8 @@
+/**
+ * CLI 命令 `comment-digest`：只读汇总近期「回复我的」与「@ 我的」收件箱并回读楼层正文。
+ */
 import { dataPath } from '../../core/paths.mjs'
-// comment-digest.mjs —— "今天谁找过人家"：给主人的日终汇报（只读，一句都不回）
+// 只读汇总近期「回复我的」与「@ 我的」收件箱消息（不执行任何外发回复）
 //
 // 用途：她过完一天（或主人睡前）时跑一遍，把结果推给主人看 ——
 //   回复陌生人要过闸门/要主人点头，**她自己不回**，只负责"让主人知道"。
@@ -8,7 +11,7 @@ import { dataPath } from '../../core/paths.mjs'
 //   · /x/msgfeed/reply  「回复我的」
 //   · /x/msgfeed/at     「@我的」
 // ⚠️ 收件箱的 title/source 字段语义不可靠（实测多条 title 是同一句）→
-//    **正文一律回读楼层核实**（lib/msgfeed.mjs 的 resolveLatestReply）。
+//   正文一律通过 src/bili/message-feed.mjs 的 resolveLatestReply 回读楼层核实。
 //
 // 用法:
 //   node bili.mjs comment-digest [--hours 24] [--pages 2] [--only-unread] [--max-resolve 20] [--raw]

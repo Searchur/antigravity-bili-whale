@@ -1,3 +1,6 @@
+/**
+ * 长期状态与记忆归纳配置默认值及合法范围校验。
+ */
 import {affectConfig,AFFECT_DEFAULTS} from './affect.mjs'
 import {dynamicConfig,DYNAMIC_DEFAULTS} from './dynamic-memory.mjs'
 

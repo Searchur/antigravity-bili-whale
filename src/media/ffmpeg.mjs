@@ -1,5 +1,5 @@
 /**
- * 定位Windows上已安装的ffmpeg。
+ * 定位 Windows 上已安装的 ffmpeg 可执行文件。
  *
  * 查找顺序：
  *   1. 环境变量 FFMPEG

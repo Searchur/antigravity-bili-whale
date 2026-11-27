@@ -1,8 +1,11 @@
+/**
+ * B 站消息收件箱读取器：统一拉取「回复我的」「@ 我的」列表并回读楼层核实最新正文。
+ */
 import { exactJson } from '../core/json-exact.mjs'
 import { guardedFetch as fetch } from './traffic.mjs'
-// lib/msgfeed.mjs —— B 站两个"收件箱"的共用读法（回复我的 / @我的）
+// B 站「回复我的」与「@ 我的」两个消息收件箱的共用读取逻辑
 //
-// ⚠️ 踩过的坑：`/x/msgfeed/reply` 的 `item.title` **不总是**那条新回复的正文
+// 注意：`/x/msgfeed/reply` 的 `item.title` 不总是该条新回复的完整正文
 //   （实测多条 item 的 title 是同一句，真正的正文跑到 source_content 去了）。
 //   所以**要拿"别人到底说了什么"，必须回读楼层**（resolveLatestReply）。
 //   收件箱只用来"发现有人找我们"，正文以楼层为准。

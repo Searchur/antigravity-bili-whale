@@ -1,3 +1,6 @@
+/**
+ * 测试夹具：轻量 DOM 与 MCP 桥接模拟器，用于端到端测试控制台视图交互。
+ */
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'

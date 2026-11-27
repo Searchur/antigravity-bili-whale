@@ -1,3 +1,6 @@
+/**
+ * 活动日历统计聚合器：汇总本地配额、长期记忆、作息计划、粉丝互动与安全拦截记录。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { localDay } from '../core/local-date.mjs'

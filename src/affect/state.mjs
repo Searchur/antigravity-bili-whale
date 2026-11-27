@@ -1,3 +1,6 @@
+/**
+ * 心情与主动表达持久化状态封装：负责状态初始化、同步推进、发送校验与回执结算。
+ */
 import crypto from 'node:crypto'
 import {chatOpportunity,followupTurn} from './chat-opportunity.mjs'
 import {chatConfig} from '../config/chat.mjs'
@@ -32,7 +35,7 @@ function subtitleView(source,body){
   }
   const result=sample(1800)
   if(Buffer.byteLength(JSON.stringify([result]))<=sourceBatchBytes)return result
-  // JSON needs at most six UTF-8 bytes per escaped code point.
+  // JSON 转义单个码点最多占用 6 字节 UTF-8。
   const overhead=Buffer.byteLength(JSON.stringify([{...source,text:'',tailText:'',truncated:false}]))
   return sample(Math.floor((sourceBatchBytes-overhead)/6))
 }
@@ -55,7 +58,7 @@ export function ensureAffect(s,now){s.affect??=initialAffect(now,s.cognition?.se
 export function syncAffect(s,now,c){
   const a=ensureAffect(s,now),paused=!enabled(s,c)
   if(a.paused!==paused){advance(a,now,c.affect,{paused:a.paused});a.paused=paused;if(!paused)a.resumeAfter=now+30*60000;a.policyVersion++;if(a.pendingInitiative&&!a.pendingInitiative.operationId)a.pendingInitiative.status='cancelled'}
-  // Control/arrival facts cannot be delayed by semantic queue backpressure.
+  // 控制与到达事实不得因语义队列背压而延迟。
   for(const e of s.events.filter(e=>e.seq>a.cursor&&ownerEvent(e))){
     a.lastOwnerAt=Math.max(a.lastOwnerAt,e.at)
     if(a.pendingInitiative&&!a.pendingInitiative.operationId)a.pendingInitiative.status='cancelled'
@@ -245,7 +248,7 @@ export function attachAffect(api,cfg){
       p.status='ready';p.textHash=hash(text);p.covered=true;return {id}
     })},
     finishAffectPlan(id,outcome){return tx(s=>{const a=s.affect,p=a.pendingInitiative;if(!p||p.id!==id||['sent','failed'].includes(p.status))return
-      if(p.operationId){p.status='uncertain';return} // a prepared/dispatching write must never be automatically retried
+      if(p.operationId){p.status='uncertain';return} // 已预占或派发中的写操作绝不允许自动重试
       p.status=outcome==='skip'?'skipped':'failed'
       note(a,now(),'initiative-'+p.status)
     })},

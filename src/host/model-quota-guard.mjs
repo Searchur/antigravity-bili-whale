@@ -1,3 +1,6 @@
+/**
+ * 模型剩余配额守卫：评估所选模型配额是否低于保护阈值，提供带缓存的自动暂停/恢复判定。
+ */
 import { normalizeModels } from '../config/index.mjs'
 import { belowQuotaThreshold, remainingQuotaPercent } from '../shared/quota-percentage.mjs'
 

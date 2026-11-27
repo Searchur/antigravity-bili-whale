@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `debrief`：综合读取视频简介、字幕、弹幕、热评与画面抽帧并输出结构化观片报告。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

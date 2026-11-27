@@ -1,3 +1,6 @@
+/**
+ * CLI 核验命令 `session`：校验当前本地 B 站登录凭据是否有效。
+ */
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 import { loadCred, missingForWrite, CRED_PATH } from '../../bili/cookie.mjs'
 

@@ -1,5 +1,8 @@
+/**
+ * CLI 命令 `dm-await`：监听主人与已关注粉丝的新私信，支持预览、确认回执与待核查标记。
+ */
 import { credentialsPath } from '../../core/paths.mjs'
-// Exit contract: 0 = message/ack/baseline; 1 + {hit:false} = normal empty; 2 = invalid input; 3 = failure.
+// 退出码约定：0 = 命中消息/确认/基线初始化；1 + {hit:false} = 正常无新消息；2 = 参数无效；3 = 执行失败。
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -210,7 +213,7 @@ async function main() {
   if (explicitBaseline && !listen.dmOwner) return empty()
   if (state.pending && channelOn(state.pending, listen) && !explicitBaseline) return emit(state.pending)
 
-  // A paused channel keeps its queue and its existing receipt, while the other channel can drain.
+  // 暂停的通道保留队列与既有回执，另一通道可继续消费。
   const queued = [...(state.pending ? [state.pending] : []), ...(state.queue ?? [])]
   state = { ...state, pending: undefined, queue: queued }
 

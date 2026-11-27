@@ -1,9 +1,12 @@
-// 上传一张图到 B站，返回评论 / 私信都能用的素材。
+/**
+ * B 站图片素材上传与格式封装：校验图片体积与类型、上传至图床并构造评论/私信附图载荷。
+ */
+// 上传图片至 B 站图床，返回评论与私信通用的素材元数据。
 //
 // 接口来自实测（2026-10-24）：
 //   POST https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs
-//        csrf / file_up / category=daily / biz=new_dyn
-//   → { image_url, image_width, image_height, img_size }
+//   参数：csrf / file_up / category=daily / biz=new_dyn
+//   返回：{ image_url, image_width, image_height, img_size }
 //
 // ⚠️ 两个出口要的字段形状不一样，所以这里只返回原始四元组，由调用方自己拼：
 //   评论 reply/add  : pictures = [{ img_src, img_width, img_height, img_size }]

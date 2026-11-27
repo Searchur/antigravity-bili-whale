@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `comment`：在安全审核、写前预检与配额闸保护下发表或回复 B 站评论。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

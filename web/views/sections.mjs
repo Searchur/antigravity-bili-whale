@@ -1,3 +1,6 @@
+/**
+ * 控制台基础 DOM 组件辅助函数（元素构造、表单行、徽章、横幅、标签编辑器）与 Tab 1/2/5/7 视图渲染。
+ */
 export function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag)
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -70,6 +73,24 @@ export function selectCtrl(value, options, onChange) {
   }, options.map(([val, text]) => el('option', { value: String(val), selected: String(value ?? '') === String(val) }, text)))
 }
 
+export function statusPill(kind, text) {
+  const cls = ['pill', kind || ''].filter(Boolean).join(' ')
+  return el('span', { className: cls }, kind ? el('span', { className: 'dot' }) : null, text)
+}
+
+export function metaPill(text, kind = '') {
+  const cls = ['pill', kind || ''].filter(Boolean).join(' ')
+  return el('span', { className: cls }, text)
+}
+
+export function banner(kind, content, { variant = '', action = null } = {}) {
+  const cls = ['banner', kind || 'info', variant || '', action ? 'has-action' : ''].filter(Boolean).join(' ')
+  if (action) {
+    return el('div', { className: cls }, typeof content === 'string' ? el('span', {}, content) : content, action)
+  }
+  return el('div', { className: cls }, content)
+}
+
 export function renderExportResult(info, actions) {
   if (!info || !info.filePath) return null
   const sizeKb = Number.isFinite(info.bytes) ? `（${(info.bytes / 1024).toFixed(1)} KB）` : ''
@@ -119,8 +140,7 @@ export function tagEditorCtrl({
   const removeTag = (tag) => onChange(list.filter(t => t !== tag))
 
   const inputNode = el('input', {
-    className: 'input',
-    style: { flex: '1', minWidth: '170px' },
+    className: 'input tag-input',
     value: draftValue ?? '',
     disabled: atMax,
     placeholder: atMax ? `已达上限（最多 ${max} 个），请先删除不需要的标签` : placeholder,
@@ -153,7 +173,7 @@ export function tagEditorCtrl({
         disabled: atMax,
         onClick: () => addTags(inputNode.value),
       }, '+ 添加'),
-      el('span', { className: 'pill ' + (atMax ? 'warn' : '') }, `已选 ${list.length} / ${max}`)),
+      metaPill(`已选 ${list.length} / ${max}`, atMax ? 'warn' : '')),
     suggestions.length > 0
       ? el('div', { className: 'tag-suggest' },
           el('span', { className: 'tag-suggest-label' }, '快捷添加：'),
@@ -190,24 +210,22 @@ export function renderAccountTab(state, actions) {
   const whaleCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('h2', {}, '大鲸鱼（B 站账号）'),
-      loggedIn
-        ? el('span', { className: 'pill ok' }, el('span', { className: 'dot' }), '已连接 B 站账号')
-        : el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '尚未登录')),
-    el('p', { className: 'card-sub' }, '建议为大鲸鱼准备独立的B站小号。凭据保存在独立数据目录，受当前Windows用户访问权限保护。退出登录会清除本地凭据，并检查B站远程会话是否已注销。'),
+      loggedIn ? statusPill('ok', '已连接 B 站账号') : statusPill('warn', '尚未登录')),
+    el('p', { className: 'card-sub' }, '建议为大鲸鱼准备独立的 B 站小号。凭据保存在独立数据目录，受当前 Windows 用户访问权限保护；退出登录会清除本地凭据，并检查 B 站远程会话是否已注销。'),
     el('div', { className: 'account-hero' },
       el('div', { className: 'account-meta' },
         el('div', { className: 'account-name-row' },
           el('span', { className: 'account-name' }, loggedIn ? (cfg.self.name || '已登录大鲸鱼账号') : '尚未连接大鲸鱼 B 站账号'),
-          loggedIn ? el('span', { className: 'pill mono' }, `UID ${cfg.self.mid}`) : null),
+          loggedIn ? metaPill(`UID ${cfg.self.mid}`, 'mono') : null),
         el('div', { className: 'row-hint' }, loggedIn
           ? '可重新扫码刷新凭据，或退出登录以停止已登录的账号活动。'
           : '点击右侧「扫码登录」，使用手机哔哩哔哩 App 扫描二维码即可自动校验并写入账号信息。'),
-        qrLabel ? el('div', { className: qr?.status === 'success' ? 'banner ok' : 'row-hint', style: { marginTop: '4px', marginBottom: 0 } }, qrLabel) : null,
-        qr?.account?.warn ? el('div', { className: 'banner warn' }, qr.account.warn) : null,
-        state.logoutMsg ? el('div', { className: `banner ${state.logoutMsg.kind || 'ok'}`, style: { marginTop: '4px', marginBottom: 0 } }, state.logoutMsg.text) : null,
-        state.qrError || qr?.error ? el('div', { className: 'banner err', style: { marginTop: '4px', marginBottom: 0 } }, state.qrError || qr.error) : null),
+        qrLabel ? (qr?.status === 'success' ? banner('ok', qrLabel, { variant: 'inline-msg' }) : el('div', { className: 'row-hint hint-mt' }, qrLabel)) : null,
+        qr?.account?.warn ? banner('warn', qr.account.warn) : null,
+        state.logoutMsg ? banner(state.logoutMsg.kind || 'ok', state.logoutMsg.text, { variant: 'inline-msg' }) : null,
+        state.qrError || qr?.error ? banner('err', state.qrError || qr.error, { variant: 'inline-msg' }) : null),
       el('div', { className: 'qr-wrap' },
-        qr?.image ? el('img', { className: 'qr-img', src: qr.image, alt: 'B站登录二维码' }) : null,
+        qr?.image ? el('img', { className: 'qr-img', src: qr.image, alt: 'B 站登录二维码' }) : null,
         el('div', { className: 'inline' },
           el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy || qrActive, onClick: actions.qrStart },
             qr ? '重新生成二维码' : (loggedIn ? '重新扫码 / 换号' : '扫码登录')),
@@ -245,21 +263,23 @@ export function renderAccountTab(state, actions) {
       actions.setCfg(['owner', 'name'], v)
     }, { placeholder: '你的 B 站昵称' })),
     state.ownerCheckErr
-      ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.ownerCheckErr)
+      ? banner('err', state.ownerCheckErr, { variant: 'compact' })
       : null,
     oc
-      ? el('div', {
-          className: 'banner ' + (oc.matched === false ? 'warn' : 'ok'),
-          style: { marginTop: '10px', marginBottom: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' },
-        },
-        el('span', {}, oc.detail + (oc.sign ? `\n签名：${oc.sign}` : '')),
-        oc.matched !== true && oc.actualName
-          ? el('button', {
-              type: 'button',
-              className: 'btn primary sm',
-              onClick: () => actions.applyOwnerName(oc.actualName),
-            }, oc.matched === false ? `同步为「${oc.actualName}」` : `一键填入「${oc.actualName}」`)
-          : null)
+      ? banner(
+          oc.matched === false ? 'warn' : 'ok',
+          oc.detail + (oc.sign ? `\n签名：${oc.sign}` : ''),
+          {
+            variant: 'compact',
+            action: oc.matched !== true && oc.actualName
+              ? el('button', {
+                  type: 'button',
+                  className: 'btn primary sm',
+                  onClick: () => actions.applyOwnerName(oc.actualName),
+                }, oc.matched === false ? `同步为「${oc.actualName}」` : `一键填入「${oc.actualName}」`)
+              : null,
+          },
+        )
       : null)
 
   return el('div', {}, whaleCard, ownerCard)
@@ -281,8 +301,8 @@ export function renderPersonaTab(state, actions) {
     row('她怎么自称', '例如「我」/「人家」。', textCtrl(getPath(cfg, ['persona', 'selfClaim']), v => actions.setCfg(['persona', 'selfClaim'], v))))
 
   const personaCard = el('div', { className: 'card' },
-    el('h2', {}, '她的人设正文（仅对大鲸鱼生效，不影响日常编程对话）'),
-    el('p', { className: 'card-sub' }, `保存位置：${state.personaPath || '%USERPROFILE%\\.antigravity-bili-whale\\persona.md'}。建议写 300–1500 字（精炼表达模型遵守度最高），前后端硬上限 ${MAX_PERSONA_CHARS} 字。`),
+    el('h2', {}, '她的人设正文'),
+    el('p', { className: 'card-sub' }, `仅对大鲸鱼生效，不影响日常编程对话。保存位置：${state.personaPath || '%USERPROFILE%\\.antigravity-bili-whale\\persona.md'}。建议写 300–1500 字（精炼表达模型遵守度最高），前后端硬上限 ${MAX_PERSONA_CHARS} 字。`),
     el('textarea', {
       className: 'textarea',
       rows: 9,
@@ -303,7 +323,7 @@ export function renderPersonaTab(state, actions) {
         if (btn) btn.disabled = !!state.busy || over
       },
     }),
-    el('div', { className: 'inline', style: { marginTop: '10px', justifyContent: 'space-between' } },
+    el('div', { className: 'inline-between mt-10' },
       el('span', { id: 'persona-counter', className: personaOver ? 'row-hint counter-err' : 'row-hint' },
         personaOver
           ? `当前 ${personaLen} / ${MAX_PERSONA_CHARS} 字（已超限，请先删减 ${personaLen - MAX_PERSONA_CHARS} 字）`
@@ -315,7 +335,7 @@ export function renderPersonaTab(state, actions) {
         disabled: !!state.busy || personaOver,
         onClick: actions.savePersona,
       }, state.busy === 'persona' ? '保存中…' : '保存并注入人设')),
-    state.personaMsg ? el('div', { className: `banner ${state.personaMsg.kind || 'ok'}`, style: { marginTop: '10px', marginBottom: 0 } }, state.personaMsg.text) : null)
+    state.personaMsg ? banner(state.personaMsg.kind || 'ok', state.personaMsg.text, { variant: 'compact' }) : null)
 
   const tasteCard = el('div', { className: 'card' },
     el('h2', {}, '她的口味偏好'),
@@ -362,8 +382,8 @@ export function renderPersonaTab(state, actions) {
 
   const plan = state.status?.plan
   const planBadge = plan?.action === 'wake' && plan?.atText
-    ? el('span', { className: 'pill info' }, `当前计划：${plan.atText}（今日已用 ${plan.wakes ?? 0} 次机会）`)
-    : (plan ? el('span', { className: 'pill' }, `今日已用 ${plan.wakes ?? 0} 次机会`) : null)
+    ? metaPill(`当前计划：${plan.atText}（今日已用 ${plan.wakes ?? 0} 次机会）`, 'info')
+    : (plan ? metaPill(`今日已用 ${plan.wakes ?? 0} 次机会`) : null)
 
   const nightCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
@@ -377,13 +397,13 @@ export function renderPersonaTab(state, actions) {
         onClick: actions.wakeNow,
       }, state.busy === 'wake_now' ? '正在唤醒她…' : '马上唤醒她')),
     el('p', { className: 'card-sub' }, '每个时间窗内按剩余次数分段随机挑时刻醒来（不卡整点），时间格式为 HH:MM（00:00–24:00）；全天所有窗口合计最多 12 次。点击右上角「马上唤醒她」可不受排期限制立即叫醒一次。'),
-    state.wakeMsg ? el('div', { className: `banner ${state.wakeMsg.kind}` }, state.wakeMsg.text) : null,
+    state.wakeMsg ? banner(state.wakeMsg.kind, state.wakeMsg.text) : null,
     wins.length === 0
       ? el('div', { className: 'row-hint' }, '还没有时间窗，请至少添加一个。')
       : el('div', {}, ...wins.map((w, i) =>
           el('div', { className: 'row' },
             el('div', { className: 'inline' },
-              el('span', { className: 'row-hint', style: { minWidth: '18px' } }, nums[i] ?? String(i + 1)),
+              el('span', { className: 'row-hint win-idx' }, nums[i] ?? String(i + 1)),
               el('input', { className: 'input sm', value: w.start ?? '', placeholder: '20:00', onChange: e => updWin(i, { start: e.target.value }) }),
               el('span', { className: 'row-hint' }, '–'),
               el('input', { className: 'input sm', value: w.end ?? '', placeholder: '24:00', onChange: e => updWin(i, { end: e.target.value }) }),
@@ -392,9 +412,9 @@ export function renderPersonaTab(state, actions) {
               el('span', { className: 'row-hint' }, '次')),
             el('button', { type: 'button', className: 'btn danger sm', disabled: wins.length <= 1, onClick: () => delWin(i) }, '删除')))),
     totalConfiguredWakes > 12
-      ? el('div', { className: 'banner warn', style: { marginTop: '8px' } }, `当前所有窗口醒来次数合计 ${totalConfiguredWakes} 次，超过每日上限 12 次；实际每天最多只会执行 12 次。`)
+      ? banner('warn', `当前所有窗口醒来次数合计 ${totalConfiguredWakes} 次，超过每日上限 12 次；实际每天最多只会执行 12 次。`, { variant: 'top-gap' })
       : null,
-    el('div', { className: 'inline', style: { margin: '10px 0 6px' } },
+    el('div', { className: 'inline action-row' },
       el('button', { type: 'button', className: 'btn', onClick: addWin }, '+ 添加时间窗')),
     row(
       '两次醒来最小间隔',
@@ -543,8 +563,8 @@ export function renderInteractTab(state, actions) {
       : null)
 
   const mod3Card = el('div', { className: 'card' },
-    el('h2', {}, '三、私信互动（仅被动回复，绝不主动私信他人）'),
-    el('p', { className: 'card-sub' }, '代码层硬限制：除主人分享外，绝不主动向任何人发起私信。无新私信时零模型消耗。'),
+    el('h2', {}, '三、私信互动'),
+    el('p', { className: 'card-sub' }, '仅被动回复，代码层硬限制绝不主动向除主人分享外的任何人发起私信；无新私信时零模型消耗。'),
     row('回复主人的私信', '定时检查主人发给大鲸鱼的私信并自然回复，条数不限。',
       switchCtrl('回复主人私信', dmOwner, v => actions.setCfg(['listen', 'dmOwner'], v, true))),
     dmOwner
@@ -577,13 +597,13 @@ export function renderInteractTab(state, actions) {
       : null)
 
   const mod4Card = el('div', { className: 'card' },
-    el('h2', {}, '四、评论区互动（被动回复评论与 @）'),
-    el('p', { className: 'card-sub' }, '仅回复来找大鲸鱼的评论与 @；开启下方对应开关后可按「视频观看设置」的时长与抽帧规则看片回复。所有回复经安全审核通过后直接发出。'),
+    el('h2', {}, '四、评论区互动'),
+    el('p', { className: 'card-sub' }, '仅被动回复来找大鲸鱼的评论与 @；开启下方对应开关后可按「视频观看设置」的时长与抽帧规则看片回复，所有回复经安全审核通过后直接发出。'),
     row('回复主人的评论与 @', '自动回复你在评论区里对大鲸鱼的回复和 @。',
       switchCtrl('回复主人评论', commentOwner, v => actions.setCfg(['listen', 'commentOwner'], v, true))),
     commentOwner
       ? el('div', { className: 'sub-block' },
-          row('主人 @ 她时，根据提问自主判断是否看视频后回复', '开启后，主人在评论区 @ 大鲸鱼时，她会根据主人的提问自行判断是否需要先看视频再回复（能直接回答就不看，需看片则按「视频观看设置 -> 主人 @ 规则」执行；默认关闭）。',
+          row('主人 @ 她时，根据提问自主判断是否看视频后回复', '开启后，主人在评论区 @ 大鲸鱼时，她会根据主人的提问自行判断是否需要先看视频再回复（能直接回答就不看，需看片则按「视频观看设置 → 主人 @ 规则」执行；默认关闭）。',
             el('div', { className: 'inline' },
               switchCtrl('主人 @ 自主判断是否看视频', getPath(cfg, ['listen', 'mentionSummaryOwner']) === true, v => actions.setCfg(['listen', 'mentionSummaryOwner'], v, true)),
               el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('watch') }, '设置观看规则'))))
@@ -592,7 +612,7 @@ export function renderInteractTab(state, actions) {
       switchCtrl('回复粉丝评论', commentFan, v => actions.setCfg(['listen', 'commentFan'], v, true))),
     commentFan
       ? el('div', { className: 'sub-block' },
-          row('响应粉丝在视频评论区的 @ 看片 / 总结请求', '已关注粉丝在视频下 @ 她总结时，按「视频观看设置 -> 粉丝 @ 规则」执行。',
+          row('响应粉丝在视频评论区的 @ 看片 / 总结请求', '已关注粉丝在视频下 @ 她总结时，按「视频观看设置 → 粉丝 @ 规则」执行。',
             el('div', { className: 'inline' },
               switchCtrl('粉丝 @ 看片总结', getPath(cfg, ['listen', 'mentionSummaryFan']) === true, v => actions.setCfg(['listen', 'mentionSummaryFan'], v, true)),
               el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('watch') }, '设置粉丝规则'))),
@@ -622,9 +642,9 @@ export function renderInteractTab(state, actions) {
 
   const mod5Card = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
-      el('h2', {}, '五、外发内容安全审核机制（合规红线）'),
-      el('span', { className: 'pill ' + (safetyEnabled ? 'ok' : 'err') }, el('span', { className: 'dot' }), safetyEnabled ? '安全保护已开启' : '安全保护已关闭')),
-    el('p', { className: 'card-sub' }, '所有外发评论、动态与私信在发送前自动检查：严禁发送违反中国法律法规、涉政敏感、暴力低俗、赌博诈骗、人肉隐私或恶意引战内容，命中即直接拦截禁止发出。'),
+      el('h2', {}, '五、外发内容安全审核机制'),
+      statusPill(safetyEnabled ? 'ok' : 'err', safetyEnabled ? '安全保护已开启' : '安全保护已关闭')),
+    el('p', { className: 'card-sub' }, '合规红线默认开启，所有外发评论、动态与私信在发送前自动检查：严禁发送违反中国法律法规、涉政敏感、暴力低俗、赌博诈骗、人肉隐私或恶意引战内容，命中即直接拦截禁止发出。'),
     row('开启外发内容安全审核（强烈建议常开）', '默认开启作为合规底线，代码层强制执行拦截。',
       switchCtrl('外发安全审核', safetyEnabled, v => actions.setCfg(['safety', 'enabled'], v, true))),
     safetyEnabled
@@ -682,7 +702,7 @@ function renderEnvRow(card, state, actions) {
             onClick: () => actions.switchTab('account'),
           }, '前往扫码登录')
         : null,
-      el('span', { className: `pill ${st.cls}` }, el('span', { className: 'dot' }), st.label)))
+      statusPill(st.cls, st.label)))
 }
 
 /**
@@ -694,10 +714,10 @@ export function renderEnvTab(state, actions) {
   const errorCount = cards.filter(c => c.status === 'error').length
   const optionalCount = cards.filter(c => c.status === 'optional').length
   const summaryPill = !deps
-    ? el('span', { className: 'pill' }, state.busy === 'deps' ? '检测中…' : '等待检测')
+    ? metaPill(state.busy === 'deps' ? '检测中…' : '等待检测')
     : errorCount === 0
-      ? el('span', { className: 'pill ok' }, el('span', { className: 'dot' }), optionalCount > 0 ? `核心环境已就绪（${optionalCount} 项可选）` : '全部环境与依赖正常')
-      : el('span', { className: 'pill err' }, el('span', { className: 'dot' }), `${errorCount} 项需要处理`)
+      ? statusPill('ok', optionalCount > 0 ? `核心环境已就绪（${optionalCount} 项可选）` : '全部环境与依赖正常')
+      : statusPill('err', `${errorCount} 项需要处理`)
 
   return el('div', { className: 'card' },
     el('div', { className: 'card-head' },
@@ -707,10 +727,10 @@ export function renderEnvTab(state, actions) {
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn primary', disabled: !!state.busy, onClick: actions.runDeps }, state.busy === 'deps' ? '检测中…' : '重新检测'),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.exportDiagnostics }, state.busy === 'export_diag' ? '生成中…' : '导出诊断日志'))),
-    el('p', { className: 'card-sub' }, '逐行展示后台守护进程、Node.js、ffmpeg、B 站登录态及接口保护状态。排查问题时可点击「导出诊断日志」生成带时间戳的脱敏文件。'),
+    el('p', { className: 'card-sub' }, '逐行展示后台守护（Sidecar）、Node.js、ffmpeg、B 站登录态及接口保护状态。排查问题时可点击「导出诊断日志」生成带时间戳的脱敏文件。'),
     renderExportResult(state.diagExport, actions),
-    state.diagErr ? el('div', { className: 'banner err' }, state.diagErr) : null,
+    state.diagErr ? banner('err', state.diagErr) : null,
     cards.length > 0
       ? el('div', { className: 'env-list' }, ...cards.map(c => renderEnvRow(c, state, actions)))
-      : el('div', { className: 'row-hint', style: { padding: '14px 0' } }, state.busy === 'deps' ? '正在逐项检测运行环境与依赖版本…' : '点击「重新检测」查看各项环境模块状态。'))
+      : el('div', { className: 'row-hint empty-hint' }, state.busy === 'deps' ? '正在逐项检测运行环境与依赖版本…' : '点击「重新检测」查看各项环境模块状态。'))
 }

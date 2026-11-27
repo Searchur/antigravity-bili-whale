@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `likes`：只读拉取近期「收到的赞」通知并支持按主人筛选。
+ */
 import { dataPath } from '../../core/paths.mjs'
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 import { exactJson } from '../../core/json-exact.mjs'

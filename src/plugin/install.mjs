@@ -1,3 +1,6 @@
+/**
+ * 插件运行包清单校验、语义版本比较与独立目录原子安装/回滚切换实现。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { acquireProcessLock } from '../core/process-lock.mjs'

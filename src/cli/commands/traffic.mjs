@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `traffic`：只读查询 B 站接口防风控与限流熔断状态。
+ */
 import { HOME, dataPath } from '../../core/paths.mjs'
 import fs from 'node:fs'
 import path from 'node:path'

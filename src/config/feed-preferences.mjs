@@ -1,3 +1,6 @@
+/**
+ * 视频口味偏好词拆分与标题/标签匹配工具。
+ */
 const genericWords = new Set(['工具', '插件', '教程', '视频', '内容', '分享', '推荐'])
 const normalize = value => String(value ?? '').normalize('NFKC').trim().toLowerCase()
 

@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `comments`：只读拉取指定视频的评论区热评与最新评论列表。
+ */
 import fs from 'node:fs'
 import { dataPath } from '../../core/paths.mjs'
 import { apiGet } from '../../bili/api.mjs'

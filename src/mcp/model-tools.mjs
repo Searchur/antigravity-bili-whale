@@ -1,3 +1,6 @@
+/**
+ * 面向 AI 模型的只读与受控外发 MCP 工具（bili_read / bili_write），封装 CLI 白名单调用与抽帧回传。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
@@ -43,8 +46,8 @@ const PUBLIC_MEMORY_ACTIONS = new Set([
 
 function modelLifeArgs(args) {
   const [action, value, scene = 'public'] = args
-  // Private retrieval requires the existing unguessable task ID and exact scene
-  // from the Sidecar's recorded context. Model-supplied roles authorize nothing.
+  // 私有检索必须提供既有不可猜测任务 ID 与精确场景，
+  // 并与 Sidecar 记录的上下文一致；模型自报角色不具备任何授权。
   if (TASK_MEMORY_ACTIONS.has(action)) return args
   if (PUBLIC_MEMORY_ACTIONS.has(action)) return publicScene(scene) ? [action, value ?? '', scene] : null
   if (action === 'search') return args.slice(2).includes('--private') ? null : args
@@ -198,7 +201,7 @@ export function createModelToolRunner({
     }
     if (toolName === 'bili_read' && command === 'night' && (extra.length !== 1 || extra[0] !== 'status')) return restricted()
 
-    // Portable built-in helper: read oversized prompt materialized in runtime/workspace/.prompts/
+    // 内置可移植读取：读取落盘在 runtime/workspace/.prompts/ 下的超长提示词。
     if (toolName === 'bili_read' && command === 'read-prompt') {
       const name = extra[0]
       if (!/^[a-f0-9]{48}\.json$/.test(name)) return restricted()
@@ -214,7 +217,7 @@ export function createModelToolRunner({
       } catch { return restricted() }
     }
 
-    // Portable built-in helper: read cover / frame image strictly inside shots/
+    // 内置可移植读取：仅允许读取 shots/ 目录内的封面或抽帧图片。
     if (toolName === 'bili_read' && command === 'read-shot') {
       const rawPath = String(extra[0] ?? '').trim()
       const resolved = path.isAbsolute(rawPath) ? rawPath : path.join(shotsDir, rawPath)

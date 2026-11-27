@@ -1,3 +1,6 @@
+/**
+ * 私信监听状态文件账号隔离作用域路径计算器。
+ */
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { WHALE_HOME, dataPathsFor } from '../core/paths.mjs'

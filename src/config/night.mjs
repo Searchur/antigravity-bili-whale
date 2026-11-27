@@ -1,3 +1,6 @@
+/**
+ * 作息窗口配置默认值、合并策略与磁盘读取入口。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { WHALE_HOME, configPath } from '../core/paths.mjs'

@@ -1,3 +1,6 @@
+/**
+ * CLI 管线入口 `batch-debrief`：并发对多条候选视频执行 debrief 观片分析。
+ */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

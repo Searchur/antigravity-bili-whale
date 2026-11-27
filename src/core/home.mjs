@@ -1,3 +1,6 @@
+/**
+ * 跨平台用户主目录解析工具。
+ */
 import os from 'node:os'
 import path from 'node:path'
 export function resolveHome({env=process.env, homedir=()=>os.homedir(), userInfo=()=>os.userInfo(), paths=path}={}) {

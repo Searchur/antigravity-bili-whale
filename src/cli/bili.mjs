@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+/**
+ * B 站统一 CLI 命令分发入口：解析子命令并路由至对应命令脚本、管线、核验或诊断模块。
+ */
 // 统一入口：node bili.mjs <命令> [参数...]
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'

@@ -1,3 +1,6 @@
+/**
+ * 主人私信分段批次解析、创建、顺序发送与取消管理器。
+ */
 import crypto from 'node:crypto'
 import path from 'node:path'
 import {acquireProcessLock} from '../core/process-lock.mjs'

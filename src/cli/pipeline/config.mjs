@@ -1,3 +1,6 @@
+/**
+ * 视频发现管线配置与选片打分规则：封装时长过滤、口味命中与公平排序策略。
+ */
 import {preferenceMatches} from '../../config/feed-preferences.mjs'
 import {config} from '../../config/index.mjs'
 export const PIPELINE_DEFAULTS={windows:[3,7,30,365,730,1095],perKeywordPool:12,minPlay:0,minDm:0,minDuration:0,maxDuration:7200,multiPartThreshold:3,multiPartPerRound:1,deepReadMax:3,concurrency:2,relatedTakeMax:2,relatedMinPlay:0,relatedSources:2,timeoutMs:900000,maxMetadata:40,explorationMax:1}
@@ -33,7 +36,7 @@ export function interestEvidence(video,preferences){
 }
 export function isInterest(video){return Array.isArray(video.interestMatches)&&video.interestMatches.length>0}
 export function interestGroup(video){const matches=video.interestMatches;return matches?.includes(video.kw)?video.kw:matches?.[0]??video.kw??'其他'}
-// Rotate across interests first. Freshness only orders candidates inside an interest.
+// 优先跨兴趣轮换，新鲜度仅在同一兴趣内部排序。
 export function fairOrder(items,keywords=[]){
  const groups=new Map();for(const x of items){const key=interestGroup(x);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(x)}
  const keys=[...new Set([...keywords.filter(k=>groups.has(k)),...groups.keys()])],out=[]
@@ -58,5 +61,5 @@ export function chooseVideos(items,{n,per=2,config:p,random=Math.random,now=Date
  return selected
 }
 
-// Tie-break only inside the same freshness and quality tier; never bypass hard filters.
+// 仅在同一新鲜度与质量档位内决胜，绝不绕过硬过滤条件。
 export function browsingRank(x,browsing={}){const d=Math.min(1200,Math.max(0,Number(x.d)||0));return browsing.duration==='short'?-d:browsing.duration==='long'?d:0}

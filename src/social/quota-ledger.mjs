@@ -1,3 +1,6 @@
+/**
+ * 外发配额账本持久化与未结案回执恢复器：保障并发记账合并与去重计数。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { DATA_PATHS } from '../core/paths.mjs'
@@ -7,8 +10,8 @@ import { acquireProcessLock } from '../core/process-lock.mjs'
 const file = DATA_PATHS.quota
 const recoveryDir = DATA_PATHS.quotaRecoveryDir
 
-// Persist a locator before dispatch. An account or owner change must not hide
-// a confirmed receipt from the shared limits. Keep private text in its store.
+// 派发前持久化定位器：账号或主人切换不得隐藏
+// 共享限额中的已确认回执，私人正文保留在独立存储中。
 export function trackQuotaOperation(operationId, account, owner) {
   atomicWriteJson(path.join(recoveryDir, operationId + '.json'), { operationId, account, owner })
 }

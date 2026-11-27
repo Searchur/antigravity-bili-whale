@@ -1,3 +1,6 @@
+/**
+ * 动态记忆使用追踪与召回统计模块：记录记忆引用、访问频次与决策结果反馈。
+ */
 import crypto from 'node:crypto'
 import {readLifeArchive} from './archive-reader.mjs'
 import {terms} from './index.mjs'
@@ -24,8 +27,8 @@ function requireTask(s,taskId,scene,at){
  if(!t||t.scene!==scene||at-t.at>DAY||at<t.at||t.permissionVersion!==(s.settings.permissionVersion??0))throw Error('任务上下文不存在、过期或权限已变化')
  return t
 }
-// This function is invoked only by successful retrieval or the existing trusted
-// transport receipt path. A model-reported decision alone cannot call it.
+// 仅由成功召回或受信任传输回执路径调用，
+// 仅凭模型自报决策不得调用此函数。
 export function creditMemoryUse(s,t,m,{phase,at,cfg}){
  if(!dynamicActive(cfg)||s.settings.paused)return
  const check=recallEligibility(m,t.scene,at,{historical:phase==='fetched'||t.fetchedRefs?.some(r=>r.id===m.id&&r.historical),cfg});if(!check.allowed)return
@@ -36,7 +39,7 @@ export function creditMemoryUse(s,t,m,{phase,at,cfg}){
  const old=usage.credits[key],wanted=phase==='applied'?1:0.25
  if(!old)usage.credits[key]={weight:0,phase,at}
  const receipt=usage.credits[key]
- // Upgrade one task's weak retrieval credit to applied credit, never count twice.
+ // 将单次任务的弱召回记录升级为应用记录，绝不重复计数。
  const canCredit=(receipt.weight>0||a.lastTaskUseAt===undefined||at-a.lastTaskUseAt>=cfg.useWindowSec*1000)&&wanted>receipt.weight
  if(canCredit){
   const view=lifecycleView(m,at,a,cfg)
@@ -123,7 +126,7 @@ export function attachDynamicMemory(api,cfg){
     const remaining=Math.min(c.fetchBytes,c.taskFetchBytes-t.memoryUsage.bytes)
     if(remaining<512)throw Error('本任务记忆读取预算已耗尽')
     let limit=options.limit??c.catalogLimit,out
-    // Redo the pure page with a smaller limit so continuation never skips rows.
+    // 使用更小分页上限重算纯页面，确保续页不漏行。
     do{
      out=history?api.memoryHistory({...options,scene,limit}):api.memoryCatalog({...options,scene,limit})
      if(bytes(out)<=remaining)break

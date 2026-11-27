@@ -1,3 +1,6 @@
+/**
+ * 主配置中心：汇总各领域默认配置、归一化校验函数、废弃字段清理与磁盘配置读取。
+ */
 import fs from 'node:fs'
 import { LIFE_DEFAULTS, lifeConfig } from './life.mjs'
 import { CHAT_DEFAULTS, chatConfig } from './chat.mjs'

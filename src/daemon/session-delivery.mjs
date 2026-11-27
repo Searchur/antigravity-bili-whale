@@ -1,3 +1,6 @@
+/**
+ * Antigravity 会话投递执行器：实现防重放、边界轮换、未确认保护与重建恢复。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

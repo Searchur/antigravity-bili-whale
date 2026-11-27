@@ -1,3 +1,6 @@
+/**
+ * CLI 诊断工具 `covers`：批量拉取并验证视频封面图片缓存。
+ */
 import fs from 'node:fs'
 import { saveCoverImage } from '../../media/cover-image.mjs'
 import path from 'node:path'

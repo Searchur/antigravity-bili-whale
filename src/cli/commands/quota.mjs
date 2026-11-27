@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `quota`：查询与校验每日分享、公开动态及自主评论配额状态。
+ */
 import crypto from 'node:crypto'
 import { DATA_PATHS } from '../../core/paths.mjs'
 import { chatConfig } from '../../config/chat.mjs'

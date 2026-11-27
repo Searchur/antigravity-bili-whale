@@ -1,3 +1,6 @@
+/**
+ * 视频发现与批量观片编排器：协调子进程执行发现、批量 debrief、标签汇总与关联推荐采集。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'

@@ -1,3 +1,6 @@
+/**
+ * CLI 核验命令 `check-comment`：回读校验指定评论是否已公开可见。
+ */
 import fs from 'node:fs'
 import {credentialsPath} from '../../core/paths.mjs'
 import {verifyCommentVisibility} from '../../social/comment-visibility.mjs'
@@ -9,4 +12,4 @@ const headers={'user-agent':'Mozilla/5.0','referer':bvid?'https://www.bilibili.c
 try{const c=JSON.parse(fs.readFileSync(credentialsPath,'utf8'));headers.cookie=`SESSDATA=${c.sessdata}; bili_jct=${c.bili_jct}`}catch{}
 const result=await verifyCommentVisibility({rpid,oid,root:option('root'),type:option('type')||'1',headers})
 console.log(JSON.stringify(result,null,2))
-// Absence in a bounded sample does not prove non-delivery. Never invite resend.
+// 有限抽样未见不代表未送达，绝不引导重复发送。

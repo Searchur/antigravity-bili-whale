@@ -1,3 +1,6 @@
+/**
+ * 外发配额占用、跨午夜归属、写间隔等待与已发出回执补记恢复单元测试。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

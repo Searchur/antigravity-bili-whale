@@ -1,3 +1,6 @@
+/**
+ * B 站私信历史拉取、视频分享卡片解析与消息结构归一化工具。
+ */
 import { exactJson, parseJsonExact } from '../core/json-exact.mjs'
 import crypto from 'node:crypto'
 import { guardedFetch as fetch } from '../bili/traffic.mjs'
@@ -21,7 +24,7 @@ export function parseShareCard(content) {
           const candidate = url.pathname.match(/^\/video\/(BV[0-9A-Za-z]{10})(?:\/|$)/)?.[1]
           if (candidate) bvid = candidate
         }
-      } catch { /* Keep the title and author for delivery and strict lookup. */ }
+      } catch { /* 保留标题与作者信息，供投递上下文与精确反查使用。 */ }
     }
     return {title, author:cardText(value.author), authorId:cardText(value.author_id), bvid}
   } catch { return null }
@@ -87,7 +90,7 @@ export async function readHistory(owner,headers,state,{baseline=false,nav=null}=
     if(!response.ok||body.code!==0||!Array.isArray(body.data?.messages))throw Error('私信历史读取失败，保留游标（code='+body.code+'）')
     const rows=body.data.messages.map(normalizeMessage)
     for(const row of rows)if(!seen.has(row.key)){seen.add(row.key);all.push(row)}
-    // First run deliberately considers only the newest page; no unbounded historical replay.
+    // 首次运行仅读取最新一页，避免无界回放历史私信。
     const more=body.data.has_more
     if(baseline||state.lastSeen===undefined||rows.some(r=>r.ts<boundary)||more===0||more==='0'||more===false||(!rows.length&&more===undefined)|| (more===undefined&&rows.length<30))break
     const seqs=rows.filter(r=>r.seq).map(r=>BigInt(r.seq))
@@ -104,7 +107,7 @@ export async function readHistory(owner,headers,state,{baseline=false,nav=null}=
   for(const message of messages) {
     if(!message.share || message.share.bvid || remaining===0)continue
     remaining--
-    try { message.share.bvid=await resolveShareBv(message.share,headers,nav.data.wbi_img) } catch { /* Keep delivery even when lookup is unavailable. */ }
+    try { message.share.bvid=await resolveShareBv(message.share,headers,nav.data.wbi_img) } catch { /* 即使反查接口暂不可用，也继续保留本条消息投递。 */ }
     message.text=shareCardText(message.share)
   }
   return {all,messages}

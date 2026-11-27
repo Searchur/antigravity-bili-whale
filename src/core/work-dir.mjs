@@ -1,3 +1,6 @@
+/**
+ * 大鲸鱼专用隔离工作区目录解析与自动初始化。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 export function resolveWorkDir(value, fallback, warn = console.warn) {

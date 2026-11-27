@@ -1,3 +1,6 @@
+/**
+ * 已关注粉丝每日私信、评论与 @ 总结配额校验、加锁占用与跨天历史记录器。
+ */
 import fs from 'node:fs'
 import { WHALE_HOME, dataPathsFor } from '../core/paths.mjs'
 import { localDay } from '../core/local-date.mjs'

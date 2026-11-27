@@ -1,3 +1,6 @@
+/**
+ * 后台调度健康快照记录器：持久化心跳时间、跳过原因与最近异常摘要。
+ */
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { atomicWriteJson } from '../core/atomic-json.mjs'

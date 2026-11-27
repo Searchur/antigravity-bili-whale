@@ -1,3 +1,6 @@
+/**
+ * 长期状态事务、记忆召回、心情覆盖与批次私信恢复单元测试。
+ */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -142,7 +145,7 @@ test('D20 only an owner DM receipt can start reconciling the owner private topic
   const fan={channel:'dm',target:'300',scene:'private-reply',text:'fan reply'}
   const token=await store.reserve(fan)
   assert.deepEqual(store.read().pending[token].affectTopicRefs??[],[])
-  // An existing checkpoint may contain bindings made before recipient checks.
+  // 既有检查点中可能保留早期在收件人校验上线前生成的绑定记录。
   await store.tx(s=>{s.pending[token].affectTopicRefs=[{topicId:'topic',revision:1}]})
   await store.dispatch(token,()=>Promise.resolve())
   await store.settle(token,{status:'sent',receipt:'fan'})

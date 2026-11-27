@@ -1,3 +1,6 @@
+/**
+ * 图片封面解码校验与子进程输出字节上限保护单元测试。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

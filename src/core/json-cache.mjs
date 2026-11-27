@@ -1,5 +1,8 @@
+/**
+ * 基于文件 stat 校验的只读 JSON 缓存：自动剥离 UTF-8 BOM，文件变动即时失效。
+ */
 import fs from 'node:fs'
-// Stat on every access. Atomic replacement and edits invalidate; errors never serve stale data.
+// 每次读取均校验文件 stat；原子替换或编辑立即失效，异常绝不返回旧缓存。
 export function createJsonCache(){
   const entries=new Map()
   const read=file=>{

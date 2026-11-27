@@ -1,4 +1,6 @@
-/** Deploy the runtime payload to the Windows Antigravity plugin directory. */
+/**
+ * 开发态本地部署脚本：将当前运行态文件同步部署至 Windows Antigravity 插件目录。
+ */
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configPath, HOME, WHALE_HOME } from '../src/core/paths.mjs'

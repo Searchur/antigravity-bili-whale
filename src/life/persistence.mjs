@@ -24,8 +24,8 @@ export function initialLifeState() {
 }
 
 /**
- * Owns checkpoint authority and compatibility-projection reads.
- * Validation remains injected so this module does not own subsystem schemas.
+ * 管理权威检查点读取与兼容投影校验。
+ * 校验函数由外部注入，避免本模块耦合各子系统 schema。
  */
 export function createLifePersistence({ account, owner, file, checkpointFile, validate, digest }) {
   function checkpoint() {

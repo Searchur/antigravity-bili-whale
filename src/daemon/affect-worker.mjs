@@ -1,3 +1,6 @@
+/**
+ * 后台心情分析与主人私信补话 Worker：驱动模型分析经历、核验话题覆盖并执行受控补话。
+ */
 import {withOperationSignal} from '../core/operation-context.mjs'
 import {lifeConfig} from '../config/life.mjs'
 import {chatConfig} from '../config/chat.mjs'

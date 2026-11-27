@@ -1,4 +1,7 @@
-// File-backed capture works where Windows sandbox disallows anonymous pipes.
+/**
+ * 跨平台安全子进程执行封装：规避 Windows 沙箱匿名管道限制并强制输出字节上限。
+ */
+// 当 Windows 沙箱禁用匿名管道时，使用文件承载子进程输出采集。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -11,13 +14,13 @@ function boundedCapture(file, args, options) {
     uid, gid, shell, windowsVerbatimArguments } = options
   const worker = fileURLToPath(new URL('./capture-worker.mjs', import.meta.url))
   const workerEnv = { ...process.env }
-  delete workerEnv.NODE_OPTIONS // Target-specific preloads belong to the requested child only.
+  delete workerEnv.NODE_OPTIONS // 目标专属的预加载选项仅应用于被调用的子进程本身。
   const input = serialize({ file, args, options: {
     cwd: cwd instanceof URL ? fileURLToPath(cwd) : cwd, env: { ...env }, maxBuffer, timeout, killSignal,
     uid, gid, shell, windowsVerbatimArguments,
   } })
-  // execFile in the worker enforces maxBuffer separately on each live stream. Its
-  // single binary reply contains only bounded output and a small status record.
+  // worker 内的 execFile 对每个实时流单独施加 maxBuffer 上限，
+  // 单次二进制返回仅包含受限输出与轻量状态记录。
   const workerResult = spawnSync(process.execPath, [worker], {
     input, env: workerEnv, windowsHide: true, maxBuffer: Infinity,
   })
@@ -35,8 +38,8 @@ function boundedCapture(file, args, options) {
 }
 
 export function execFileSync(file, args = [], options = {}) {
-  // File descriptors bypass Node's maxBuffer handling. Bounded calls need
-  // managed pipes so the child is stopped while it is still producing output.
+  // 文件描述符会绕过 Node 的 maxBuffer 限制，受限调用需使用
+  // 受管管道以便在子进程持续输出超限时及时中止。
   if (options.maxBuffer !== undefined) return boundedCapture(file, args, options)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-capture-'))
   const out = path.join(dir, 'stdout'), err = path.join(dir, 'stderr')

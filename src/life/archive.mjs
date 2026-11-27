@@ -1,3 +1,6 @@
+/**
+ * 长期状态热事件冷归档器：按保留天数与条数上限将历史事件封存为带摘要的归档文件。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -11,8 +14,8 @@ const DAY = 86400000
 const id = () => crypto.randomUUID()
 
 /**
- * Compacts the event log without owning checkpoint commits.
- * References from live memories, proposals, drafts and in-flight jobs are protected.
+ * 压缩热事件日志（不直接负责检查点提交）。
+ * 受活跃记忆、提案、草稿及在途任务引用的事件均受保护。
  */
 export function archiveLifeState(state, { dir, now, cfg }, force = false) {
   const protectedIDs = new Set([
@@ -32,7 +35,7 @@ export function archiveLifeState(state, { dir, now, cfg }, force = false) {
     }
   }
 
-  // Preserve a bounded recent unprocessed window; older overflow remains in cold storage.
+  // 保留有限大小的近期未处理窗口，更早溢出事件转入冷归档。
   for (const event of state.events.filter(event =>
     event.seq > (state.cognition?.cursor ?? 0) &&
     learningKinds.has(event.kind) &&
@@ -92,10 +95,10 @@ export function archiveLifeState(state, { dir, now, cfg }, force = false) {
     }
   }
 
-  // Never discard unresolved writes or thread closure state during compaction.
+  // 压缩期间绝不丢弃未决写入或线程关闭状态。
   state.leases = state.leases.filter(lease => lease.expiresAt > now() - 7 * DAY)
 
-  // Move completed administrative history to the same searchable cold store.
+  // 将已完成的管理历史迁入同一可检索冷归档。
   const historical = []
   for (const [key, finished] of [
     ['proposals', proposal => proposal.status !== 'pending'],

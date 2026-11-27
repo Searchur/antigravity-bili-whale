@@ -1,3 +1,6 @@
+/**
+ * 插件更新器单元测试：覆盖同版本提交比对、断包保护与独立目录覆盖切换。
+ */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

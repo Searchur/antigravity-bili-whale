@@ -1,3 +1,6 @@
+/**
+ * 控制台后端业务处理器：封装配置读写、扫码登录与登出、主人核验、环境检测、运行状态与记忆管理 API。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -267,10 +270,10 @@ export function createApiHandlers({
     await reload
 
     const remoteDetail = {
-      verified_revoked: '已复核B站远程会话失效。',
-      still_active: 'B站复核显示远程会话仍有效，可在B站安全中心下线旧设备。',
-      exit_accepted: 'B站已受理注销请求，暂未确认远程会话失效。',
-      local_only: '暂未确认B站远程会话失效，可在B站安全中心下线旧设备。',
+      verified_revoked: '已复核 B 站远程会话失效。',
+      still_active: 'B 站复核显示远程会话仍有效，可在 B 站安全中心下线旧设备。',
+      exit_accepted: 'B 站已受理注销请求，暂未确认远程会话失效。',
+      local_only: '暂未确认 B 站远程会话失效，可在 B 站安全中心下线旧设备。',
       no_credentials: '',
     }[remoteStatus]
     return {

@@ -1,10 +1,12 @@
+/**
+ * MCP Apps 前端桥接封装：负责与 Antigravity 宿主通信、明暗主题变量同步及并发请求排队。
+ */
 import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextprotocol/ext-apps'
 
 /**
- * MCP Apps SDK 桥接封装：
- * - 先注册 handlers 再 connect()，避免丢失初始 toolresult / hostcontextchanged。
- * - 自动同步 Antigravity 明暗主题与 CSS 变量。
- * - 内置并发队列（上限 3，严格低于 Antigravity 4 并发限制）。
+ * 创建 MCP Apps 桥接实例：
+ * - 先注册事件回调再执行 connect()，避免丢失初始结果与主题变量；
+ * - 内置上限为 3 的并发队列，低于宿主 4 并发限制。
  */
 export function createMcpBridge({ onInitialResult } = {}) {
   const app = new App({ name: 'antigravity-bili-whale', version: '2.0.2' }, {})

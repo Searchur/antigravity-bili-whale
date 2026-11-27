@@ -1,3 +1,6 @@
+/**
+ * 策略与防回归集成测试：覆盖只读约束、主动补话解耦、安全闭环、动态路由与损坏自愈。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
@@ -47,22 +50,22 @@ test('MCP model & app tools enforce read-only traffic/config and reject retired 
   const router = createMcpRouter({ api, modelRunner: runner })
   t.after(() => router.dispose())
 
-  // whale_app_life enum strictly matches Tab 6 UI
+  // whale_app_life 动作枚举与 Tab 6 UI 严格对齐
   const listRes = await router.handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
   const lifeTool = listRes.result.tools.find(x => x.name === 'whale_app_life')
   assert.deepEqual(lifeTool.inputSchema.properties.action.enum, ['status', 'pause', 'search', 'export', 'resolve'])
 
-  // traffic is read-only (status only)
+  // traffic 命令仅开放只读 status 查询
   const badTraffic = await runner('bili_read', { command: 'traffic', args: ['resume'] })
   assert.equal(badTraffic.isError, true)
   assert.match(badTraffic.content[0].text, /管理数据请在控制台查看|traffic status/)
 
-  // config is read-only (show only)
+  // config 命令仅开放只读 show 查询
   const badConfig = await runner('bili_read', { command: 'config', args: ['set', 'deepReadMax', '5'] })
   assert.equal(badConfig.isError, true)
   assert.match(badConfig.content[0].text, /管理数据请在控制台查看|config show/)
 
-  // Retired commands & cross read/write commands rejected
+  // 已下线命令及跨读写通道命令一律拒绝
   for (const [tool, command] of [
     ['bili_read', 'video'],
     ['bili_read', 'ai-share'],
@@ -77,7 +80,7 @@ test('MCP model & app tools enforce read-only traffic/config and reject retired 
     assert.equal(res.isError, true, `${tool}:${command} should be rejected`)
   }
 
-  // behavior reload retired
+  // 已下线 behavior reload 子命令
   const badReload = await runner('bili_read', { command: 'behavior', args: ['reload'] })
   assert.equal(badReload.isError, true)
 })
@@ -96,10 +99,10 @@ test('Q1 chat.followup works decoupled from autonomy/share/quiet-hours and never
   }
   const store = lifeStore(cfg, { whaleHome: dir, fullConfig: () => cfg, now: () => clock })
 
-  // No open thread yet -> no idle DM!
+  // 无已开启私信对话时绝不主动发送空闲私信
   assert.equal(chatOpportunity(store.read(), cfg, clock), null)
 
-  // Owner sends a DM, whale sends first reply 1 min later, then 1 min later followup opportunity fires even at 02:00 with autonomy=false & share.enabled=false
+  // 主人发来私信并完成首轮回复后，即使关闭主动开关且处于凌晨，单次补话仍可独立触发
   await store.ingestOwnerMessage({
     text: '我明天去面试，有点紧张',
     actor: '300',
@@ -116,11 +119,11 @@ test('Q1 chat.followup works decoupled from autonomy/share/quiet-hours and never
   assert.ok(opp, 'followup opportunity should trigger after owner DM + reply')
   assert.equal(opp.kind, 'followup')
 
-  // Turning off chat.followup or listen.dmOwner disables followup completely
+  // 关闭 chat.followup 或 listen.dmOwner 后立即禁用补话
   assert.equal(chatOpportunity(store.read(), { ...cfg, chat: { followup: false } }, clock), null)
   assert.equal(chatOpportunity(store.read(), { ...cfg, listen: { dmOwner: false } }, clock), null)
 
-  // End-to-end affect-worker executes direct DM send via createAffectSend without expression drafts
+  // 端到端验证 affect-worker 直接通过 createAffectSend 发出补话私信
   const sentCalls = []
   const followupText = '对了，记得把简历和作品集也提前在手机里存一份备用'
   const worker = createAffectWorker({
@@ -161,11 +164,11 @@ test('Q1 chat.followup works decoupled from autonomy/share/quiet-hours and never
 test('Q8 dual safety review fails closed when Sidecar is offline or returns non-pass, and blocks obfuscated redlines', async t => {
   const { dir } = fixture(t)
 
-  // Obfuscated separator characters still match built-in redline
+  // 夹杂混淆分隔符的违规文本仍应命中本地安全红线
   const obf = checkLocalSafety('大家来看看线·上·赌·场充值渠道', {})
   assert.equal(obf.blocked, true)
 
-  // Dual mode + offline Sidecar -> fail-closed (blocked) with guidance
+  // 双重审核模式且 Sidecar 离线时应闭环拦截并给出指引
   const offlineDual = await enforceOutboundSafety({
     text: '这段猫猫视频太治愈了',
     channel: 'comment',
@@ -178,7 +181,7 @@ test('Q8 dual safety review fails closed when Sidecar is offline or returns non-
   assert.equal(offlineDual.layer, 'model-unavailable')
   assert.match(offlineDual.reason, /local_only|后台守护/)
 
-  // Dual mode + Sidecar error/non-pass verdict -> fail-closed (blocked)
+  // 双重审核模式下 Sidecar 异常或未放行时应闭环拦截
   const errDual = await enforceOutboundSafety({
     text: '这段猫猫视频太治愈了',
     channel: 'comment',
@@ -189,7 +192,7 @@ test('Q8 dual safety review fails closed when Sidecar is offline or returns non-
   assert.equal(errDual.ok, false)
   assert.equal(errDual.blocked, true)
 
-  // local_only mode still allows safe text when Sidecar is offline
+  // local_only 模式下即使 Sidecar 离线仍允许合规文本通过
   const localOk = await enforceOutboundSafety({
     text: '这段猫猫视频太治愈了',
     channel: 'comment',
@@ -205,7 +208,7 @@ test('dynamic switch, share.via routing, and comment 1000-char limit are strictl
   const { dir, cfgFile, env } = fixture(t)
   fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'test-sess', bili_jct: 'a'.repeat(32), buvid3: 'b3' }))
 
-  // 1. chat.dynamic=false blocks dynamic post EVEN WITHOUT --auto
+  // 1. 关闭 chat.dynamic 时即使未传 --auto 也禁止发动态
   fs.writeFileSync(cfgFile, JSON.stringify({
     self: { mid: '100', name: '大鲸鱼' },
     owner: { mid: '300', name: '主人' },
@@ -218,13 +221,13 @@ test('dynamic switch, share.via routing, and comment 1000-char limit are strictl
     /公开动态未开启或今日额度已用完/,
   )
 
-  // 2. comment --share blocked when share.enabled=false
+  // 2. 关闭 share.enabled 时拦截 comment --share
   await assert.rejects(
     exec(process.execPath, [cli, 'comment', '--oid', '123', '--bvid', 'BV1xx411c7mD', '--message', '@主人 好看', '--share', '--dry'], { env, timeout: 10_000 }),
     /share\.enabled\s*=\s*false|主动分享已在设置中关闭/,
   )
 
-  // 3. comment --share blocked when share.via='dm'
+  // 3. 分享通道设为私信时拦截 comment --share
   fs.writeFileSync(cfgFile, JSON.stringify({
     self: { mid: '100', name: '大鲸鱼' },
     owner: { mid: '300', name: '主人' },
@@ -236,7 +239,7 @@ test('dynamic switch, share.via routing, and comment 1000-char limit are strictl
     /share\.via\s*=\s*dm/,
   )
 
-  // 4. dm --share blocked when share.via='comment'
+  // 4. 分享通道设为评论区时拦截 dm --share
   fs.writeFileSync(cfgFile, JSON.stringify({
     self: { mid: '100', name: '大鲸鱼' },
     owner: { mid: '300', name: '主人' },
@@ -248,7 +251,7 @@ test('dynamic switch, share.via routing, and comment 1000-char limit are strictl
     /share\.via\s*=\s*comment|当前分享通道/,
   )
 
-  // 5. comment rejects >1000 characters
+  // 5. 评论正文超过 1000 字符时直接拒绝
   const over1000 = '长'.repeat(1001)
   await assert.rejects(
     exec(process.execPath, [cli, 'comment', '--oid', '123', '--bvid', 'BV1xx411c7mD', '--message', over1000, '--dry'], { env, timeout: 10_000 }),
@@ -267,7 +270,7 @@ test('dm-await delivers first-ever fan DM and advances cursor when fan exceeds d
   }
   fs.writeFileSync(cfgFile, JSON.stringify(cfgObj))
 
-  // Seed initialized dm listener state with fanBaselineAt in the past (not first-boot baseline)
+  // 初始化已建立历史基线的私信监听状态（非首次启动）
   const nowSec = Math.floor(Date.now() / 1000)
   const baselineSec = nowSec - 120
   const msgTs501 = nowSec - 10
@@ -331,7 +334,7 @@ test('dm-await delivers first-ever fan DM and advances cursor when fan exceeds d
   };`
   const preload = `data:text/javascript;base64,${Buffer.from(stub).toString('base64')}`
 
-  // Exhaust quota for fan 502 beforehand
+  // 预先耗尽粉丝 502 的当日私信配额
   recordFanReply({ channel: 'dm', uid: '502', whaleHome: dir })
 
   const r = await exec(process.execPath, ['--import', preload, cli, 'dm-await', '--once', '--json', '--peek'], {
@@ -344,11 +347,11 @@ test('dm-await delivers first-ever fan DM and advances cursor when fan exceeds d
   assert.equal(String(out.mid), '501')
   assert.equal(out.text, '你好大鲸鱼，我是新粉丝！')
 
-  // Quota-exceeded fan 502 cursor was advanced on the same poll so it won't loop forever
+  // 超额粉丝 502 的游标应在同轮推进，避免死循环重读
   const cursorAfterFirst = JSON.parse(fs.readFileSync(scope.stateFile, 'utf8'))
   assert.equal(cursorAfterFirst.fanCursors['502']?.lastSeen, msgTs502, 'quota-exceeded fan cursor should advance')
 
-  // Ack fan 501, then next poll returns hit:false cleanly
+  // 确认粉丝 501 回执后，下一轮轮询应干净返回 hit:false
   await exec(process.execPath, [cli, 'dm-await', '--ack', out.receipt], { env, timeout: 10_000 })
   const r2 = await exec(process.execPath, ['--import', preload, cli, 'dm-await', '--once', '--json', '--peek'], {
     env: { ...env, NODE_OPTIONS: `--import=${preload}` },
@@ -385,24 +388,24 @@ test('debrief parses --profile before BVID and applies dislike filter only to au
     timeout: 10_000,
   })
 
-  // --profile BEFORE BVID works properly and owner profile is NOT blocked by preferences.dislike (reaches owner duration confirm guard instead!)
+  // --profile 位于 BV 号前时正常解析，且主人档不受 preferences.dislike 拦截
   await assert.rejects(runDebrief('--profile', 'owner', 'BV1flag00001'), /询问确认/)
 
-  // auto profile IS blocked by preferences.dislike (when duration is within auto bounds)
+  // 自主档在时长合法时受 preferences.dislike 屏蔽词拦截
   await assert.rejects(runDebrief('--profile', 'auto', 'BV1disl00001'), /在自主观看排除范围内/)
 })
 
 test('planIntervalFrames strictly increases, relation cache isolates accounts, pipelineConfig honors UI watch/night, and activity-stats tracks autoComments & fan items', async t => {
   const { dir } = fixture(t)
 
-  // 1. planIntervalFrames has no duplicate trailing timestamp when duration is an exact multiple of interval
+  // 1. 视频时长恰好为抽帧间隔整数倍时，尾部时间点不重复
   const plan = planIntervalFrames({ durationSec: 120, everySec: 30, maxFrames: 10, grid: '2x2' })
   assert.equal(plan.times.length, 4)
   for (let i = 1; i < plan.times.length; i++) {
     assert.ok(plan.times[i] > plan.times[i - 1], `times[${i}] (${plan.times[i]}) must be > times[${i - 1}] (${plan.times[i - 1]})`)
   }
 
-  // 2. relation cache isolates different account credentials
+  // 2. 关注关系缓存按不同账号凭据严格隔离
   clearRelationCache()
   const fetchByCookie = async (_url, opts) => {
     const cookie = String(opts?.headers?.cookie || '')
@@ -415,7 +418,7 @@ test('planIntervalFrames strictly increases, relation cache isolates accounts, p
   assert.equal(await isFollowerOfWhale('888', { cookie: 'SESSDATA=acctB' }, { fetchImpl: fetchByCookie }), false)
   clearRelationCache()
 
-  // 3. UI watch.auto and night.deepWatchMax override legacy pipeline fields
+  // 3. UI 的 watch.auto 与 night.deepWatchMax 优先覆盖旧管线字段
   const pc = pipelineConfig({
     pipeline: { minDuration: 0, maxDuration: 7200, deepReadMax: 5 },
     watch: { auto: { minDurationSec: 60, maxDurationMin: 10 } },
@@ -425,7 +428,7 @@ test('planIntervalFrames strictly increases, relation cache isolates accounts, p
   assert.equal(pc.maxDuration, 600)
   assert.equal(pc.deepReadMax, 2)
 
-  // 4. buildActivityCalendar counts autoComments & preserves fan items with non-zero timestamp
+  // 4. buildActivityCalendar 正确统计自主评论并保留粉丝互动非零时间戳
   const dayMs = Date.parse('2026-11-26T15:00:00+08:00')
   fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
   fs.writeFileSync(path.join(dir, 'state', 'quota.json'), JSON.stringify({
@@ -452,7 +455,7 @@ test('scheduler self-heals NUL-corrupted whale-night.json on tick and wakeNow, a
   const nightFile = path.join(dir, 'state', 'schedule.json')
   fs.mkdirSync(path.dirname(nightFile), { recursive: true })
   fs.writeFileSync(credFile, JSON.stringify({ sessdata: 'test-sess', bili_jct: 'a'.repeat(32), buvid3: 'b3' }))
-  // Write UTF-8 BOM-prefixed config.json to verify createJsonCache handles BOM cleanly
+  // 写入带 UTF-8 BOM 的 config.json 验证 createJsonCache 兼容处理
   fs.writeFileSync(cfgFile, '\uFEFF' + JSON.stringify({
     self: { mid: '100', name: '大鲸鱼' },
     owner: { mid: '300', name: '主人' },
@@ -462,7 +465,7 @@ test('scheduler self-heals NUL-corrupted whale-night.json on tick and wakeNow, a
   }))
   assert.equal(createJsonCache().read(cfgFile).self.mid, '100')
 
-  // Simulate NTFS crash NUL-filled whale-night.json (559 zero bytes)
+  // 模拟异常断电导致的 NUL 填充损坏计划文件（state/schedule.json）
   fs.writeFileSync(nightFile, Buffer.alloc(559, 0))
 
   const prompts = []
@@ -483,13 +486,13 @@ test('scheduler self-heals NUL-corrupted whale-night.json on tick and wakeNow, a
   })
   t.after(() => sched.stop())
 
-  // 1. tick() must self-heal the NUL-corrupted whale-night.json and write a fresh valid schedule
+  // 1. tick() 应自愈 NUL 损坏的计划文件并重建有效排期
   await sched.tick()
   assert.equal(sched.health().lastError, null)
   const repairedByTick = JSON.parse(fs.readFileSync(nightFile, 'utf8'))
   assert.equal(typeof repairedByTick.action, 'string')
 
-  // 2. Corrupt whale-night.json again and verify wakeNow() also self-heals and delivers cleanly
+  // 2. 再次破坏计划文件后，wakeNow() 同样应自愈并正常投递
   fs.writeFileSync(nightFile, Buffer.alloc(559, 0))
   const res = await sched.wakeNow()
   assert.equal(res.ok, true)

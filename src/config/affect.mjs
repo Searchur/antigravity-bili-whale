@@ -1,3 +1,6 @@
+/**
+ * 心情与主动补话配置默认值及边界校验。
+ */
 export const AFFECT_DEFAULTS=Object.freeze({enabled:true,moodHalfLifeHours:6,shareDecayPerHour:2,shareAccrualPerHour:6,trigger:70,rearm:40,initiativeGapMinutes:180,initiativeDailyMax:2,ownerIdleMinutes:30,analysisDailyMax:24,coverageDailyMax:6})
 export function affectConfig(input={}){
   if(!input||typeof input!=='object'||Array.isArray(input))throw Error('life.affect 必须是对象')

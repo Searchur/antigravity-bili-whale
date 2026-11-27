@@ -1,3 +1,6 @@
+/**
+ * 投递身份隔离与未确认投递保护单元测试。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

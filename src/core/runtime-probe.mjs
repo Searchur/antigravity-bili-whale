@@ -1,3 +1,6 @@
+/**
+ * Windows/POSIX 可用 Node.js 24+ 运行时探测与版本校验。
+ */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,7 +30,7 @@ export function resolveRuntime(_whaleHome, options = {}) {
   const probe = options.probe ?? probeRuntime
   const bin = 'node.exe'
 
-  // Fast path: already running under real node.exe (not Electron)
+  // 快速路径：当前已在独立 node.exe（非 Electron）下运行。
   if (!electron && current && /node(\.exe)?$/i.test(path.basename(current))) {
     try {
       if (fs.statSync(current).isFile()) return { file: current, env: { ...env } }

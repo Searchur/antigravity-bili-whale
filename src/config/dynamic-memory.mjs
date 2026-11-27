@@ -1,3 +1,6 @@
+/**
+ * 动态记忆生命周期与召回配置默认值、时间类型常量及开关判定。
+ */
 export const TEMPORAL_KINDS=['current_state','recent_pattern','stable_preference','episodic','commitment','understanding']
 export const DYNAMIC_DEFAULTS=Object.freeze({enabled:true,shadow:false,useWindowSec:3600,maxUseBoost:0.2,catalogLimit:20,fetchBytes:4096,taskFetchBytes:16384,autoDelete:true,
  halfLives:{current_state:21600,recent_pattern:259200,stable_preference:2592000,episodic:1209600,commitment:604800,understanding:2592000}})

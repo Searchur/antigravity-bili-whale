@@ -1,3 +1,6 @@
+/**
+ * 外发写操作配额闸门统一入口：封装分享、动态与自主评论发送前检查与事后记账。
+ */
 // 限额闸的统一入口（评论 / 动态等写通道共用检查与记账）
 import { execFileSync } from '../core/capture.mjs'
 import path from 'node:path'

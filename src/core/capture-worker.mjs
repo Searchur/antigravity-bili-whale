@@ -1,3 +1,6 @@
+/**
+ * 子进程输出采集工作脚本：配合 `capture.mjs` 通过临时文件回传受限大小的 stdout/stderr。
+ */
 import fs from 'node:fs'
 import { execFile } from 'node:child_process'
 import { deserialize, serialize } from 'node:v8'

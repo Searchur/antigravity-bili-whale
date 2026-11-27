@@ -1,3 +1,6 @@
+/**
+ * 评论目标与回复坐标前置校验器：在发评前核验视频与父楼层存在性。
+ */
 import {guardedFetch as fetch} from '../bili/traffic.mjs'
 import {exactJson} from '../core/json-exact.mjs'
 export async function checkCommentTarget(type,oid,headers) {

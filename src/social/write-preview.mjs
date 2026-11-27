@@ -1,3 +1,6 @@
+/**
+ * 外发写前预览（--dry）令牌签发与单次核销守卫。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -20,7 +23,7 @@ function pruneExpired(dir, now, keepName = '') {
   } catch {}
 }
 
-/** Record a validated preview or claim it once before making a remote write. */
+/** 记录已通过校验的写前预览，或在实际远端写入前执行一次性令牌核销。 */
 export function requireWritePreview(command, payload, { dry, credentials, attachment } = {}) {
   const current = config({ fresh: true })
   const rawLogin = JSON.parse(fs.readFileSync(credentialsPath, 'utf8').replace(/^\uFEFF/, ''))

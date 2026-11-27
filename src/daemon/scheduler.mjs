@@ -1,3 +1,6 @@
+/**
+ * 后台生物钟与监听主调度器：协调按作息看片、手动唤醒、私信/评论监听、配额守卫与后台 Worker。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -697,7 +700,7 @@ function initializeScheduler(host, opts, health) {
           continue
         }
         if (!L.commentFan) continue
-        // Rotate transient failures behind notifications waiting for their first attempt.
+        // 将瞬时失败项轮换到待首次尝试的通知之后。
         if (!relations.has(x.mid)) {
           if (relations.size >= 12) { retryLater.push(x); unresolved.add(itemKey(x)); continue }
           relations.set(x.mid, await checkRelation(x.mid, H))

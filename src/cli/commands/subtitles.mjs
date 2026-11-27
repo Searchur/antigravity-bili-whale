@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `subtitles`：拉取并筛选指定 B 站视频的分 P 字幕文本。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

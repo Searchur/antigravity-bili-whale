@@ -1,3 +1,6 @@
+/**
+ * B 站扫码登录与账号校验：管理单实例二维码登录挑战、轮询换取凭据与导航接口校验。
+ */
 import { randomUUID } from 'node:crypto'
 import { qrDataUrl } from './qr.mjs'
 import { AuthError, parseManualCookie } from './credential-store.mjs'
@@ -56,7 +59,7 @@ export async function verifyAccount(input, { fetch: fetcher = globalThis.fetch, 
   return { mid: String(data.mid), name }
 }
 
-/** One short-lived challenge per plugin instance. No Cookie, key or refresh token reaches the UI. */
+/** 每个插件实例仅维护一个短时扫码挑战；Cookie、密钥与刷新令牌绝不透传至前端 UI。 */
 export class QrAuth {
   constructor({ save, fetch = globalThis.fetch, now = Date.now, render = (url, signal) => renderQr(url, {signal}) }) {
     this.save = save; this.fetch = fetch; this.now = now; this.render = render

@@ -1,3 +1,6 @@
+/**
+ * 控制台前端单文件构建脚本：使用 esbuild（esnext）将 web/ 源码与样式内联打包至 dist/app.html。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,7 +45,7 @@ const licenseNotices = [...bundledPackages].sort().map(installPath => {
   return [`${pkg.name}@${pkg.version}`, ...files.map(name => readText(path.join(dir, name)).trimEnd())].join('\n\n')
 }).join('\n\n---\n\n')
 
-// Inline the bundle and its license notices without ending a script block early.
+// 内联前端产物与许可声明，同时避免提前闭合 script 标签。
 const escapeScript = content => content.replace(/<\/script/gi, '<\\/script')
 const html = template
   .replace('/*__INLINE_CSS__*/', () => css)

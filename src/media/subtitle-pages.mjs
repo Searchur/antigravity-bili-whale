@@ -1,3 +1,6 @@
+/**
+ * 多 P 视频分片选择与字幕轨道优选工具。
+ */
 export function selectSubtitlePages(view, options={}) {
   const pages = view.pages?.length ? view.pages : [{page:1,cid:view.cid,duration:view.duration,part:view.title}]
   if (options.page !== undefined) {

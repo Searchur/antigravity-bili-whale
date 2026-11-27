@@ -1,3 +1,6 @@
+/**
+ * 后台外发内容语义安全复审 Worker：调用内置轻量模型检测谐音、隐喻与钓鱼诱导风险。
+ */
 import { createAntigravityTextComplete } from '../host/text-complete.mjs'
 
 const SAFETY_SYSTEM = [

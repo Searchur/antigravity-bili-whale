@@ -8,8 +8,8 @@ import { trackQuotaOperation } from './quota-ledger.mjs'
 export async function guardSend(request, { dry = false } = {}) {
   const cfg = config()
   const store = lifeStore(cfg)
-  // Preferences are evaluated inside reserve as well; a concurrent approval
-  // must not leave a check-to-send bypass window.
+  // 预留阶段同样校验偏好规则，防止并发审批
+  // 在预检与发送之间留下绕过窗口。
   request.ownerName = String(config().owner?.name ?? '')
   const result = store.check(request)
   if (!result.allow) throw Error(result.reason)

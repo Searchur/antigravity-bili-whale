@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `dm-batch`：将多段主人私信按批次安全审核、写前预检并顺序投递。
+ */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

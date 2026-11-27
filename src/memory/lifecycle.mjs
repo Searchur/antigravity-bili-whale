@@ -1,3 +1,6 @@
+/**
+ * 记忆生命周期与动态排序引擎：评估时效类型、召回资格、抑制状态与综合相关性得分。
+ */
 import {relationView,relationTopics} from './relations.mjs'
 import {terms} from './index.mjs'
 import {inScope} from './scope.mjs'
@@ -13,7 +16,7 @@ export function lifecycleDefaults(m){
 }
 export function validateTemporal(input){
  if(input.temporalKind!==undefined&&!TEMPORAL_KINDS.includes(input.temporalKind))throw Error('未知时间类型')
- // Explicit time windows come from trusted management, not invented model timestamps.
+ // 显式时间窗仅来自受信任管理输入，不采信模型编造时间戳。
  if(input.validUntil!==undefined||input.validFrom!==undefined)throw Error('模型不能自行指定现实有效时间')
  return input.temporalKind
 }
@@ -53,7 +56,7 @@ export function rankMemories(memories,{query='',scene,at,access={},cfg=DYNAMIC_D
   const hits=tokens.filter(t=>words.has(t)||(t.length===1&&String(m.text).includes(t))).length,relevance=tokens.length?hits/tokens.length:0
   const required=mandatoryMemory(m),v=check.view
   v.longTermThreshold=3
-  // Hotness alone never overrides a nonmatching explicit query.
+  // 仅凭热度绝不覆盖不匹配的显式查询条件。
   if(!required&&tokens.length&&!hits)continue
   if(!required&&!tokens.length&&!historical&&!['hot','warm'].includes(v.tier))continue
   const importance=v.retention?.class==='protected'?0.1:v.retention?.class==='important'?0.05:0

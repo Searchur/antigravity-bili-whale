@@ -1,3 +1,6 @@
+/**
+ * 双层外发内容安全审核核心：内置法律法规红线词库、自定义屏蔽词与后台语义复审及审计日志。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { WHALE_HOME, dataPathsFor } from '../core/paths.mjs'

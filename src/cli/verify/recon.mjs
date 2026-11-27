@@ -1,7 +1,10 @@
-// Dry-run preparation for one comment. Read-only, no credentials.
-//  1. BV -> aid via the public view API (oid for the comment area)
-//  2. video facts + comment-area state + top comments (to read the room)
-//  3. WBI signing material from the public nav endpoint (newer endpoints want it)
+/**
+ * CLI 核验命令 `recon`：无凭据只读探测视频 aid、评论区状态与热评氛围，供发评前预检。
+ */
+// 单条评论预检准备：只读操作，不使用登录凭据。
+// 1. 通过公开 view 接口将 BV 号解析为评论区 oid（aid）
+// 2. 拉取视频基础信息、评论区开关状态与热评氛围
+//  3. 从公开 nav 接口获取 WBI 签名参数（新版接口需要）
 import { apiGet } from '../../bili/api.mjs'
 import { localDay } from '../../core/local-date.mjs'
 

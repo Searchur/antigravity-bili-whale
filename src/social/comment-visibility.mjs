@@ -1,3 +1,6 @@
+/**
+ * 评论发出后公开/登录态可见性回读验证器。
+ */
 import {guardedFetch} from '../bili/traffic.mjs'
 import {exactJson} from '../core/json-exact.mjs'
 import {setTimeout as delay} from 'node:timers/promises'

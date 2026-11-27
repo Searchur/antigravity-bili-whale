@@ -1,3 +1,6 @@
+/**
+ * B 站关注关系校验与缓存：实时查询对方是否已关注大鲸鱼，按账号隔离缓存结果。
+ */
 import crypto from 'node:crypto'
 import { guardedFetch as fetch } from './traffic.mjs'
 import { exactJson } from '../core/json-exact.mjs'

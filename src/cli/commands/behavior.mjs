@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `behavior`：列出或读取内置行为规范章节内容。
+ */
 import {loadBehavior,BEHAVIOR_IDS} from '../../core/behavior.mjs'
 try{
  const [action='list',id]=process.argv.slice(2)

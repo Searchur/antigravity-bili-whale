@@ -1,3 +1,6 @@
+/**
+ * 管线子进程并发调度工具：提供受限并发 `mapLimit`、安全子进程调用与 JSON 输出解析。
+ */
 import {spawn} from 'node:child_process'
 import {NODE_EXE,NODE_ENV} from '../../core/node-binary.mjs'
 export function runNode(file,args=[],{timeoutMs=900000,env={},signal}={}){

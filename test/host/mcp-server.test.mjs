@@ -1,3 +1,6 @@
+/**
+ * MCP 服务器单元测试：覆盖全局入口声明、app-only 工具隔离、stdio JSON-RPC 与读写分离工具。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -47,25 +50,25 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     const toolsRes = await router.handleRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
     const tools = toolsRes.result.tools
 
-    // Left sidebar ONLY entrypoint with renamed title
+    // 仅声明左侧栏全局入口，标题为「哔哩哔哩大鲸鱼」
     const openTool = tools.find(t => t.name === 'open_bili_whale')
     assert.ok(openTool)
     assert.equal(openTool._meta.ui.resourceUri, APP_URI)
     assert.equal(APP_URI, 'ui://antigravity-bili-whale/app.html')
     assert.deepEqual(openTool._meta['com.google.antigravity/ui'].entrypoints, [{ type: 'global', title: '哔哩哔哩大鲸鱼' }])
 
-    // App-only tools hidden from AI model (6 management tools, pending/corpus retired)
+    // 6 个管理页专用工具均标记为 app-only 对模型隐藏（已移除旧 pending/corpus）
     const appTools = tools.filter(t => t.name.startsWith('whale_app_'))
     assert.equal(appTools.length, 6)
     for (const t of appTools) assert.deepEqual(t._meta.ui.visibility, ['app'])
 
-    // Auth tool supports QR login + logout, NEVER manual cookie
+    // 鉴权工具仅支持扫码登录与登出，严禁手动导入 Cookie
     const authTool = tools.find(t => t.name === 'whale_app_auth')
     assert.deepEqual(authTool.inputSchema.properties.action.enum, ['qr_start', 'qr_poll', 'qr_cancel', 'logout'])
     const badAuth = await router.handleRequest({ jsonrpc: '2.0', id: 21, method: 'tools/call', params: { name: 'whale_app_auth', arguments: { action: 'cookie' } } })
     assert.equal(badAuth.result.isError, true)
 
-    // Model tools (consolidated read/write pair: bili_read + bili_write)
+    // 面向模型的读写分离工具对：bili_read 与 bili_write
     const modelTools = tools.filter(t => t.name.startsWith('bili_'))
     assert.deepEqual(modelTools.map(t => t.name), ['bili_read', 'bili_write'])
     for (const t of modelTools) assert.deepEqual(t._meta.ui.visibility, ['model'])
@@ -75,7 +78,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
       'mcp(antigravity-bili-whale_whale/bili_write)',
     ])
 
-    // Pre-bundled single-file HTML resource exists, matches MIME type, and reflects redesigned UI
+    // 预打包单文件控制台资源存在、MIME 类型匹配且包含核心视图
     const resRead = await router.handleRequest({ jsonrpc: '2.0', id: 3, method: 'resources/read', params: { uri: APP_URI } })
     const content = resRead.result.contents[0]
     assert.equal(content.mimeType, 'text/html;profile=mcp-app')
@@ -84,7 +87,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.ok(!content.text.includes('手动导入 Cookie'))
     assert.ok(Buffer.byteLength(content.text, 'utf8') < 10 * 1024 * 1024)
 
-    // Bootstrap call returns structuredContent including models catalog and about metadata
+    // bootstrap 工具返回包含模型清单与关于元数据的结构化载荷
     const boot = await router.handleRequest({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'whale_app_bootstrap', arguments: {} } })
     assert.equal(boot.result.structuredContent.ok, true)
     assert.equal(boot.result.structuredContent.settings.config.models.main, 'flash')
@@ -92,7 +95,7 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.ok(boot.result.structuredContent.models.groups.length >= 1)
     assert.equal(boot.result.structuredContent.about.local.name, 'antigravity-bili-whale')
 
-    // Ops about & models actions work cleanly; install_ffmpeg retired; wake_now exposed
+    // ops 的 about/models 正常工作，已下线 install_ffmpeg 并开放 wake_now
     const opsTool = tools.find(t => t.name === 'whale_app_ops')
     assert.equal(opsTool.inputSchema.properties.action.enum.includes('install_ffmpeg'), false)
     assert.equal(opsTool.inputSchema.properties.action.enum.includes('wake_now'), true)
@@ -105,16 +108,16 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.equal(opsModels.result.structuredContent.ok, true)
     assert.ok(Array.isArray(opsModels.result.structuredContent.groups))
 
-    // Model tool live execution: bili_read stickers list
+    // 模型只读工具实际调用：bili_read stickers list
     const stickers = await router.handleRequest({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'stickers', args: ['list'] } } })
     assert.equal(stickers.result.isError, false)
     assert.equal(JSON.parse(stickers.result.content[0].text).total, 42)
 
-    // Write command rejected cleanly under bili_read (strict read/write separation)
+    // bili_read 严格拦截写命令（保持读写分离）
     const badCmd = await router.handleRequest({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'comment' } } })
     assert.equal(badCmd.result.isError, true)
 
-    // Portable read-prompt & read-shot scoped helpers
+    // 内置跨平台只读辅助命令 read-prompt 与 read-shot 作用域校验
     const pDir = path.join(dir, 'runtime', 'workspace', '.prompts')
     fs.mkdirSync(pDir, { recursive: true })
     const promptName = 'a'.repeat(48) + '.json'

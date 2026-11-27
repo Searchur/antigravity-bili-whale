@@ -1,11 +1,14 @@
+/**
+ * 视频封面安全下载与像素校验器：校验 HTTP 响应与图像解码有效性后再更新本地缓存。
+ */
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { ffmpegPath } from './ffmpeg.mjs'
 import { renameWithRetry } from '../core/atomic-json.mjs'
 
-// Windows includes WIC even when the optional video tools are absent.
-// Decode in strips so validation does not allocate a second full-size bitmap.
+// 即使未安装可选视频工具，Windows 也内置 WIC 图像解码能力。
+// 分条带解码校验像素，避免额外分配整张大图内存。
 const decodeWindowsImage = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore

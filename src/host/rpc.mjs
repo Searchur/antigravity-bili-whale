@@ -1,3 +1,6 @@
+/**
+ * Antigravity 宿主 RPC 客户端：拉取实时模型清单、规范化家族与 Thinking 档位排序。
+ */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -85,7 +88,7 @@ export function normalizeModelCatalog(raw) {
       }
     }
 
-    // Orchestrator variants: group under "orchestrator" cleanly
+    // 将编排器变体统一归入 orchestrator 模型家族分组
     if (groupKey === id && /^Orchestrator\s*\((.+)\)$/i.test(label)) {
       groupKey = 'orchestrator'
       groupName = 'Orchestrator'

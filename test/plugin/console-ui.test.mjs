@@ -1,3 +1,6 @@
+/**
+ * 控制台 UI 交互与状态机回归测试：覆盖登录竞态、主人核验、活动状态机与报错隔离。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openConsole } from '../fixtures/console-ui.mjs'
@@ -119,7 +122,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   }
   const lowQuota = { enabled: true, paused: true, remainingPercent: 17.17, threshold: 20 }
 
-  // 1. Missing identity + low quota: never shows 正常运行中 or 暂停主动活动
+  // 1. 未绑定账号与主人且配额偏低：绝不显示「正常运行中」或「暂停主动活动」
   const unconfigured = deriveActivityStatus({
     savedConfig: { self: { mid: '' }, owner: { mid: '' } },
     status: { sidecarRunning: true, modelQuota: lowQuota },
@@ -131,7 +134,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(unconfigured.primaryAction.tab, 'account')
   assert.match(unconfigured.notice.text, /17\.17% < 20%/)
 
-  // 1b. Unsaved owner draft gives save prompt
+  // 1b. 已填主人 UID 草稿但尚未保存时提示先点击「保存配置」
   const unsavedOwner = deriveActivityStatus({
     savedConfig: { self: { mid: '100' }, owner: { mid: '' } },
     draftConfig: { self: { mid: '100' }, owner: { mid: '200' } },
@@ -142,7 +145,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(unsavedOwner.badge.text, '尚未配置主人 UID')
   assert.match(unsavedOwner.notice.text, /保存配置/)
 
-  // 2. Sidecar offline
+  // 2. Sidecar 后台守护离线
   const offline = deriveActivityStatus({
     savedConfig: baseCfg,
     status: { sidecarRunning: false, modelQuota: lowQuota },
@@ -153,7 +156,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(offline.primaryAction.tab, 'env')
   assert.equal(offline.secondaryAction.label, '恢复主动活动')
 
-  // 3. Both manual pause and quota pause
+  // 3. 手动暂停与配额保护同时生效
   const both = deriveActivityStatus({
     savedConfig: baseCfg,
     status: { sidecarRunning: true, modelQuota: lowQuota },
@@ -164,7 +167,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(both.primaryAction.label, '恢复主动活动')
   assert.equal(both.secondaryAction.label, '调整配额保护')
 
-  // 4. Quota pause only: no 正常运行中 and no 暂停主动活动
+  // 4. 仅配额保护暂停：不显示「正常运行中」与「暂停主动活动」
   const quotaOnly = deriveActivityStatus({
     savedConfig: baseCfg,
     status: { sidecarRunning: true, modelQuota: lowQuota },
@@ -176,7 +179,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(quotaOnly.primaryAction.tab, 'models')
   assert.equal(quotaOnly.secondaryAction, null)
 
-  // 5. Manual pause only
+  // 5. 仅手动暂停
   const manualOnly = deriveActivityStatus({
     savedConfig: baseCfg,
     status: { sidecarRunning: true, modelQuota: { enabled: true, paused: false, remainingPercent: 80, threshold: 20 } },
@@ -186,7 +189,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(manualOnly.badge.text, '主动活动已手动暂停')
   assert.equal(manualOnly.primaryAction.label, '恢复主动活动')
 
-  // 6. Ready but all auto toggles disabled -> standby
+  // 6. 一切就绪但自动开关全关：进入待命态
   const standby = deriveActivityStatus({
     savedConfig: { ...baseCfg, browse: { enabled: false } },
     status: { sidecarRunning: true, modelQuota: { enabled: true, paused: false, remainingPercent: 80, threshold: 20 } },
@@ -196,7 +199,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
   assert.equal(standby.badge.text, '已就绪 · 待命中')
   assert.equal(standby.primaryAction.label, '暂停主动活动')
 
-  // 7. Ready and auto enabled -> running
+  // 7. 一切就绪且开启自动开关：进入正常运行态
   const running = deriveActivityStatus({
     savedConfig: baseCfg,
     status: { sidecarRunning: true, modelQuota: { enabled: true, paused: false, remainingPercent: 80, threshold: 20 } },
@@ -214,7 +217,7 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
     modelQuota: { enabled: true, paused: true, remainingPercent: 17.17, threshold: 20 },
   }
 
-  // Case A: Missing owner + low quota (screenshot repro)
+  // 场景 A：缺少主人 UID 且触发低配额保护（复现冲突场景）
   const uiUnbound = await openConsole(t, (name, args) => {
     if (name === 'whale_app_bootstrap') {
       return {
@@ -233,7 +236,7 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
   assert.equal(uiUnbound.button('暂停主动活动'), undefined)
   assert.ok(uiUnbound.button('前往配置账号与主人'))
 
-  // Case B: Bound identity + quota pause -> single quota badge & 调整配额保护, no 正常运行中 / 暂停主动活动
+  // 场景 B：已绑定身份且触发配额保护：仅展示配额暂停徽章与「调整配额保护」
   const uiQuota = await openConsole(t, (name, args) => {
     if (name === 'whale_app_bootstrap') {
       return {
@@ -251,7 +254,7 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
   assert.equal(uiQuota.button('暂停主动活动'), undefined)
   assert.ok(uiQuota.button('调整配额保护'))
 
-  // Case C: Bound identity + both manual pause & quota pause -> resume transitions to quota-only cleanly
+  // 场景 C：手动暂停与配额保护叠加：解除手动暂停后平滑回落为配额保护态
   let pausedFlag = true
   const uiBoth = await openConsole(t, (name, args) => {
     if (name === 'whale_app_bootstrap') {
@@ -278,7 +281,7 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
   assert.equal(uiBoth.button('恢复主动活动'), undefined)
   assert.equal(uiBoth.button('暂停主动活动'), undefined)
 
-  // Case D: Pause error stays inside activity card and never leaks into memory card
+  // 场景 D：暂停接口报错仅留在顶部活动卡片，不污染底部长期记忆卡片
   const uiErr = await openConsole(t, (name, args) => {
     if (name === 'whale_app_bootstrap') {
       return {

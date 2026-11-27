@@ -1,3 +1,6 @@
+/**
+ * 记忆与当前查询上下文的分词权重及相关性打分工具。
+ */
 import {terms} from './index.mjs'
 import {relationTopics} from './relations.mjs'
 const noise=new Set(['主人','本喵','本鲸','喵','你','我','的','了','啊','这个','那个'])

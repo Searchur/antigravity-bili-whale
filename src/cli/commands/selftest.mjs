@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `selftest`：执行内置行为规范章节与运行链路自检。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'

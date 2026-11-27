@@ -1,3 +1,6 @@
+/**
+ * B 站登录凭据原子存储：校验 Cookie 格式、防请求头注入、写盘收紧权限并保障失败回滚。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -5,7 +8,7 @@ import { protectPrivateFile } from '../core/file-acl.mjs'
 
 export class AuthError extends Error {}
 
-/** Preserve the old JSON format; reject header injection before any network request. */
+/** 保持既有凭据 JSON 格式；在发起任何网络请求前先拦截请求头注入字符。 */
 export function parseManualCookie(input = {}) {
   const pick = (raw, key) => {
     const value = String(raw ?? '').trim()
@@ -34,7 +37,7 @@ function read(file) {
   catch (error) { if (error.code === 'ENOENT') return null; throw error }
 }
 
-/** One writer for both QR and manual import; old credentials survive every pre-commit failure. */
+/** 扫码与导入共用同一写入入口；提交前的任何失败均保留原有凭据不受影响。 */
 export function createCredentialStore({ file, verify, protect = protectCredentials }) {
   let tail = Promise.resolve()
   const save = (input, { signal, check = () => {} } = {}) => {
@@ -52,7 +55,7 @@ export function createCredentialStore({ file, verify, protect = protectCredentia
         fs.mkdirSync(path.dirname(file), { recursive: true })
         const fd = fs.openSync(temp, 'wx', 0o600)
         try {
-          // Restrict the empty file before it ever contains credentials.
+          // 在写入凭据前先收紧空文件的访问权限。
           protect(temp)
           check()
           fs.writeFileSync(fd, JSON.stringify(credentials, null, 2) + '\n')

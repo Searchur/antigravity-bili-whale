@@ -1,3 +1,6 @@
+/**
+ * 私信与评论监听回归测试：覆盖通道启停、游标断点续扫、粉丝关系重试与关闭线程冷却。
+ */
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

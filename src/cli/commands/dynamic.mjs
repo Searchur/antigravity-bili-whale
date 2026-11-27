@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `dynamic`：在安全审核、写前预检与每日上限保护下发布纯文字 B 站公开动态。
+ */
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { requireWritePreview } from '../../social/write-preview.mjs'

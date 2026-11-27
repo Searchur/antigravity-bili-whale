@@ -1,3 +1,6 @@
+/**
+ * 视频观看档位解析、时长硬限制检查与固定间隔抽帧时间点规划器。
+ */
 import { normalizeWatch } from '../config/index.mjs'
 
 export function parseGrid(gridStr = '3x3') {
@@ -103,7 +106,7 @@ export function planIntervalFrames({ durationSec, everySec = 15, maxFrames = 36,
   for (let idx = 0; idx < frameCount; idx++) {
     const nominal = (idx + 1) * effectiveStep
     const clamped = Math.min(nominal, safeEnd)
-    // Avoid clamping the last frame onto the exact same timestamp as the previous frame
+    // 避免将最后一帧截断到与前一帧完全相同的时间戳。
     if (times.length > 0 && clamped <= times.at(-1) + 0.05) {
       const mid = (times.at(-1) + dur) / 2
       times.push(Math.min(dur > 0.2 ? dur - 0.1 : dur, mid))

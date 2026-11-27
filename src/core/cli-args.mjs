@@ -1,3 +1,6 @@
+/**
+ * CLI 命名参数与位置参数转换表：将结构化工具调用参数翻译为标准 CLI 参数数组。
+ */
 const POSITIONAL_SPEC = {
   recon: ['bvid'],
   thread: ['oid', 'bvid', 'root'],
@@ -20,7 +23,7 @@ export function translateNamed(cmd, args) {
     const v = args[i + 1]
     const flag = v === undefined || String(v).startsWith('--')
     if (!spec.includes(k)) { flags.push(a); if (!flag) { flags.push(v); i += 1 } }
-    else if (flag) return args // Missing positional value; preserve command's error.
+    else if (flag) return args // 缺少位置参数时保留原样，交由目标命令返回标准参数错误。
     else { named[k] = v; i += 1 }
   }
   const given = spec.filter((k) => named[k] !== undefined)

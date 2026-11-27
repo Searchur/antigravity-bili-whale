@@ -1,3 +1,6 @@
+/**
+ * Sidecar 本机回环鉴权 IPC 服务端与客户端：供控制台实时查询状态、模型、安全复审与热重载。
+ */
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'

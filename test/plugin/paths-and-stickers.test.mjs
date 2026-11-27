@@ -1,3 +1,6 @@
+/**
+ * 独立数据路径、内置表情包与默认模型配置单元测试。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

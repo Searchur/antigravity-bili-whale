@@ -1,3 +1,6 @@
+/**
+ * 测试夹具：模拟 B 站平台 HTTP/CLI 响应与受控沙箱数据目录。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { dataPathsFor } from '../../src/core/data-paths.mjs'

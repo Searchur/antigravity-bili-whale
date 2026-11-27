@@ -1,3 +1,6 @@
+/**
+ * Antigravity 会话控制器：通过宿主接口创建/续接会话、超长提示外置化与忙碌态探测。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'

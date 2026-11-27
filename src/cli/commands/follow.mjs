@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `follow`：在暂停保护与写前预检下执行关注或取消关注 UP 主操作。
+ */
 import { exactJson } from '../../core/json-exact.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 import fs from 'node:fs'

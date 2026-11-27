@@ -1,3 +1,6 @@
+/**
+ * 记忆语义关联图管理：维护支持、补充、矛盾关系与同义主题观察。
+ */
 import crypto from 'node:crypto'
 import {terms} from './index.mjs'
 import {visible} from './scope.mjs'
@@ -7,14 +10,14 @@ export const RELATIONS=['related','support','contradict','supplement']
 const MAX_TAGS=4096,DAY=86400000
 const hash=x=>crypto.createHash('sha256').update(x).digest('hex')
 const stop=new Set(['主人','今天','现在','这个','那个','一个','自己','可以','觉得','什么','已经','我们','你们','他们','the','and','this','that'])
-// Small explicit synonym group; no causal inference such as tired => stayed up late.
+// 仅保留有限的显式同义词分组，不做无依据的因果推断（如「累」不等于「熬夜」）。
 export const relationTopics=x=>/疲惫|疲劳|好累|很累|太累|累了|不累/.test(String(x))?['topic:fatigue']:[]
 const tokens=x=>[...terms(x).filter(t=>t.length>1&&!stop.has(t)),...relationTopics(x)]
 const eligibleEvent=e=>e&&['received','video-read','observed'].includes(e.kind)&&e.origin!=='model'&&e.origin!=='formation'
 export function relationEligible(m,e){
  if(!eligibleEvent(e)||!m.active||m.recallEnabled===false||['revoked','superseded','disputed'].includes(m.status))return false
  if(m.lifecycle?.recallControl&&m.lifecycle.recallControl!=='enabled')return false
- // Do not let a public memory's ranking or detail expose private activity.
+ // 不得让公开记忆的排序或详情泄露私人活动信息。
  if(m.visibility==='public'&&!visible(e,'public'))return false
  if(m.visibility!=='public'&&!m.scope?.scenes?.some(s=>s.startsWith('private-'))&&m.scope?.scene==='public')return false
  return true
@@ -27,7 +30,7 @@ export function relationRoots(s,e){
   if(!eligibleEvent(row))return
   const parents=row.originEvidenceIds??[row.id]
   if(parents.length===1&&parents[0]===row.id){
-   // Re-reading the same video is not a new independent experience.
+   // 重复阅读同一视频不计为新的独立经历。
    const key=row.kind==='video-read'&&row.target?'video:'+row.target:row.key||row.id
    roots.push({key:hash(key),eventId:row.id,at:row.at})
   }else for(const id of parents)walk(byId.get(id))
@@ -49,7 +52,7 @@ export function addRelation(s,m,e,relation,{method='lexical',reason='词法关�
  for(const root of roots){
   const old=existing.get(root.key)
   if(old){
-   // Semantic review may refine lexical related, never count the same source twice.
+   // 语义复核可细化词法关联，但同一来源绝不重复计次。
    if(method==='reviewed'&&old.method==='lexical'){Object.assign(old,{relation,method,reason:String(reason).slice(0,300)});changed++}
    continue
   }
@@ -64,7 +67,7 @@ export function observeRelations(s,e,cfg){
  const eventTokens=new Set(tokens(String(e.text??'')+' '+String(e.data?.title??'')+' '+String(e.data?.tname??'')))
  if(!eventTokens.size)return
  let roots
- // Match all eligible memories, including cold ones; never only the injected subset.
+ // 匹配全部合格记忆（含冷记忆），绝不仅限当前注入子集。
  for(const m of s.memories){
   if(!relationEligible(m,e))continue
   const words=tokens(String(m.text??'')+' '+JSON.stringify(m.topics??[]))
@@ -96,7 +99,7 @@ export function normalizeRelationProposals(s,j,input=[],{isolateInvalid=false,re
   const groupKeys=['key:'+r.key,'pair:'+pair,...relationRoots(s,e).map(root=>'root:'+m.id+':'+root.key)]
   const same=rows.find(x=>x.identity===identity)
   if(same&&isolateInvalid){
-   // Preserve alternate keys for conflict detection even when collapsing duplicates.
+   // 合并重复项时仍保留备选键以便冲突检测。
    for(const k of groupKeys){const group=groups.get(k)??new Set();group.add(same);groups.set(k,group)}
    continue
   }
@@ -111,7 +114,7 @@ export function normalizeRelationProposals(s,j,input=[],{isolateInvalid=false,re
 export function commitRelationProposals(s,j,decisions=[],cfg){
  const proposals=j.relations??[]
  if(!Array.isArray(decisions)||decisions.length!==proposals.length||new Set(decisions.map(d=>d.key)).size!==decisions.length)throw Error('关联审核必须完整覆盖提案')
- // Revalidate even when the feature was disabled; config generation checks stay authoritative.
+ // 即使功能已关闭仍执行复验，配置代次校验保持权威。
  const checked=normalizeRelationProposals(s,j,proposals)
  let changed=0,contradicted=false
  for(const r of checked){
@@ -123,8 +126,8 @@ export function commitRelationProposals(s,j,decisions=[],cfg){
   if((updated||m.relevance?.saturated)&&r.relation==='contradict'){
    m.relevance.reviewNeeded=true
    m.counterEvidenceIds=[...new Set([...(m.counterEvidenceIds??[]),e.id])]
-   // Relevance is not truth. Stop treating this claim as settled until revised.
-   // Explicit owner rules are not revoked by an inferred contradiction.
+   // 相关性不等于真实性，修订前不再将该论断视为定论。
+   // 显式主人规则不会被推断矛盾自动撤销。
    if(!['owner','owner_explicit'].includes(m.authority??m.origin)&&!['preference','expression_policy','commitment'].includes(m.type)){
     m.lifecycle??={schema:1,recallControl:'enabled'}
     m.lifecycle.validity='disputed';contradicted=true

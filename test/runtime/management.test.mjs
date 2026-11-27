@@ -1,3 +1,6 @@
+/**
+ * 账号登出、依赖探测竞态与配置向后兼容单元测试。
+ */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -47,7 +50,7 @@ test('logout distinguishes a still-active remote session from verified revocatio
 
 test('logout reports failure when the local credential path cannot be removed', async (t) => {
   const { api, credFile } = fixture(t)
-  // A directory at the credential path must never be removed recursively.
+  // 凭据路径若意外指向目录，绝不可递归删除。
   fs.mkdirSync(credFile)
   await assert.rejects(api.logout(), /无法删除本地登录凭据/)
   assert.equal(fs.statSync(credFile).isDirectory(), true)

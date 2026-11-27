@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `feed`：按口味偏好与观看时长规则检索并筛选本轮候选 B 站视频。
+ */
 import {pipelineConfig,chooseVideos,eligibleVideo,videoDuration,interestEvidence,isInterest,interestGroup,fairOrder,ageDays,browsingRank} from '../pipeline/config.mjs'
 import {apiGet} from '../../bili/api.mjs'
 import { favoriteItems } from '../../bili/favorites.mjs'
@@ -153,7 +156,7 @@ const learnedTokens = [...new Set(favItems.flatMap((x) => learnTokens(String(x.t
 const learnedHitsOf = (title) => learnedTokens.filter((tok) => title.toLowerCase().includes(tok)).length
 const boostOf = (title) => Math.min(7.5, learnedHitsOf(title) * 2.5)
 
-// ── 偏好命中与排序（2026-10-20 重写，主人定：不要对高播放量有偏向 ✗）────────────
+// 偏好命中与公平排序（不对高播放量视频加权偏向）
 //   旧：弹幕密度 + log10(播放)×3  → 大 UP 的爆款永远霸榜 ✗
 //   新：log10(1+弹幕密度)×3 + 偏好命中×4 + 反馈学习×2.5（封顶 7.5）→ 播放量彻底移出 ✓
 //   为什么密度要取 log：不取时"92 秒 15027 弹幕"那条得 163 分，偏好加满也压不过 ✗（实测）
@@ -199,7 +202,7 @@ async function verifyCandidate(x){
  if(!allowedCandidate(row)||!eligibleVideo(row,pipeline))return
  row._hits=hitsOf(row.t);row._score=scoreOf(row);verified.push(row)
 }
-// Query every interest in a window before spending the shared metadata budget.
+// 先遍历当前窗口内所有兴趣主题，再消耗共享的视频详情元数据预算。
 for(const days of pipeline.windows){
  if(interestCount()>=N||metadataSeen.size>=pipeline.maxMetadata)break
  const candidates=[]
@@ -221,14 +224,14 @@ for(const days of pipeline.windows){
  }
  for(const x of prioritize(candidates)){await verifyCandidate(x);if(interestCount()>=N||metadataSeen.size>=pipeline.maxMetadata)break}
 }
-// Search attribution alone is not evidence of taste. Inspect a bounded set of ambiguous
-// search results for full descriptions before consulting generic feeds.
+// 仅凭搜索来源不足以判定口味匹配，先抽检有限数量的模糊候选详情，
+// 核对完整简介后再回退至通用推荐流。
 if(interestCount()<N){
  const uniqueExploratory=[...new Map(exploratory.map(x=>[x.bv,x])).values()]
  const perKeyword=new Map(),ambiguous=prioritize(uniqueExploratory).filter(x=>{const count=perKeyword.get(x.kw)??0;if(count>=2)return false;perKeyword.set(x.kw,count+1);return true})
  for(const x of ambiguous){await verifyCandidate(x);if(interestCount()>=N||metadataSeen.size>=pipeline.maxMetadata)break}
 }
-// Hot/rank are an optional shared exploration pool, not two independent quotas.
+// 热门与排行榜共用同一探索配额池，而非两份独立名额。
 if(selected().length<N&&pipeline.explorationMax>0&&metadataSeen.size<pipeline.maxMetadata){
  const before=pool.length;await loadExtraSources()
  for(const x of prioritize(pool.slice(before).map(annotate).filter(allowedCandidate))){await verifyCandidate(x);if(selected().length>=N||metadataSeen.size>=pipeline.maxMetadata)break}

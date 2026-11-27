@@ -1,3 +1,6 @@
+/**
+ * B 站接口签名与请求客户端：负责 WBI 签名、带风控保护的 GET 请求与接口状态查询。
+ */
 import { DATA_PATHS } from '../core/paths.mjs'
 import { diagnose } from '../core/diagnostics.mjs'
 import { guardedFetch as fetch } from './traffic.mjs'

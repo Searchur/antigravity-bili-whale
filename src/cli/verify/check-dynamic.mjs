@@ -1,3 +1,6 @@
+/**
+ * CLI 核验命令 `check-dynamic`：回读校验已发布的公开动态是否正常展示。
+ */
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { dataPath } from '../../core/paths.mjs'

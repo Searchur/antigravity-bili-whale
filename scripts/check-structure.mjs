@@ -73,6 +73,9 @@ const UNSUPPORTED_ES2026_PATTERNS = [
 
 const LEGACY_DSH_RE = /\b(?:DSH_HOME|dshPath|dshHome)\b/
 const LEGACY_DATA_NAMES_RE = /[\x27\x22](?:whale-night\.json|whale-listen\.json|whale-scheduler\.json|whale-delivery\.json|whale-life|whale-work|traffic-state\.json|dm-tick-err\.log|feed-search-cache\.json|selftest-passed\.json|dm-await-state\.json|dev_id)[\x27\x22]/
+const STALE_COMMENT_PATH_RE = /(?:lib\/msgfeed\.mjs|lib\/qr\.js|ui-src\/|tools\/lib\/)/
+const CJK_RE = /[\u4e00-\u9fff]/
+const WEB_ASCII_ARROW_RE = /[\u4e00-\u9fff][^\n\x27\x22\x60]*->/
 
 function walkFiles(dir, rootDir, out = []) {
   if (!fs.existsSync(dir)) return out
@@ -377,6 +380,38 @@ export function checkStructure({
       }
       if (rel.startsWith('src/') && LEGACY_DATA_NAMES_RE.test(stripComments(source))) {
         errors.push(`src/ 中禁止硬编码旧版平铺数据文件名（请统一使用 src/core/data-paths.mjs）：${rel}`)
+      }
+    }
+
+    // 4b. 模块头中文 JSDoc 注释与废弃路径守卫
+    const bodyWithoutShebang = source.replace(/^#![^\n]*\n/, '').trimStart()
+    const topJsdocMatch = bodyWithoutShebang.match(/^\/\x2a\x2a([\s\S]*?)\x2a\//)
+    if (!topJsdocMatch || !CJK_RE.test(topJsdocMatch[1])) {
+      errors.push(`模块顶部缺少中文 JSDoc 职责头注释：${rel}`)
+    } else {
+      const baseName = path.posix.basename(rel)
+      if (topJsdocMatch[1].includes(`（${baseName}）。`)) {
+        errors.push(`模块头注释禁止使用含文件名的机械占位模板（请写明真实职责）：${rel}`)
+      }
+    }
+    if (!rel.startsWith('test/structure/') && STALE_COMMENT_PATH_RE.test(source)) {
+      errors.push(`存在已废弃的旧目录/旧文件名引用（lib/、ui-src/、tools/lib/）：${rel}`)
+    }
+
+    // 4c. 控制台前端 UI 与文案规范守卫
+    if (rel.startsWith('web/')) {
+      const noComments = stripComments(source)
+      if (noComments.includes('\u2713') || noComments.toLowerCase().includes('\\u2713')) {
+        errors.push(`前端目录 web/ 禁止使用对勾符号：${rel}`)
+      }
+      if (/\btitle\s*:/.test(noComments)) {
+        errors.push(`前端目录 web/ 禁止设置原生 title 悬浮提示：${rel}`)
+      }
+      if (noComments.includes('B站')) {
+        errors.push(`前端文案中请使用规范盘古空格「B 站」而非「B站」：${rel}`)
+      }
+      if (WEB_ASCII_ARROW_RE.test(noComments)) {
+        errors.push(`前端中文路径指引请使用「→」而非 ASCII「->」：${rel}`)
       }
     }
   }

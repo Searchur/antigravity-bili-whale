@@ -1,3 +1,6 @@
+/**
+ * 跨进程互斥文件锁：基于本机回环端口与锁文件协调并发写入。
+ */
 import net from 'node:net'
 import crypto from 'node:crypto'
 import path from 'node:path'

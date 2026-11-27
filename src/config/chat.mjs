@@ -1,3 +1,6 @@
+/**
+ * 聊天、自主评论与公开动态配置默认值及边界归一化。
+ */
 export const CHAT_DEFAULTS=Object.freeze({multi:true,maxParts:6,followup:false,dailyMax:3,dynamic:false,dynamicDailyMax:1,autoComment:true,autoCommentDailyMax:3})
 export function chatConfig(input={}) {
   const out={...CHAT_DEFAULTS}

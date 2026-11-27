@@ -1,3 +1,6 @@
+/**
+ * 后台投递账本读写与状态汇总：持久化唤醒与消息投递生命周期，防超时重发。
+ */
 import fs from 'node:fs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
 import { dataPathsFor } from '../core/paths.mjs'
@@ -23,8 +26,8 @@ export function updateDelivery(whaleHome, requestId, update) {
   const next = {...(records[index] ?? {}), ...update, requestId}
   if (index < 0) records.push(next)
   else records[index] = next
-  // Uncertain requests and unacknowledged DMs never expire as a side effect
-  // of pruning diagnostic history. Stop before dispatch if that set is full.
+  // 未确认请求与未签收私信绝不因诊断历史清理而过期，
+  // 若未确认集合已满则在派发前停止。
   const protectedRecord = r => r.retained || ['dispatching', 'unconfirmed'].includes(r.status)
   const ordinary = records.filter(r => !protectedRecord(r)).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 256)
   const kept = records.filter(protectedRecord).concat(ordinary)

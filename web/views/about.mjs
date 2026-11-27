@@ -1,4 +1,7 @@
-import { el, row } from './sections.mjs'
+/**
+ * Tab 8 视图（关于与更新）：展示插件版本、GitHub 检查更新与原地更新、以及本地关键路径定位。
+ */
+import { el, row, statusPill, metaPill, banner } from './sections.mjs'
 
 const REPO_URL = 'https://github.com/Searchur/antigravity-bili-whale'
 
@@ -28,12 +31,12 @@ export function renderAboutTab(state, actions) {
   const checking = state.busy === 'update_check'
 
   const heroCard = el('div', { className: 'card about-hero-card' },
-    el('div', { className: 'stack', style: { gap: '6px', flex: 1, minWidth: '240px' } },
+    el('div', { className: 'stack about-hero-meta' },
       el('div', { className: 'inline' },
         el('span', { className: 'about-title' }, local.displayName || '哔哩哔哩大鲸鱼')),
       el('div', { className: 'row-hint' }, `插件标识：${local.name || 'antigravity-bili-whale'} · 作者：${local.author || 'Searchur'} · 开源协议：MIT`),
-      el('div', { className: 'inline', style: { marginTop: '2px' } },
-        el('span', { className: 'row-hint mono', style: { wordBreak: 'break-all' } }, repoUrl))),
+      el('div', { className: 'inline mt-2' },
+        el('span', { className: 'row-hint mono mono-break' }, repoUrl))),
     el('div', { className: 'inline' },
       el('button', { type: 'button', className: 'btn primary', onClick: () => actions.openUrl(repoUrl) }, '打开 GitHub')))
 
@@ -41,7 +44,7 @@ export function renderAboutTab(state, actions) {
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
         el('h2', {}, '版本检查与本地一键更新'),
-        stBadge ? el('span', { className: `pill ${stBadge.cls}` }, el('span', { className: 'dot' }), stBadge.text) : el('span', { className: 'pill' }, '尚未检查更新')),
+        stBadge ? statusPill(stBadge.cls, stBadge.text) : metaPill('尚未检查更新')),
       el('div', { className: 'inline' },
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.checkUpdate },
           checking ? '正在检查 GitHub…' : '检查更新'),
@@ -53,26 +56,26 @@ export function renderAboutTab(state, actions) {
         }, updating ? '正在下载并校验更新…' : (check?.hasUpdate ? `一键更新（${remote?.targetRef === 'main' ? '最新 main' : remote?.targetRef}）` : '本地一键更新 / 覆盖最新')))),
     el('p', { className: 'card-sub' }, '本地一键更新直接从 GitHub 下载最新插件压缩包，通过完整性校验后仅原地更新插件程序文件；你的 B 站登录态、人设、记忆和设置全部保存在独立数据目录中，不会丢失。'),
     local.isGitCheckout
-      ? el('div', { className: 'banner warn' }, '当前插件目录检测到 .git（源码开发仓库），已禁用覆盖更新；请直接在仓库中运行 git pull 与部署脚本。')
+      ? banner('warn', '当前插件目录检测到 .git（源码开发仓库），已禁用覆盖更新；请直接在仓库中运行 git pull 与部署脚本。')
       : null,
     state.updateResult
-      ? el('div', { className: `banner ${state.updateResult.kind}` }, state.updateResult.text)
+      ? banner(state.updateResult.kind, state.updateResult.text)
       : null,
     state.updateError
-      ? el('div', { className: 'banner err' }, state.updateError)
+      ? banner('err', state.updateError)
       : null,
     el('div', { className: 'grid-2' },
       el('div', { className: 'stat-tile' },
         el('div', { className: 'stat-k' }, '当前本地版本'),
-        el('div', { className: 'stat-v' }, `v${local.version || '1.0.0'}`),
-        el('div', { className: 'row-hint mono', style: { marginTop: '4px' } },
-          local.installedCommit ? `已安装提交：${local.installedCommit.slice(0, 7)} · ${fmtTime(local.updatedAt)}` : '来源：本地首次部署 / 手动放入 plugins')),
+        el('div', { className: 'stat-v' }, local.version ? `v${local.version}` : '版本未知'),
+        el('div', { className: 'row-hint mono hint-mt' },
+          local.installedCommit ? `已安装提交：${local.installedCommit.slice(0, 7)} · ${fmtTime(local.updatedAt)}` : '来源：本地首次部署 / 手动安装至插件目录')),
       el('div', { className: 'stat-tile' },
         el('div', { className: 'stat-k' }, 'GitHub 远程最新状态'),
         el('div', { className: 'stat-v' }, remote
           ? [remote.latestVersion ? 'v' + remote.latestVersion : '版本未知', remote.mainCommit?.shortSha].filter(Boolean).join(' · ')
           : '点击右上角「检查更新」获取'),
-        el('div', { className: 'row-hint', style: { marginTop: '4px' } },
+        el('div', { className: 'row-hint hint-mt' },
           remote?.mainCommit
             ? `${remote.mainCommit.message || '最新提交'} · ${fmtTime(remote.mainCommit.date)}`
             : (check ? check.summary : '支持检测 Release 正式版本与 main 分支最新提交')))),
@@ -101,7 +104,7 @@ export function renderAboutTab(state, actions) {
   const infoCard = el('div', { className: 'card' },
     el('h2', {}, '安装路径与移植说明'),
     el('p', { className: 'card-sub' }, '列出插件核心目录、行为规范、配置文件与安全审核模块位置，点击右侧按钮可直接通过 Windows 资源管理器打开或定位。'),
-    state.pathMsg ? el('div', { className: `banner ${state.pathMsg.kind}` }, state.pathMsg.text) : null,
+    state.pathMsg ? banner(state.pathMsg.kind, state.pathMsg.text) : null,
     pathRow('插件安装目录', '本地一键更新只会覆盖此目录下的插件程序文件。', pluginRootPath, 'plugin_root', false),
     pathRow('行为规范目录（behavior）', '存放各场景行为规范与表达说明（.md）；更新插件时会随程序文件一并更新。', paths.behaviorDir || `${pluginRootPath}\\behavior`, 'behavior_dir', false),
     pathRow('独立数据目录', '保存配置、凭据、人设、记忆与导出文件；更新与重装插件均不会覆盖。', dataRoot, 'data_dir', false),

@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `life`：查询或操作长期记忆存储（状态、暂停/恢复、检索、上下文编译、归档与导出）。
+ */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

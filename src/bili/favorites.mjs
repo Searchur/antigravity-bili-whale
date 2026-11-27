@@ -1,3 +1,6 @@
+/**
+ * B 站收藏夹账本与默认收藏夹解析工具：管理账号隔离的收藏记录与历史数据认领。
+ */
 import fs from 'node:fs'
 export function favoriteItems(ledger, account) {
   const mid=String(account ?? '')

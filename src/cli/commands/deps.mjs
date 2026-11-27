@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `deps`：逐项探测 Node.js、ffmpeg、B 站登录态、限流与防风控等运行环境依赖。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { WHALE_HOME, credentialsPath, configPath, DATA_PATHS } from '../../core/paths.mjs'

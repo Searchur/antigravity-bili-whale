@@ -1,3 +1,6 @@
+/**
+ * 宿主与安装安全单元测试：覆盖运行包校验、原地回滚、双层安全复审预算与脱敏诊断导出。
+ */
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'

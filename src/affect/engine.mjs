@@ -1,4 +1,7 @@
-// Pure state transitions. No model, filesystem, clock, or platform side effects.
+/**
+ * 心情与分享意愿纯状态机引擎：执行衰减推进、兴趣排序与上下文摘要生成（零 IO 副作用）。
+ */
+// 纯状态转移计算：不包含模型、文件系统、时钟或平台副作用。
 import {createHash} from 'node:crypto'
 import {preferenceMatches} from '../config/feed-preferences.mjs'
 import {AFFECT_DEFAULTS} from '../config/affect.mjs'
@@ -27,7 +30,7 @@ export function daily(a,at){
   const day=dayKey(at)
   if(day>a.daily.day)a.daily=newDaily(day)
   if(a.daily.timeShareAdded===undefined){
-    // Older states combine both sources. Recover known hourly credits; charge uncertain credit to the topic budget.
+    // 兼容旧版状态：恢复已知按小时累计额度，不确定部分计入话题预算。
     const known=a.recentChanges.filter(x=>x.code==='share:time'&&dayKey(x.at)===a.daily.day)
       .reduce((sum,x)=>sum+(x.shareDelta??0),0)
     a.daily.timeShareAdded=clamp(Math.max(known,a.daily.shareAdded-60),0,a.daily.shareAdded)
@@ -37,7 +40,7 @@ export function daily(a,at){
 export function note(a,at,code,extra={}){a.recentChanges.push({at,code,...extra});a.recentChanges=a.recentChanges.slice(-100)}
 function dropCredit(a,t){if(!t.creditReleased){a.share.value=Math.max(0,a.share.value-t.credit-t.accrualAdded);t.creditReleased=true}}
 export function advance(a,at,c=AFFECT_DEFAULTS,{paused=false}={}){
-  // Calendar-hour boundaries make accrual independent of tick frequency.
+  // 按自然小时边界累计，使增长与 tick 频率无关。
   const from=a.share.updatedAt,end=Math.max(from,at)
   a.mood.value*=2**(-Math.max(0,at-a.mood.updatedAt)/HOUR/c.moodHalfLifeHours)
   a.mood.updatedAt=Math.max(at,a.mood.updatedAt)
@@ -125,13 +128,13 @@ export function applyEffects(a,r,job,now,c=AFFECT_DEFAULTS){
         const {tailText,...source}=e
         return {...source,text:x.quotes.find(q=>q.eventId===e.id).text,truncated:true}
       })].slice(-16)
-      // Only independently public video material can supply the browsing projection.
+      // 仅独立公开的视频素材可用于浏览投影。
       t.publicMaterial=t.sources.length>0&&t.sources.every(e=>e.publicMaterial===true&&e.kind==='video-read')
-      // New evidence can revive an expressed version, but never a suppressed topic.
+      // 新证据可重新激活已表达话题，但绝不复活被抑制的话题。
       if(t.status==='expressed'){t.status='open';t.credit=0;t.creditReleased=false;t.accrualAdded=0}
       if(x.category==='invited-to-continue'&&x.confidence>=0.8){t.status='open';t.deferUntil=0}
       const d=Math.max(0,Math.min(shareCategories[x.category],20-share,60-(a.daily.shareAdded-a.daily.timeShareAdded),100-a.share.value));a.share.value+=d;a.daily.shareAdded+=d;share+=d;t.credit+=d
-      // Only fresh, evidenced semantic content can rearm a high residual balance.
+      // 仅新鲜且有证据支撑的语义内容可重新武装高余量触发。
       if(freshEvidence&&now>a.share.lastInitiativeAt)a.share.armed=true
       note(a,now,'share:'+x.category,{delta:d,category:x.category,moodDelta:0,shareDelta:d,quotes:x.quotes,jobId:job.id,summary:t.summary,topicId:t.id,sourceEventIds:x.sourceEventIds})
     }
@@ -157,7 +160,7 @@ export function settleTopics(a,refs,operationId,now,{initiative=false,initiative
   if(initiative){a.share.armed=false;a.share.lastInitiativeAt=Math.max(a.share.lastInitiativeAt,initiativeAt)}
   note(a,now,'expression-released',{delta:-amount,operationId})
 }
-// A public-safe projection: no private topics, quotes or owner facts enter discovery.
+// 公开安全投影：私人话题、引用与主人事实绝不进入公开探索。
 export function affectBrowsing(a,at,c=AFFECT_DEFAULTS){
   const m=a&&c.enabled&&!a.paused?advance(structuredClone(a),at,c,{paused:a.paused}).mood.value:0
   return {tone:m>=5?'curious':m<=-5?'gentle':'steady',duration:m>=5?'long':m<=-5?'short':null,allowExploration:m>-5}

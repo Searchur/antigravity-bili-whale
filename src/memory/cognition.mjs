@@ -1,3 +1,6 @@
+/**
+ * 认知归纳作业状态机：管理记忆抽取/审核任务认领、提交、失败诊断与策略版本推进。
+ */
 import {normalizeRelationProposals,commitRelationProposals} from './relations.mjs'
 import {dynamicActive} from '../config/dynamic-memory.mjs'
 import {lifecycleView,lifecycleDefaults,validateTemporal,migrateLifecycle} from './lifecycle.mjs'
@@ -98,7 +101,7 @@ function normalizeCandidate(s,j,input,now){
   if(['pattern','understanding'].includes(c.type)){
     Object.assign(c,cognitiveUse(input))
     const link={when:c.appliesTo,adjustment:c.doThis,limits:c.falsifiedBy}
-    // Keep the actionable contract available to existing behavior-link consumers.
+    // 保持可执行契约对既有行为链路消费方兼容。
     if(!c.behaviorLinks.some(x=>x.when===link.when&&x.adjustment===link.adjustment&&x.limits===link.limits)){
       c.behaviorLinks.unshift(link)
     }
@@ -112,7 +115,7 @@ function normalizeCandidate(s,j,input,now){
   }
   c.ownerEvidence=refs.some(e=>e.verifiedRole==='owner')
   c.requestedAuthority=input.epistemic==='owner_explicit'?'owner_explicit':'inferred'
-  // The classifier cannot elevate model/legacy text to a verified owner directive.
+  // 分类器不得将模型或历史文本提升为已验证的主人指令。
   if(c.requestedAuthority==='owner_explicit'&&!c.ownerEvidence)throw Error('缺少可信主人来源')
   return c
 }
@@ -146,7 +149,7 @@ function queueRetry(s,j,stage,diagnostic,at,cfg){
   if(fresh.length){
    const limit=Math.max(1,Math.floor(fresh.length/2))
    c.extractBatchLimit=Math.min(c.extractBatchLimit??12,limit)
-   // Dropped inputs stay unconsumed and are eligible for later jobs.
+   // 被丢弃的输入保持未消费状态，可供后续任务继续处理。
    j.inputs=fresh.slice(0,limit);j.through=Math.max(...j.inputs.map(r=>cognitionIndexes(s).byId.get(r.id).seq))
   }
  }
@@ -202,7 +205,7 @@ export function attachCognition(api,{event,account,owner,cfg}){
       const consumedSet=new Set(c.consumed??[])
       const eligible=s.events.filter(e=>e.seq>c.cursor&&learningKinds.has(e.kind)&&!deleted.has(e.id)&&!consumedSet.has(e.seq))
       if(!eligible.length)return null
-      // Alternate oldest and newest unprocessed evidence; new arrivals cannot starve backlog.
+      // 交替选取最早与最新未处理证据，防止新事件饿死积压队列。
       const ordered=[...eligible].sort((a,b)=>a.seq-b.seq),freshOrder=[]
       for(let lo=0,hi=ordered.length-1;lo<=hi;){freshOrder.push(ordered[lo++]);if(lo<=hi)freshOrder.push(ordered[hi--])}
       const lastLimited=c.jobs.findLast(j=>j.lastDiagnostic?.stage==='extract'&&j.lastDiagnostic?.code==='FORMATION_FINISH_INVALID'&&['max-tokens','length'].includes(j.lastDiagnostic?.details?.kind))
@@ -211,10 +214,10 @@ export function attachCognition(api,{event,account,owner,cfg}){
       const add=e=>{const n=Buffer.byteLength(JSON.stringify(evidenceView(e)));if(bytes+n>24576)return false;selected.push(e);bytes+=n;return true}
       for (const e of freshOrder) {
         if (selected.length >= limit) break
-        add(e) // An item that does not fit must not prevent trying later, smaller items.
+        add(e) // 单条超预算条目不得阻塞后续体积更小条目的装入尝试。
       }
       if(!selected.length)throw Error('单事件超过归纳预算')
-      // A little prior evidence helps reinforcement without taking fresh evidence's budget.
+      // 少量历史证据用于强化巩固，但不占用新鲜证据配额。
       for (const e of s.events.filter(e=>learningKinds.has(e.kind)&&e.seq<=c.cursor&&now()-e.at<14*DAY).slice(-4)) add(e)
       const query=selected.filter(e=>e.seq>c.cursor).map(e=>e.text??'').join(' ')
       const score=m=>contextScore(query,[m.text,m.appliesTo,m.falsifiedBy].filter(Boolean).join(' '))
@@ -321,8 +324,8 @@ export function attachCognition(api,{event,account,owner,cfg}){
         const e=cognitionIndexes(s).byId.get(x.id)
         return e&&learningKinds.has(e.kind)&&e.seq>c.cursor&&!consumed.has(e.seq)
       }).length
-      // A completed reduced batch earns a gradual increase; token failures still halve it.
-      // Legacy jobs use the persisted limit, so existing stores recover without a reset.
+      // 降批完成后逐步恢复批量上限，遇 token 失败仍按半缩减。
+      // 旧任务沿用持久化上限，确保既有存储无需重置即可恢复。
       const batchLimit=c.extractBatchLimit??j.freshLimit
       if(Number.isInteger(batchLimit)&&batchLimit>=1&&batchLimit<12&&freshCount>=batchLimit){
         c.extractBatchLimit=batchLimit+1
@@ -370,7 +373,7 @@ export function attachCognition(api,{event,account,owner,cfg}){
       expireFormation(s,now(),cfg)
       if(dynamicActive(cfg.dynamicMemory)){
         migrateLifecycle(s,{apply:true})
-        // Defer collection while an in-flight proposal still needs the old version.
+        // 若在途提案仍依赖旧版本，则推迟回收。
         const held=new Set()
         for(const j of c.jobs)if(['extract','review','review_pending','retry_pending'].includes(j.stage)&&j.expiresAt>now())for(const id of Object.keys(j.memoryVersions??{}))held.add(id)
         for(const p of s.proposals.filter(p=>p.status==='pending')){if(p.baseId)held.add(p.baseId);for(const b of p.baseVersions??[])held.add(b.id??b.memoryId)}

@@ -1,3 +1,6 @@
+/**
+ * 宿主适配器单元测试：覆盖会话控制、无工具文本推理、投递复用与模型清单排序。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -49,7 +52,7 @@ test('createAntigravitySessionController creates via HTTP, continues via sendMes
     runState = 'RUN_STATE_IDLE'
     assert.equal(await ctrl.isBusy('conv-uuid-1'), false)
 
-    // Large prompt (>22k chars) must materialize to file to avoid Windows 32KB argv limit
+    // 超长提示词（>22k 字符）须落盘外置，规避 Windows 32KB 命令行长度限制
     const hugeText = 'X'.repeat(25_000)
     await ctrl.prompt({
       sessionId: 'conv-uuid-1', sessionRole: 'browse-main', identity: { account: '1001', owner: '2001' },
@@ -103,7 +106,7 @@ test('createAntigravityTextComplete reads transcript_full.jsonl, strips code fen
       codePrefix: 'TEST',
     })
 
-    // Case 1: valid fenced JSON -> extracted & archived
+    // 用例 1：合法代码块 JSON 应正确剥离围栏并归档会话
     transcriptSteps.set(1, [
       { step_index: 0, type: 'USER_INPUT', content: 'prompt' },
       { step_index: 1, type: 'PLANNER_RESPONSE', content: '```json\n{"action":"skip"}\n```' },
@@ -112,7 +115,7 @@ test('createAntigravityTextComplete reads transcript_full.jsonl, strips code fen
     assert.equal(out, '{"action":"skip"}')
     assert.deepEqual(archived[0], { id: 'worker-conv-1', annotations: { archived: true } })
 
-    // Case 2: model attempted tool_calls -> rejected with TEST_TOOL_CALL and STILL archived
+    // 用例 2：模型尝试发起 tool_calls 应按 TEST_TOOL_CALL 拒绝且仍执行归档
     transcriptSteps.set(2, [
       { step_index: 0, type: 'USER_INPUT', content: 'prompt' },
       { step_index: 1, type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: {} }], content: '' },
@@ -157,23 +160,23 @@ test('createSessionDelivery uses createAndPrompt once, reuses sessionId, recover
       persona: () => '［身份］小鲸鱼',
     })
 
-    // First send -> createAndPrompt
+    // 首次投递应调用 createAndPrompt
     await delivery.send({ requestId: 'bili-whale-wake:1', content: [{ type: 'text', text: 'wake 1' }] })
     assert.equal(logOps.length, 1)
     assert.equal(logOps[0].op, 'createAndPrompt')
     assert.equal(logOps[0].sessionId, 'ag-session-1')
 
-    // Duplicate requestId -> idempotent no-op
+    // 重复 requestId 应保持幂等空操作
     await delivery.send({ requestId: 'bili-whale-wake:1', content: [{ type: 'text', text: 'wake 1 dup' }] })
     assert.equal(logOps.length, 1)
 
-    // Second send -> reuses ag-session-1 via prompt()
+    // 第二次投递应通过 prompt() 复用既有会话 ag-session-1
     await delivery.send({ requestId: 'bili-whale-wake:2', content: [{ type: 'text', text: 'wake 2' }] })
     assert.equal(logOps.length, 2)
     assert.equal(logOps[1].op, 'prompt')
     assert.equal(logOps[1].sessionId, 'ag-session-1')
 
-    // Third send encounters session/not-found -> transparently recreates via createAndPrompt
+    // 第三次遇到 session/not-found 时应透明重建会话
     failNextPromptNotFound = true
     await delivery.send({ requestId: 'bili-whale-wake:3', content: [{ type: 'text', text: 'wake 3' }] })
     assert.equal(logOps.at(-1).op, 'createAndPrompt')
@@ -226,7 +229,7 @@ test('normalizeModelCatalog groups families, sorts Thinking effort Low->XHigh, p
   assert.equal(cat.source, 'live')
   assert.equal(cat.liveCount, 5)
   assert.deepEqual(cat.groups.map(g => g.key), ['auto-tier', 'gemini-4-neon', 'orchestrator', 'claude-opus-5-5'])
-  // Effort sorted Low -> Extra High even though XHigh appeared first in sortLabels
+  // 即使 sortLabels 中 XHigh 在前，Thinking 档位仍应按 Low 到 Extra High 升序排列
   assert.deepEqual(cat.groups[1].variants.map(v => v.thinkingLabel), ['Low', 'Extra High'])
   assert.equal(cat.groups[2].variants[0].thinkingLabel, 'Neon')
   assert.deepEqual(cat.groups[3].variants.map(v => v.thinkingLabel), ['Low', 'High'])

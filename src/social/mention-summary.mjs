@@ -1,3 +1,6 @@
+/**
+ * 评论区 @ 看视频与总结意图识别、粉丝配额映射及提示词规则片段生成器。
+ */
 import { normalizeWatch, normalizeListen, normalizeFanLimits } from '../config/index.mjs'
 import { checkFanQuota } from './fan-quota.mjs'
 

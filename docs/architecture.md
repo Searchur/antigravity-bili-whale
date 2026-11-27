@@ -111,6 +111,14 @@ flowchart BT
 - 用户独立数据目录 `%USERPROFILE%\.antigravity-bili-whale\` 采用六类规范分层，详见 [`docs/user-data.md`](user-data.md)。
 - 代码中必须通过 [`src/core/data-paths.mjs`](../src/core/data-paths.mjs)（`dataPathsFor(whaleHome)` / `DATA_PATHS`）获取路径，`check-structure.mjs` 禁止在 `src/` 中回归硬编码旧版散落文件名（如 `whale-night.json`、`whale-life`、`whale-work`、`dev_id` 等）。
 
+### 3.5 代码注释规范
+- 除 `src/vendor/` 外，全部 `.mjs` 文件顶部（shebang 之后）统一以中文 `/** ... */` 简明说明**本文件的具体职责**，禁止机械套用目录名 + 文件名占位模板（如 `（xxx.mjs）。`）。
+- 行内与分段注释统一使用简洁简体中文，中英文与数字间保留 1 个半角空格，禁止残留废弃旧路径/旧文件名（`lib/msgfeed.mjs`、`lib/qr.js`、`ui-src/`、`tools/lib/`）及 ASCII 装饰分隔线。
+
+### 3.6 控制台 UI 与文案规范
+- **样式与组件收口**：`web/` 的静态布局、边距与横幅风格统一收口至 [`web/styles.css`](../web/styles.css) 语义类，并通过 [`web/views/sections.mjs`](../web/views/sections.mjs) 导出的 `statusPill`、`metaPill`、`banner` 构造复用；视图中仅允许运行时动态数值（如进度条宽度）使用内联 `style`。
+- **徽章与标点口径**：状态徽章统一带 `.dot` 圆点、计数/元信息徽章统一无 `.dot`；文案统一盘古空格（如 `B 站`、`Windows 用户`）、全角标点、Unicode 箭头 `→`、直角引号 `「」`、短破折号 `–` 与中文省略号 `…`；产品称谓统一使用 `哔哩哔哩大鲸鱼` / `大鲸鱼` / `UID` / `后台守护（Sidecar）` / `配额`；全站严禁 `✓` 与原生 `title:` 属性。
+
 ---
 
 ## 4. 改动后的标准校验流程
@@ -118,7 +126,7 @@ flowchart BT
 ```powershell
 npm run build:ui         # 若修改了 web/，重新打包 dist/app.html（esnext）
 npm run sync:manifest    # 若增删改了运行态文件，自动同步 package.json 的 whaleRuntimeFiles
-npm run check:structure  # 全量校验目录、命名、分层依赖、无环、ES2026、Markdown、数据路径与版本一致性
+npm run check:structure  # 全量校验目录、命名、分层依赖、无环、ES2026、Markdown、注释、UI 文案与版本一致性
 npm test                 # 运行完整自动化测试套件
 ```
 

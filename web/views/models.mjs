@@ -1,4 +1,7 @@
-import { el, getPath, row, selectCtrl } from './sections.mjs'
+/**
+ * Tab 3 视图（模型选择）：渲染 Antigravity 内置模型清单、角色切换、剩余配额保护与会话轮换设置。
+ */
+import { el, getPath, row, selectCtrl, statusPill, metaPill, banner } from './sections.mjs'
 import { belowQuotaThreshold, remainingQuotaPercent } from '../../src/shared/quota-percentage.mjs'
 
 const LIGHT_MODEL_RE = /(?:^|[^a-z0-9])(?:lite|mini)(?:$|[^a-z0-9])|flashlite/i
@@ -157,7 +160,7 @@ export function renderModelsTab(state, actions) {
     },
     el('div', { className: 'role-card-top' },
       el('span', { className: 'role-card-title' }, title),
-      el('span', { className: 'pill ' + (selected ? 'info' : '') }, selected ? '当前正在设置' : '点击切换设置')),
+      metaPill(selected ? '当前正在设置' : '点击切换设置', selected ? 'info' : '')),
     el('div', { className: 'role-card-desc' }, desc),
     el('div', { className: 'role-card-val' }, formatModelTitle(catalog, modelId)),
     el('div', { className: 'role-card-id mono' }, modelId))
@@ -165,7 +168,7 @@ export function renderModelsTab(state, actions) {
 
   const sessionCard = el('div', { className: 'card' },
     el('h2', {}, '配额保护与会话轮换'),
-    el('p', { className: 'card-sub' }, '设置剩余配额保护红线避免把 Antigravity 额度耗尽；定期轮换新会话可控制长对话上下文开销，长期记忆无缝续接。'),
+    el('p', { className: 'card-sub' }, '设置剩余配额保护红线避免把 Antigravity 配额耗尽；定期轮换新会话可控制长对话上下文开销，长期记忆无缝续接。'),
     row(
       '模型剩余配额低于多少不再活动',
       '当所选模型剩余配额低于设定比例时，自动暂停看视频、私信/评论自动回复及后台归纳等全部活动，配额恢复后自动恢复运行。',
@@ -189,10 +192,10 @@ export function renderModelsTab(state, actions) {
         el('div', { className: 'inline' },
           el('h2', {}, 'Antigravity 内置模型选择'),
           isLive
-            ? el('span', { className: 'pill ok' }, el('span', { className: 'dot' }), `已读取 ${catalog.liveCount} 个实时模型档位`)
-            : el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '自适应档位模式'),
+            ? statusPill('ok', `已读取 ${catalog.liveCount} 个实时模型档位`)
+            : statusPill('warn', '自适应档位模式'),
           quotaPausedNow
-            ? el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '配额保护已暂停活动')
+            ? statusPill('warn', '配额保护已暂停')
             : null),
         el('button', {
           type: 'button',
@@ -201,18 +204,18 @@ export function renderModelsTab(state, actions) {
           onClick: actions.refreshModels,
         }, state.busy === 'models' ? '读取中…' : '刷新模型列表')),
       el('p', { className: 'card-sub' }, '全程仅使用当前 Antigravity 内置模型，无需外部 API Key。先点选上方要配置的角色，再在下方直接点击模型档位即可（记得点右上角「保存配置」）。'),
-      quotaBannerText ? el('div', { className: 'banner warn' }, quotaBannerText) : null,
+      quotaBannerText ? banner('warn', quotaBannerText) : null,
       el('div', { className: 'role-grid' },
         roleCard('main', '前台主线模型', '负责刷视频、看画面、聊私信与评论互动（建议均衡或高表现模型）', mainId),
         roleCard('worker', '后台 Worker 模型', '负责记忆归纳与外发内容安全语义复审，运行完自动归档（建议省配额轻量模型）', workerId)),
       !isLive && catalog?.note
-        ? el('div', { className: 'banner warn' }, `${catalog.note}。后台守护启动后点击右上角「刷新模型列表」即可拉取完整清单。`)
+        ? banner('warn', `${catalog.note}。后台守护启动后点击右上角「刷新模型列表」即可拉取完整清单。`)
         : null,
       state.modelsError
-        ? el('div', { className: 'banner err' }, state.modelsError)
+        ? banner('err', state.modelsError)
         : null,
       missingInCatalog
-        ? el('div', { className: 'banner warn' }, `当前已保存的模型「${activeId}」不在本次读取的可用清单中，请在下方重新点选。`)
+        ? banner('warn', `当前已保存的模型「${activeId}」不在本次读取的可用清单中，请在下方重新点选。`)
         : null,
       autoGroups.length > 0 ? el('div', { className: 'model-section-title' }, '自适应档位（推荐 · 随 Antigravity 自动映射）') : null,
       autoGroups.length > 0

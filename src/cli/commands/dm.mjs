@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `dm`：在安全审核、粉丝限额与写前预检保护下发送单条文字或图片私信。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

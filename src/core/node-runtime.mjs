@@ -1,3 +1,6 @@
+/**
+ * 按数据目录缓存的 Node.js 运行时路径与环境变量解析器。
+ */
 import { resolveRuntime } from './runtime-probe.mjs'
 const cache = new Map()
 export function nodeRuntime(whaleHome) {

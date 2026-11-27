@@ -1,3 +1,6 @@
+/**
+ * B 站全局流量与防风控守卫：执行最小请求间隔、退避熔断、日预算限制与带保护 fetch 封装。
+ */
 import { diagnose } from '../core/diagnostics.mjs'
 import { localDay } from '../core/local-date.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
@@ -27,8 +30,8 @@ export function riskSettings() {
 const isBili = u => u.hostname === 'bilibili.com' || u.hostname.endsWith('.bilibili.com')
 export class TrafficError extends Error { constructor(message) { super(message); this.name = 'TrafficError'; this.code = 'BILI_TRAFFIC_PAUSED' } }
 
-// One state and lock per local plugin data directory, shared by CLI children and
-// the Electron host. The lock covers reservation/update only, never network I/O.
+// 每个本地插件数据目录共用一份状态与进程锁，由 CLI 子进程与
+// 后台守护共享；锁仅覆盖预留与更新，绝不覆盖网络 I/O。
 export function createTrafficGuard({ directory, transport = (...a) => globalThis.fetch(...a), settings = riskSettings, now = Date.now, sleep = delay } = {}) {
   const stateFile = dataPathsFor(directory).traffic, lockFile = stateFile + '.lock'
   function read() {
@@ -219,8 +222,8 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
 let singleton
 export function trafficGuard() { return singleton ??= createTrafficGuard({ directory: WHALE_HOME }) }
 export function guardedFetch(...args) {
-  // Legacy fixture suites replace fetch and opt out explicitly. Production
-  // BILI_NO_CACHE does NOT disable traffic protection.
+  // 测试夹具可显式替换 fetch 并退出保护；生产环境始终生效。
+  // 设置 BILI_NO_CACHE 不会关闭全局流量与防风控保护。
   if (process.env.BILI_TRAFFIC_TEST === '1' && process.env.NODE_TEST_CONTEXT) {const {dispatch,...options}=args[1]??{};const invoke=()=>globalThis.fetch(args[0],options);return dispatch?dispatch(invoke):invoke()}
   return trafficGuard().fetch(...args)
 }

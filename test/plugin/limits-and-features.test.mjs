@@ -1,3 +1,6 @@
+/**
+ * 功能上限与界面契约集成测试：覆盖粉丝限额、安全审核、日历统计、配额保护、抽帧策略与 UI 不变量。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -99,7 +102,7 @@ test('follower relation check, fan daily quotas, and dual-layer outbound safety 
   const dir = mkTmp('ag-whale-safety-')
   clearRelationCache()
   try {
-    // 1. Relation / follower verification
+    // 1. 关注关系与粉丝身份校验
     const relFetch = async (url) => {
       if (url.includes('mid=101')) return new Response(JSON.stringify({ code: 0, data: { relation: { attribute: 0 }, be_relation: { attribute: 2 } } }))
       if (url.includes('mid=102')) return new Response(JSON.stringify({ code: 0, data: { relation: { attribute: 0 }, be_relation: { attribute: 0 } } }))
@@ -112,7 +115,7 @@ test('follower relation check, fan daily quotas, and dual-layer outbound safety 
     const rel = await checkRelation('101', {}, { fetchImpl: relFetch })
     assert.equal(rel.isFollower, true)
 
-    // 2. Fan daily quota enforcement
+    // 2. 粉丝每日互动配额限制
     const q1 = checkFanQuota({ channel: 'dm', uid: '101', perUserDaily: 2, totalDaily: 3, whaleHome: dir })
     assert.equal(q1.allowed, true)
     recordFanReply({ channel: 'dm', uid: '101', whaleHome: dir })
@@ -126,14 +129,14 @@ test('follower relation check, fan daily quotas, and dual-layer outbound safety 
     assert.equal(sum.dmTotal, 3)
     assert.equal(sum.dmUsers, 2)
 
-    // 3. Local safety redlines & custom words
+    // 3. 本地合规红线与自定义屏蔽词
     assert.equal(checkLocalSafety('这个 AI 工具剪辑教程真清晰！', {}).ok, true)
     const badBuiltin = checkLocalSafety('教你怎么线上赌场充值', {})
     assert.equal(badBuiltin.blocked, true)
     const badCustom = checkLocalSafety('大家快去买某神秘产品', { customWords: ['神秘产品'] })
     assert.equal(badCustom.blocked, true)
 
-    // 4. Dual-layer semantic safety reviewer via Sidecar IPC /safety-check
+    // 4. 经 Sidecar IPC /safety-check 执行双层语义安全复审
     const reviewer = createSafetyReviewer({
       completeImpl: Object.assign(async ({ prompt }) => {
         if (prompt.includes('隐喻诱导敏感')) {
@@ -215,7 +218,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     },
   })
   try {
-    // 1. Defaults: interactions OFF (except autoComment ON, safety ON), polling 300s, share via comment, updated watch defaults
+    // 1. 校验默认开关：对外互动默认关闭（自主评论与安全审核默认开启）、轮询 300 秒、分享默认评论区
     const init = await api.getSettings()
     assert.equal(init.config.persona.name, '大鲸鱼')
     assert.deepEqual(init.config.preferences.like, ['AI 工具', '科技新闻', '编程开发', '数码评测'])
@@ -259,13 +262,13 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(init.config.watch.fanMention.mode, 'always_frames')
     assert.equal(init.config.watch.fanMention.maxFrames, 36)
 
-    // 2. Owner check (no checkmark symbol)
+    // 2. 主人 UID 核验（且不含对勾符号）
     const ownerOk = await api.verifyOwner('12345', '测试主人')
     assert.equal(ownerOk.matched, true)
     assert.ok(!ownerOk.detail.includes('✓'))
     assert.equal((await api.verifyOwner('12345', '旧名字')).matched, false)
 
-    // 3. True logout handles 302 redirect + nav verification, deletes credentials.json, clears self, notifies sidecar
+    // 3. 登出处理 302 重定向与 nav 复核、删除本地凭据、清空账号并通知 Sidecar
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '999', name: '大鲸鱼号' } }))
     const out = await api.logout()
     assert.equal(out.ok, true)
@@ -278,7 +281,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal((await api.getSettings()).config.self.mid, '')
     assert.ok(invalidated >= 1)
 
-    // 4. Timestamped diagnostic & memory exports write directly into exports/ without credentials
+    // 4. 带时间戳的诊断日志与记忆备份写入 exports/ 且绝不含凭据
     const diag = await api.exportDiagnostics()
     assert.equal(diag.ok, true)
     assert.match(diag.filename, /^antigravity-bili-whale-diag-\d{8}-\d{6}\.json$/)
@@ -293,7 +296,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.equal(fs.existsSync(memExp.filePath), true)
     assert.equal(path.dirname(memExp.filePath), path.join(dir, 'exports'))
 
-    // 5. About returns all 8 paths & openLocalPath enforces strict allowlist
+    // 5. 关于页返回全部关键路径且 openLocalPath 严格执行白名单
     const about = await api.getAbout()
     for (const k of ['pluginRoot', 'dataDir', 'configFile', 'personaFile', 'memoryDir', 'safetyLog', 'safetyRules', 'exportsDir']) {
       assert.ok(about.paths[k], `missing about.paths.${k}`)
@@ -315,7 +318,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     await assert.rejects(() => api.openLocalPath('exported_file', 'evil.exe'), /不合法/)
     await assert.rejects(() => api.openLocalPath('exported_file', 'sub/file.json'), /不合法/)
 
-    // 6. dynamicDailyMax clamped to 1..2, polling intervals persisted, aiCommentGuard stripped, 3-class watch config
+    // 6. 校验动态上限、轮询间隔、旧字段剥离与三类观看配置持久化
     const saved = await api.saveSettings({
       owner: { mid: '12345', name: '测试主人' },
       share: { enabled: true, via: 'comment', aiCommentGuard: true },
@@ -340,7 +343,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(wPrompt.includes('保留有来源的观看记录'))
     assert.equal(wPrompt.includes('日记'), false)
 
-    // 7. Environment rows omit datadir and remove ffmpeg install/update action completely
+    // 7. 环境检测列表不包含独立数据目录且已移除一键安装 ffmpeg 按钮
     const deps = await api.checkDeps()
     assert.ok(Array.isArray(deps.cards))
     assert.equal(deps.cards.some(c => c.key === 'datadir'), false)
@@ -348,7 +351,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(ffCard)
     assert.equal(ffCard.action, null)
 
-    // 8. Global zero-checkmark invariant & v1.3.0 UI invariants across sources and built bundle
+    // 8. 全站零对勾不变量与构建产物 UI 关键契约校验
     const scanFiles = [
       'src/console/api-handlers.mjs',
       'src/plugin/updater.mjs',
@@ -381,7 +384,7 @@ test('v1.2.0 defaults (safety ON, interactions OFF), 3-class watch rules, verifi
     assert.ok(bundle.includes('配额保护与会话轮换'))
     assert.ok(bundle.includes('活动统计与日历查看'))
 
-    // Zero native browser hover tooltips (title:) across all UI source files
+    // 全部前端源码禁止使用原生浏览器悬浮提示（title:）
     for (const uiFile of ['web/main.mjs', 'web/views/sections.mjs', 'web/views/models.mjs', 'web/views/watch.mjs', 'web/views/memory.mjs', 'web/views/about.mjs']) {
       const uiSrc = fs.readFileSync(path.resolve(uiFile), 'utf8')
       assert.equal(/\btitle\s*:/.test(uiSrc), false, `${uiFile} must not set native hover title attribute`)
@@ -422,7 +425,7 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
   const day1 = Date.parse('2026-11-24T12:00:00+08:00')
   const day2 = Date.parse('2026-11-26T15:30:00+08:00')
   try {
-    // 1. Cross-day fan quota history preserved when rolling over to a new day
+    // 1. 跨天切换时保留历史粉丝互动统计
     recordFanReply({ channel: 'dm', uid: '101', whaleHome: dir, now: () => day1 })
     recordFanReply({ channel: 'comment', uid: '102', whaleHome: dir, now: () => day1 })
     recordFanReply({ channel: 'mentionSummary', uid: '103', whaleHome: dir, now: () => day2 })
@@ -431,7 +434,7 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
     assert.equal(hist.days['2026-11-24'].commentTotal, 1)
     assert.equal(hist.days['2026-11-26'].mentionSummaryTotal, 1)
 
-    // 2. Seed state/quota.json, logs/safety-blocked.jsonl, state/schedule.json, and memory events
+    // 2. 写入配额日志、安全拦截日志、作息计划与记忆事件夹具
     fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'logs'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'state', 'quota.json'), JSON.stringify({
@@ -467,7 +470,7 @@ test('v1.3.0 activity calendar aggregates totals & per-day categories, preserves
       fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'offline-calendar-fixture', bili_jct: 'a'.repeat(32) }))
       const cfg = (await api.getSettings()).config
 
-      // Seed 26 searchable experience events to verify search limit 20 vs 50
+      // 写入 26 条可检索经历以验证 20 / 50 条分页上限
       const { lifeStore } = await import('../../src/life/runtime.mjs')
       const store = lifeStore(cfg, { whaleHome: dir, now: () => day2 })
       const earlierStore = lifeStore(cfg, { whaleHome: dir, now: () => day1 })
@@ -517,7 +520,7 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
   assert.equal(normalizeTimeText('2400'), '24:00')
   assert.equal(normalizeTimeText('930'), '09:30')
 
-  // Segmented slot: 00:00-24:00 with 12 wakes at 19:00 -> remaining 5h / 12 = 25m slot
+  // 分段排期校验：00:00–24:00 设 12 次唤醒，在 19:00 剩余 5 小时内每段约 25 分钟
   const at19 = new Date('2026-11-26T19:00:00').getTime()
   const plan = makePlan(
     { windows: [{ start: '0000', end: '2400', wakes: 12 }], minGapMin: 10, skipChance: 0 },
@@ -550,7 +553,7 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
     rpc: { available: () => false },
   })
   try {
-    // 0000-2400 normalized and maxWakesPerDay synced to 12
+    // 0000–2400 自动归一化为 00:00–24:00 且同步每日上限为 12
     const saved = await api.saveSettings({
       night: { windows: [{ start: '0000', end: '2400', wakes: 12 }], maxWakesPerDay: 1 },
     })
@@ -559,7 +562,7 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
     assert.equal(saved.config.night.maxWakesPerDay, 12)
     await assert.rejects(() => api.saveSettings({ night: { windows: [{ start: '99:99', end: '24:00', wakes: 1 }] } }), /开始时间无效/)
 
-    // wakeNow via Sidecar IPC succeeds & forwards business errors cleanly
+    // 经 Sidecar IPC 执行立即唤醒并准确透传业务异常
     const woke = await api.wakeNow()
     assert.equal(woke.ok, true)
     assert.equal(wakeCalls, 1)
@@ -568,7 +571,7 @@ test('v1.4.0 normalizes 0000-2400 windows, uses segmented slots for multi-wake p
     shouldFail = true
     await assert.rejects(() => api.wakeNow(), /正在执行唤醒轮次中/)
 
-    // Auto-release workflow sets git identity unconditionally before tagging
+    // 自动发布工作流在打 tag 前无条件配置 git 提交身份
     const wf = fs.readFileSync(path.resolve('.github/workflows/auto-release.yml'), 'utf8')
     const cfgIdx = wf.indexOf('git config user.name')
     const tagIdx = wf.indexOf('git tag -a')
@@ -615,7 +618,7 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
   assert.equal((await guard.check({ fresh: true })).paused, true)
   assert.equal(rpcCalls, 1)
 
-  // checkDeps with missing/broken bili.mjs still returns structured cards (never raw error log with empty cards)
+  // bili.mjs 缺失或子进程异常时 checkDeps 仍返回结构化卡片而非空列表
   const dir = mkTmp('ag-whale-v15-')
   const api = createApiHandlers({
     whaleHome: dir,
@@ -638,7 +641,7 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
     assert.ok(failedDeps.cards.some(c => c.key === 'ffmpeg'))
     assert.ok(failedDeps.cards.some(c => c.key === 'sidecar' && c.status === 'error'))
 
-    // Comment share prompt explicitly allows @ owner top-level comment without conflicting blanket ban
+    // 评论区分享提示词明确放行 @ 主人顶层评论，与普通评论边界不冲突
     const commentPrompt = wakePrompt(
       { atText: '2026-11-26 20:00', window: '00:00–24:00' },
       '',
@@ -653,7 +656,7 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
     assert.ok(commentPrompt.includes('除上述在视频评论区「@ 主人」主动分享'))
     assert.equal(commentPrompt.includes('绝不主动给其他人的视频发顶层独白评论'), false)
 
-    // Autonomous non-@ comment prompt when chat.autoComment=true
+    // 开启自主评论后生成允许普通顶层评论的提示词
     const autoCommentPrompt = wakePrompt(
       { atText: '2026-11-26 20:00', window: '00:00–24:00' },
       '',
@@ -673,7 +676,7 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
 })
 
 test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm, owner @ judgment, autoComment quota, UI invariants, and 5-item activity cap', async () => {
-  // 1. Duration hard check across auto / owner / fan profiles
+  // 1. 三类观看档位的时长硬限制校验
   assert.equal(checkWatchDuration(30, { profile: 'auto', settings: { minDurationSec: 60, maxDurationMin: 10 } }).code, 'too_short')
   assert.equal(checkWatchDuration(601, { profile: 'auto', settings: { minDurationSec: 60, maxDurationMin: 10 } }).code, 'too_long')
   assert.equal(checkWatchDuration(600, { profile: 'auto', settings: { minDurationSec: 60, maxDurationMin: 10 } }).ok, true)
@@ -686,7 +689,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
   assert.equal(checkWatchDuration(300, { profile: 'fan', settings: { autoMaxMin: 5 } }).ok, true)
   assert.equal(checkWatchDuration(301, { profile: 'fan', settings: { autoMaxMin: 5 }, confirmed: true }).code, 'too_long')
 
-  // 2. Interval multi-sheet frame planning (first frame = interval, ceil last frame, fixed grid tiling)
+  // 2. 固定间隔抽帧与多张拼图排布校验
   const p1 = planIntervalFrames({ durationSec: 600, everySec: 15, maxFrames: 60, grid: '2x2' })
   assert.equal(p1.frameCount, 40)
   assert.equal(p1.sheetCount, 10)
@@ -711,12 +714,12 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
 
   assert.equal(watchOptions(['BV1xx411c7mD', '2x2', '--every', '15', '--max-frames', '60', '--profile', 'owner', '--confirmed'], '.').maxFrames, 60)
 
-  // 3. parseFrameOutput collects all multi-sheet SHEET lines
+  // 3. parseFrameOutput 正确收集全部多张拼图 SHEET 路径
   const parsedOut = parseFrameOutput('SHEET: /tmp/a-p1.jpg\nSHEET: /tmp/a-p2.jpg\nSHEET: /tmp/a-p3.jpg\n')
   assert.equal(parsedOut.sheet, '/tmp/a-p1.jpg')
   assert.deepEqual(parsedOut.sheets, ['/tmp/a-p1.jpg', '/tmp/a-p2.jpg', '/tmp/a-p3.jpg'])
 
-  // 4. Config clamps auto.maxDurationMin <= 30, mentionTotalDaily <= 10, fan confirmMaxMin === autoMaxMin, frameStrategy === interval
+  // 4. 配置归一化收敛自主时长、粉丝 @ 总上限、粉丝无确认档与抽帧策略
   const dir = mkTmp('ag-whale-v16-')
   const api = createApiHandlers({
     whaleHome: dir,
@@ -748,7 +751,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.equal(saved.config.chat.autoComment, true)
     assert.equal(saved.config.chat.autoCommentDailyMax, 5)
 
-    // 5. Owner @ ANY question (even without summary keywords) triggers self-judgment prompt; fan has no confirm tier
+    // 5. 主人任意 @ 提问触发自主判断是否看片，粉丝无询问确认档
     const ownerAtLines = mentionSummaryLines(saved.config, [
       { kind: 'at', mid: '12345', isFollower: true, source: '@大鲸鱼 你觉得这个方案靠谱吗？', oid: '1', root: '0', parent: '2' },
       { kind: 'at', mid: '88888', who: '铁粉', isFollower: true, source: '@大鲸鱼 总结一下', oid: '2', root: '0', parent: '3' },
@@ -758,7 +761,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.ok(ownerAtLines.includes('无询问确认档'))
     assert.ok(ownerAtLines.includes('固定 3x3 拼图'))
 
-    // 6. Activity calendar caps daily items to at most 5 while preserving full totals
+    // 6. 日历每日明细最多展示 5 条且保留完整分类总计
     const dayMs = Date.parse('2026-11-26T15:00:00+08:00')
     fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ sessdata: 'offline-v16-fixture', bili_jct: 'a'.repeat(32) }))
     fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ self: { mid: '999', name: '大鲸鱼' }, owner: { mid: '12345', name: '主人' } }))
@@ -771,7 +774,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.equal(cal.days['2026-11-26'].watched, 13)
     assert.equal(cal.days['2026-11-26'].items.length, 5)
 
-    // 7. Multi-sheet inline images in model-tools return >2 sheets
+    // 7. model-tools 正常内联返回 2 张以上抽帧拼图
     const shotsDir = path.join(dir, 'cache', 'shots', 'video')
     fs.mkdirSync(shotsDir, { recursive: true })
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -787,7 +790,7 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.equal(res.isError, false)
     assert.equal(res.content.filter(c => c.type === 'image').length, 4)
 
-    // 8. UI bundle invariants for all requested UI changes
+    // 8. 校验打包产物 dist/app.html 的全部 UI 文本与结构不变量
     const bundle = fs.readFileSync(path.resolve('dist/app.html'), 'utf8')
     assert.equal(bundle.includes('45 分钟以内'), false)
     assert.equal(bundle.includes('60 分钟以内'), false)
@@ -805,21 +808,21 @@ test('v1.6.0 duration hard checks, interval multi-sheet planning, fan no-confirm
     assert.ok(bundle.includes('每日最多自主发表评论条数'))
     assert.ok(bundle.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
     assert.ok(bundle.includes('每 300 秒（5 分钟）检查一次（默认）'))
-    // Owner @ judgment toggle lives in Interact tab, not Watch tab
+    // 主人 @ 自主判断开关归属「分享与监听」页而非「视频观看设置」页
     const watchSrc = fs.readFileSync(path.resolve('web/views/watch.mjs'), 'utf8')
     const sectionsSrc = fs.readFileSync(path.resolve('web/views/sections.mjs'), 'utf8')
     assert.equal(watchSrc.includes('switchCtrl'), false)
     assert.ok(sectionsSrc.includes('主人 @ 她时，根据提问自主判断是否看视频后回复'))
-    // About tab renders repo URL as non-clickable text without link-btn
+    // 关于页以纯文本展示仓库地址且不含 link-btn
     const aboutSrc = fs.readFileSync(path.resolve('web/views/about.mjs'), 'utf8')
     assert.equal(aboutSrc.includes('link-btn'), false)
     assert.equal(aboutSrc.includes('复制仓库地址'), false)
     assert.equal(aboutSrc.includes('Windows Antigravity App 专属'), false)
-    // Auto-release workflow packages and uploads release ZIP asset
+    // 自动发布工作流打包并上传 Release 压缩包资产
     const releaseWf = fs.readFileSync(path.resolve('.github/workflows/auto-release.yml'), 'utf8')
     assert.ok(releaseWf.includes('scripts/package-release.mjs'))
     assert.ok(releaseWf.includes('gh release create "$TAG" "$ZIP_PATH"'))
-    // Schedule UI hint uses HH:MM（00:00–24:00） without legacy 0000–2400 wording
+    // 作息提示统一使用 HH:MM（00:00–24:00）表述
     assert.ok(bundle.includes('时间格式为 HH:MM（00:00–24:00）'))
     assert.equal(bundle.includes('也自动兼容 0000–2400'), false)
   } finally {
@@ -843,7 +846,7 @@ test('v1.6.2 removes artificial short-comment limits so whale freely chooses sho
   assert.equal(pubMd.includes('中位数约 10 字'), false)
   assert.ok(pubMd.includes('1000 字符'))
 
-  // Legacy config.json containing old hardMode='enforce' / hardMaxChars=60 loads cleanly without blocking long comments
+  // 旧配置中残留的 hardMode / hardMaxChars 字段应平滑忽略且不限制长评
   const dir = mkTmp('ag-whale-v162-')
   const cfgPath = path.join(dir, 'config.json')
   fs.writeFileSync(cfgPath, JSON.stringify({

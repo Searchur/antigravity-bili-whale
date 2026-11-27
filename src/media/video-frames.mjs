@@ -1,3 +1,6 @@
+/**
+ * 基于 ffmpeg 的视频分段抽帧与多张固定格数拼图生成器。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
@@ -29,7 +32,7 @@ export async function segmentFrames({ ffmpeg, url, times, directory, duration, r
           if (!fs.existsSync(frame) || fs.statSync(frame).size === 0) throw Error('没有生成帧')
           fs.renameSync(frame, path.join(directory, 'f' + String(index).padStart(2, '0') + '.jpg'))
           success = true
-        } catch { /* Retry once, then fall back to full download. */ }
+        } catch { /* 分段抽帧失败时重试一次，仍失败则回退至完整下载后抽帧。 */ }
       }
       if (!success) errors.push(index)
     }

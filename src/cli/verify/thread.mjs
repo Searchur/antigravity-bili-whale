@@ -1,3 +1,6 @@
+/**
+ * CLI 核验命令 `thread`：只读拉取指定评论楼层上下文与子回复列表。
+ */
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 import { exactJson } from '../../core/json-exact.mjs'
 

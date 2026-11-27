@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `config`：只读输出当前归一化后的运行与管线配置摘要。
+ */
 import { pipelineConfig } from '../pipeline/config.mjs'
 
 const [action = 'show'] = process.argv.slice(2)

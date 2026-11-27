@@ -1,3 +1,6 @@
+/**
+ * 仓库目录结构、命名、分层依赖、ES2026、Markdown、注释与 UI 文案守卫自动化测试。
+ */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -14,10 +17,10 @@ function makeFixtureRepo(t) {
   fs.mkdirSync(path.join(dir, 'src', 'config'), { recursive: true })
   fs.mkdirSync(path.join(dir, 'web', 'views'), { recursive: true })
   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'src', 'shared', 'util.mjs'), 'export const x = 1\n')
-  fs.writeFileSync(path.join(dir, 'src', 'core', 'base.mjs'), 'export const y = 2\n')
-  fs.writeFileSync(path.join(dir, 'src', 'config', 'cfg.mjs'), "import { y } from '../core/base.mjs'\nexport const z = y\n")
-  fs.writeFileSync(path.join(dir, 'web', 'main.mjs'), "import { x } from '../src/shared/util.mjs'\nconsole.log(x)\n")
+  fs.writeFileSync(path.join(dir, 'src', 'shared', 'util.mjs'), '/**\n * 共享纯计算测试夹具。\n */\nexport const x = 1\n')
+  fs.writeFileSync(path.join(dir, 'src', 'core', 'base.mjs'), '/**\n * 核心基础测试夹具。\n */\nexport const y = 2\n')
+  fs.writeFileSync(path.join(dir, 'src', 'config', 'cfg.mjs'), "/**\n * 配置层测试夹具。\n */\nimport { y } from '../core/base.mjs'\nexport const z = y\n")
+  fs.writeFileSync(path.join(dir, 'web', 'main.mjs'), "/**\n * 控制台前端入口测试夹具。\n */\nimport { x } from '../src/shared/util.mjs'\nconsole.log(x)\n")
   fs.writeFileSync(path.join(dir, 'docs', 'guide.md'), '# Guide\n\nSee [util](../src/shared/util.mjs).\n')
   return dir
 }
@@ -73,6 +76,25 @@ test('structure guard enforces ES2026 syntax rules, bare builtin rejection, lega
   assert.ok(res.errors.some(e => e.includes('Markdown 标题跳级')))
   assert.ok(res.errors.some(e => e.includes('Markdown 存在断链')))
   assert.ok(res.errors.some(e => e.includes('Markdown 文件缺少末尾换行')))
+})
+
+test('structure guard enforces Chinese JSDoc headers, rejects placeholder/stale comments and web copy violations', t => {
+  const dir = makeFixtureRepo(t)
+  fs.writeFileSync(path.join(dir, 'src', 'core', 'base.mjs'), '/**\n * 核心模块（base.mjs）。\n */\n// lib/msgfeed.mjs\nexport const y = 2\n')
+  fs.writeFileSync(path.join(dir, 'src', 'shared', 'util.mjs'), 'export const x = 1\n')
+  fs.writeFileSync(
+    path.join(dir, 'web', 'main.mjs'),
+    "/**\n * 前端测试。\n */\nconst label = '前往B站 -> 设置'\nconst props = { title: 'hover' }\nconsole.log(label, props)\n",
+  )
+
+  const res = checkStructure({ rootDir: dir, checkManifest: false, checkDocs: false, checkVersions: false, checkMarkdown: false })
+  assert.equal(res.ok, false)
+  assert.ok(res.errors.some(e => e.includes('模块顶部缺少中文')))
+  assert.ok(res.errors.some(e => e.includes('机械占位模板')))
+  assert.ok(res.errors.some(e => e.includes('旧目录/旧文件名')))
+  assert.ok(res.errors.some(e => e.includes('B 站')))
+  assert.ok(res.errors.some(e => e.includes('→')))
+  assert.ok(res.errors.some(e => e.includes('原生 title')))
 })
 
 test('dataPathsFor organizes user data cleanly into 6 canonical categories', () => {

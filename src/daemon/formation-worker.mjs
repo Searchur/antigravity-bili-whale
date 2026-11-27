@@ -1,3 +1,6 @@
+/**
+ * 后台长期记忆两阶段归纳 Worker：抽取记忆候选、独立审核并提交至长期状态检查点。
+ */
 import {formationDiagnostic} from '../memory/formation-diagnostic.mjs'
 import {setTimeout as deadline,clearTimeout as clearDeadline} from 'node:timers'
 import {withOperationSignal,checkOperation} from '../core/operation-context.mjs'

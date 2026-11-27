@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `favorites`：查询、校验或向默认收藏夹添加视频，并维护账号隔离收藏账本。
+ */
 import { config } from '../../config/index.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 import { localDay } from '../../core/local-date.mjs'
@@ -67,7 +70,7 @@ function inferKind(reason) {
   return '其他'
 }
 
-// ── --list ───────────────────────────────────────────────
+// --list：列出收藏记录
 if (opt.list) {
   const d = load()
   const items = (opt.legacy ? d.items.filter(x => !x.account) : favoriteItems(d, selfMid)).slice().reverse()
@@ -86,7 +89,7 @@ if (opt.list) {
   process.exit(0)
 }
 
-// ── --migrate-preview：只读预览旧记录（没有账号归属的那些）────────
+// --migrate-preview：只读预览尚未归属账号的历史收藏记录
 if (opt['migrate-preview'] || opt['claim-legacy']) {
   const d = load()
   const legacy = legacyFavoriteItems(d)
@@ -133,21 +136,21 @@ if (opt['migrate-preview'] || opt['claim-legacy']) {
   process.exit(0)
 }
 
-// ── 取她的默认收藏夹 id ────────────────────────────────────
+// 查询默认收藏夹 ID
 async function defaultFavId(account) {
   const j = await apiGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${account}`, H)
   if (j.code !== 0) throw new Error(`取收藏夹失败：${j.message ?? j.code}`)
   return selectFavoriteFolder(j.data?.list ?? [], account)
 }
 
-// ── 取 aid + 标题 ────────────────────────────────────────
+// 查询目标视频 aid 与标题
 async function videoInfo(bv) {
   const j = await apiGet(`https://api.bilibili.com/x/web-interface/view?bvid=${bv}`, H)
   if (j.code !== 0) throw new Error(`取视频信息失败：code=${j.code} ${j.message ?? ''}`)
   return { aid: j.data.aid, title: String(j.data.title ?? ''), up: String(j.data.owner?.name ?? '') }
 }
 
-// ── 判据检查（返回值 = 拒绝理由，null 表示可以收）────────────
+// 收藏资格检查（返回拒绝原因字符串，null 表示允许收藏）
 function checkRules({ bv, reason, better, kind }) {
   const d = load()
   const items = favoriteItems(d, selfMid)
@@ -166,7 +169,7 @@ function checkRules({ bv, reason, better, kind }) {
   return null
 }
 
-// ── --check ──────────────────────────────────────────────
+// --check：校验指定视频是否符合收藏条件
 if (opt.check) {
   const bv = String(opt.check)
   const reason = String(opt.reason ?? '')
@@ -175,7 +178,7 @@ if (opt.check) {
   process.exit(bad ? 1 : 0)
 }
 
-// ── 主流程：加收藏 ────────────────────────────────────────
+// 主流程：执行收藏并写入账本
 const bv = positional[0]
 if (!bv || !/^BV[0-9A-Za-z]{10}$/.test(bv)) {
   console.error('用法: node bili.mjs fav <BV> --reason "…" [--dry|--go] | --list [--json] | --check <BV> | --migrate-preview | --claim-legacy all|0,2 [--dry|--go]')

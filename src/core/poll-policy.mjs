@@ -1,3 +1,6 @@
+/**
+ * 后台轮询间隔与连续失败指数退避策略计算器。
+ */
 // 正常空闲保持基础间隔；仅连续失败退避，最长 15 分钟（保留更长的自定义间隔）。
 export function pollDelay(baseSeconds, failureRounds = 0) {
   const value = Number(baseSeconds)

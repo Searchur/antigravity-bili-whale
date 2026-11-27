@@ -1,4 +1,7 @@
-import { el, getPath, row, selectCtrl } from './sections.mjs'
+/**
+ * Tab 4 视图（视频观看设置）：渲染自主看片、主人评论区 @ 总结与粉丝评论区 @ 总结三类独立规则。
+ */
+import { el, getPath, row, selectCtrl, metaPill, banner } from './sections.mjs'
 
 const MAX_FRAMES_OPTIONS = [16, 24, 36, 48, 60]
 
@@ -153,9 +156,9 @@ export function renderWatchTab(state, actions) {
     el('h2', {}, '二、主人评论区 @ 她看视频与总结设置'),
     el('p', { className: 'card-sub' }, '当你在 B 站视频评论区 @ 大鲸鱼且她判断需要先看视频再回复你时生效（每条观看视频均读取文字并抽帧看画面，仅认「主人信息」里配置的 UID）。'),
     !ownerMentionReady
-      ? el('div', { className: 'banner warn', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
-          el('span', {}, '提示：尚未开启主人评论区 @ 监听或「主人 @ 自主判断是否看视频」开关，可前往「分享与监听 -> 四、评论区互动」开启。'),
-          el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'))
+      ? banner('warn', '提示：尚未开启主人评论区 @ 监听或「主人 @ 自主判断是否看视频」开关，可前往「分享与监听 → 四、评论区互动」开启。', {
+          action: el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'),
+        })
       : null,
     renderDurationStrip(ownerAutoMax, ownerConfirmMax, '主人'),
     row(
@@ -201,12 +204,12 @@ export function renderWatchTab(state, actions) {
   const fanCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
       el('h2', {}, '三、粉丝评论区 @ 她看视频与总结设置'),
-      el('span', { className: 'pill info' }, '仅限已关注大鲸鱼的粉丝')),
+      metaPill('仅限已关注大鲸鱼的粉丝', 'info')),
     el('p', { className: 'card-sub' }, '系统会通过 B 站关注关系接口实时校验对方是否已关注大鲸鱼；未关注的路人 @ 请求一律忽略。粉丝不设询问确认档，超限直接礼貌拒绝（每条观看视频均读取文字并抽帧看画面）。'),
     !fanMentionReady
-      ? el('div', { className: 'banner warn', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } },
-          el('span', {}, '提示：尚未开启粉丝评论区 @ 总结监听，可前往「分享与监听」按需开启。'),
-          el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'))
+      ? banner('warn', '提示：尚未开启粉丝评论区 @ 总结监听，可前往「分享与监听 → 四、评论区互动」按需开启。', {
+          action: el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'),
+        })
       : null,
     renderDurationStrip(fanAutoMax, fanAutoMax, '该粉丝'),
     row(

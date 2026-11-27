@@ -1,3 +1,6 @@
+/**
+ * CLI 命令回归测试：覆盖写前预检、粉丝限额锁、图片校验、观片时长硬检查与自主评论配额。
+ */
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import fs from 'node:fs'
@@ -87,7 +90,7 @@ test('fan summaries and ordinary replies have independent limits', async t => {
   assert.equal(summary.channel, 'mentionSummary')
   assert.equal(ordinary.channel, 'comment')
   assert.equal(fanCommentQuota(cfg, { mid: '123', kind: 'reply', text: '银行开着吗' }, dir).channel, 'comment')
-  // Fans no longer have a confirmation-reply tier; reply messages count as ordinary fan comments.
+  // 粉丝不再设置确认回复档，回复消息按普通粉丝评论计入配额。
   assert.equal(fanCommentQuota(cfg, { mid: '123', kind: 'reply', text: '看吧！', quotedText: '确认要我看并总结吗？' }, dir).channel, 'comment')
   const release = await lockFanReplyQuota(summary)
   await assert.rejects(lockFanReplyQuota(summary))
@@ -159,7 +162,7 @@ test('quota enforces autoComment toggle, daily cap, and 7-day same-video dedup',
   const { dir, env } = fixture(t)
   const runQuota = (...args) => exec(process.execPath, [cli, 'quota', ...args], { env, timeout: 10_000 })
 
-  // Enabled with daily cap 2
+  // 开启自主评论且每日上限为 2
   fs.writeFileSync(env.BILI_WHALE_CONFIG, JSON.stringify({ chat: { autoComment: true, autoCommentDailyMax: 2 } }))
   const ok1 = await runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000001', '--auto')
   assert.match(ok1.stdout, /自主评论额度内（0\/2）/)
@@ -168,7 +171,7 @@ test('quota enforces autoComment toggle, daily cap, and 7-day same-video dedup',
   await runQuota('record', '--type', 'comment', '--target', 'BV:BV1aaa000002', '--auto', '--note', '第二条')
   await assert.rejects(runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000003', '--auto'), err => /今日自主评论额度已用完（2\/2）/.test(err.stdout))
 
-  // Disabled rejects immediately
+  // 关闭自主评论后立即拦截
   fs.writeFileSync(env.BILI_WHALE_CONFIG, JSON.stringify({ chat: { autoComment: false, autoCommentDailyMax: 3 } }))
   await assert.rejects(runQuota('check', '--type', 'comment', '--target', 'BV:BV1aaa000004', '--auto'), /自主评论已关闭/)
 })

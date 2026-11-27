@@ -1,5 +1,8 @@
+/**
+ * CLI 核验命令 `check-mention`：检查动态正文中的 `@` 是否解析为真实提及节点。
+ */
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-// Is the @ a real mention node on the opus page (linked, with the target's mid)?
+// 检查动态页面中的 @ 是否解析为指向目标 UID 的真实提及节点
 //
 // 用法: node mention-check.mjs <dynId> [mid] [昵称]
 //   不给 mid/昵称时，从配置里的 owner 取 ✓

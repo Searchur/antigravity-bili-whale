@@ -1,7 +1,10 @@
+/**
+ * 零依赖插件入口与传递本地依赖静态可达性校验器（不执行目标业务代码）。
+ */
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
-// V8 parses import and re-export declarations. Candidate modules are never evaluated.
+// 仅通过 V8 解析导入与重导出声明，绝不执行候选模块代码。
 function checkHostImports(root, loadBuiltin) {
   const fs = loadBuiltin('node:fs')
   const path = loadBuiltin('node:path')
@@ -14,7 +17,7 @@ function checkHostImports(root, loadBuiltin) {
     seen.add(file)
     const source = fs.readFileSync(file, 'utf8')
     const module = new vm.SourceTextModule(source, { identifier: file })
-    // Node 24+ V8 SourceTextModule exposes moduleRequests (with fallback for older V8 builds).
+    // Node 24+ V8 SourceTextModule 暴露 moduleRequests（保留旧版字段回退）。
     const dependencies = module.moduleRequests?.map(request => request.specifier) ?? module.dependencySpecifiers
     for (const specifier of dependencies) {
       if (isBuiltin(specifier)) continue
@@ -37,7 +40,7 @@ function checkHostImports(root, loadBuiltin) {
   visit(path.join(root, 'src', 'cli', 'bili.mjs'))
 }
 
-// Keep the running version's checker even when a Windows in-place update replaces its file.
+// 在 Windows 原地更新替换文件时保留当前运行版本的校验器。
 const checker = `try { (${checkHostImports.toString()})(process.argv[2], require) }
 catch (error) { console.error(error.message); process.exitCode = 1 }`
 

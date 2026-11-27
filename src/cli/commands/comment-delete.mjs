@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `comment-delete`：在写前预检与暂停保护下删除大鲸鱼已发出的评论。
+ */
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 import { requireWritePreview } from '../../social/write-preview.mjs'
 import { exactJson } from '../../core/json-exact.mjs'

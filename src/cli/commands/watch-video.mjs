@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `watch-video`：按观看档位规则下载视频、执行固定间隔抽帧并生成拼图。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { credentialsPath, shotsPath } from '../../core/paths.mjs'

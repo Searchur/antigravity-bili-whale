@@ -1,10 +1,13 @@
+/**
+ * 会话边界指纹计算：检测人设、身份或权限变更以决定是否开启新会话。
+ */
 import crypto from 'node:crypto'
 import {lifeConfig} from './life.mjs'
 const stable=value=>Array.isArray(value)?value.map(stable):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,stable(value[k])])):value
 const json=value=>JSON.stringify(stable(value))
 const set=value=>Array.isArray(value)?[...new Set(value)].sort():null
 const boundary=m=>json({visibility:m.visibility??'private',scene:m.scope?.scene??null,scenes:set(m.scope?.scenes),allowedExpressionScenes:set(m.allowedExpressionScenes),recall:m.recallEnabled!==false,control:m.lifecycle?.recallControl??'enabled',revoked:m.status==='revoked'})
-// Capture before mutation: content/version/heat/validity are deliberately absent.
+// 变更前捕获边界快照：刻意排除正文、版本、热度与有效期字段。
 export function captureSessionBoundary(s){return {
  memories:s.memories.filter(m=>m.active).map(m=>({id:m.id,boundary:boundary(m)})),
  deleted:set(s.cognition?.deletedIds)??[],
@@ -17,7 +20,7 @@ export function sessionBoundaryChanged(before,s){
  for(const m of s.memories.filter(m=>m.active))for(const id of [m.baseId,...(m.baseVersions??[]).map(x=>x.id)].filter(Boolean))replacements.set(id,m)
  return before.memories.some(old=>{
    const next=replacements.get(old.id)??byId.get(old.id)
-   // Automatic retention collection is not a permission revocation.
+   // 自动过期回收不属于权限撤销。
    return next ? old.boundary!==boundary(next) : false
  })
 }

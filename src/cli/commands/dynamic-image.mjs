@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `dynamic-image`：上传图片并在安全审核与日上限保护下发布带图 B 站公开动态。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

@@ -1,3 +1,6 @@
+/**
+ * 主人私信对话后的补话时机判定器：判断最近一轮私信是否满足单次补话条件。
+ */
 import {chatConfig} from '../config/chat.mjs'
 import {normalizeListen} from '../config/index.mjs'
 
@@ -18,7 +21,7 @@ export function chatOpportunity(s,full,at){
   const last=lastReply(s,full)
   const anchor=Math.max(a.lastOwnerAt,last?.at??0)
   if(!last||last.data?.initiative||last.at<a.lastOwnerAt||last.at-a.lastOwnerAt>=15*60000||at-last.at<30000||at-last.at>5*60000||!followupTurn(s,full))return null
-  const key='followup:'+a.lastOwnerAt // each incoming conversation may trigger at most one followup
+  const key='followup:'+a.lastOwnerAt // 每轮收到的对话最多只触发一次主动补话
   if((a.chatAttempts??[]).includes(key))return null
   return {kind:'followup',key,ownerAt:a.lastOwnerAt,anchor}
 }

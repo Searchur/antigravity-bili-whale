@@ -1,4 +1,7 @@
-// Shared planning engine: absolute timestamps and persistent per-window history.
+/**
+ * CLI 命令 `night`：查询或刷新当日作息生物钟排期计划。
+ */
+// 共享排期引擎：基于绝对时间戳与按窗口持久化的历史记录。
 import fs from 'node:fs'
 import path from 'node:path'
 import { WHALE_HOME, DATA_PATHS } from '../../core/paths.mjs'

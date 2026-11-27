@@ -1,3 +1,6 @@
+/**
+ * B 站视频流下载器：按时长与清晰度上限将视频下载至本地临时目录供抽帧使用。
+ */
 import fs from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
@@ -34,7 +37,7 @@ export async function downloadVideo(source, file, {headers, fetch:transport=fetc
         if (size > 0 && (!total || size === total)) return {size, attempts}
         if (total && size > total) fs.rmSync(file, {force:true})
       } catch {
-        // A partial stream can be resumed only after the next response validates its range.
+        // 断点续传仅在后续响应确认 Range 合法后才允许继续。
       } finally {
         if (response?.body && !response.body.locked) await response.body.cancel().catch(() => {})
       }

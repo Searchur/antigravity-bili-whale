@@ -1,3 +1,6 @@
+/**
+ * CLI 命令 `search`：按关键词搜索 B 站视频并返回过滤后的候选摘要。
+ */
 import { dataPath } from '../../core/paths.mjs'
 import { config } from '../../config/index.mjs'
 import { videoDuration } from '../pipeline/config.mjs'

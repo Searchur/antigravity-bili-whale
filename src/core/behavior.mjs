@@ -1,3 +1,6 @@
+/**
+ * 内置行为规范章节加载器：列出与读取 `behavior/` 目录下的规范文档。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { behaviorRoot } from './paths.mjs'

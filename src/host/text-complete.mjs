@@ -1,3 +1,6 @@
+/**
+ * 后台无工具文本推理封装：创建隔离临时会话、提取纯 JSON 输出并确保结束后必归档。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 

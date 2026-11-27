@@ -1,4 +1,7 @@
-import { el, row, selectCtrl, renderExportResult } from './sections.mjs'
+/**
+ * Tab 6 视图（动态与记忆）：渲染运行状态控制、活动日历统计、长期记忆检索导出及未确认发送核查。
+ */
+import { el, row, selectCtrl, renderExportResult, statusPill, metaPill, banner } from './sections.mjs'
 import { deriveActivityStatus } from '../../src/shared/activity-status.mjs'
 
 const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日']
@@ -157,8 +160,8 @@ export function renderMemoryTab(state, actions) {
     el('div', { className: 'cal-section-head' },
       el('div', { className: 'inline' },
         el('strong', {}, '累计总计'),
-        el('span', { className: 'pill' }, `活跃 ${cal.activeDays ?? 0} 天`),
-        el('span', { className: 'pill info' }, `共 ${totals.total ?? 0} 项活动`))),
+        metaPill(`活跃 ${cal.activeDays ?? 0} 天`),
+        metaPill(`共 ${totals.total ?? 0} 项活动`, 'info'))),
     el('div', { className: 'metric-grid' },
       metricTile('累计看片', `${totals.watched} 条`),
       metricTile('累计分享', `${totals.shares} 条`),
@@ -207,8 +210,8 @@ export function renderMemoryTab(state, actions) {
     el('div', { className: 'cal-section-head' },
       el('div', { className: 'inline' },
         el('strong', {}, isToday ? `今日统计（${selectedDay}）` : `${selectedDay} 统计`),
-        el('span', { className: 'pill ' + (isToday ? 'ok' : '') }, isToday ? '今天' : '历史日期'),
-        el('span', { className: 'pill' }, `共 ${dayStat.total ?? 0} 项`)),
+        metaPill(isToday ? '今天' : '历史日期', isToday ? 'ok' : ''),
+        metaPill(`共 ${dayStat.total ?? 0} 项`)),
       !isToday
         ? el('button', { type: 'button', className: 'btn sm', onClick: actions.jumpCalToday }, '回到今天')
         : null),
@@ -227,13 +230,13 @@ export function renderMemoryTab(state, actions) {
       metricTile('作息唤醒', `${dayStat.wakes} 次`, dayStat.opportunitiesUsed > 0 ? `当日窗口已用 ${dayStat.opportunitiesUsed} 次机会` : ''),
       metricTile('安全审核拦截', `${dayStat.safetyBlocked} 次`)),
     el('div', { className: 'day-events-wrap' },
-      el('div', { className: 'row-hint', style: { fontWeight: 600, marginBottom: '6px' } },
+      el('div', { className: 'row-hint hint-title' },
         dayEvents.length > 0 ? `当日活动明细（最近 ${dayEvents.length} 条）` : '当日活动明细'),
       dayEvents.length === 0
         ? el('div', { className: 'row-hint' }, '该日期暂无记录到的活动。')
         : el('div', { className: 'day-events' }, ...dayEvents.map(ev => el('div', { className: 'day-event-item' },
             el('span', { className: 'day-event-time mono' }, ev.time || '--:--'),
-            el('span', { className: `pill ${ev.kind === 'safety' ? 'warn' : ev.kind === 'owner' ? 'info' : ''}` }, ev.label),
+            metaPill(ev.label, ev.kind === 'safety' ? 'warn' : ev.kind === 'owner' ? 'info' : ''),
             el('span', { className: 'day-event-text' }, ev.text || '-'))))))
 
   const activity = deriveActivityStatus({
@@ -268,26 +271,20 @@ export function renderMemoryTab(state, actions) {
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
         el('h2', {}, '活动统计与日历查看'),
-        el('span', { className: ['pill', activity.badge.kind].filter(Boolean).join(' ') },
-          activity.badge.kind ? el('span', { className: 'dot' }) : null,
-          activity.badge.text)),
+        statusPill(activity.badge.kind, activity.badge.text)),
       el('div', { className: 'inline' },
         renderActivityAction(activity.primaryAction),
         renderActivityAction(activity.secondaryAction),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.refreshMemoryOverview }, '刷新概览'))),
-    activity.notice
-      ? el('div', { className: `banner ${activity.notice.kind}`, style: { marginTop: '4px', marginBottom: '10px' } }, activity.notice.text)
-      : null,
-    state.activityError
-      ? el('div', { className: 'banner err', style: { marginTop: '4px', marginBottom: '10px' } }, state.activityError)
-      : null,
+    activity.notice ? banner(activity.notice.kind, activity.notice.text, { variant: 'tight' }) : null,
+    state.activityError ? banner('err', state.activityError, { variant: 'tight' }) : null,
     summaryBlock,
     el('div', { className: 'cal-layout' }, calendarPanel, detailPanel),
-    st.scheduler?.lastError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, '最近调度异常：' + st.scheduler.lastError.message) : null)
+    st.scheduler?.lastError ? banner('err', '最近调度异常：' + st.scheduler.lastError.message, { variant: 'compact' }) : null)
 
   const memoryBadge = !activity.identity.ready
-    ? el('span', { className: 'pill warn' }, el('span', { className: 'dot' }), '未绑定账号与主人')
-    : (life ? el('span', { className: 'pill' }, `活跃记忆 ${activeMemoriesCount} 条 · 近期经历 ${life.events ?? 0} 条`) : null)
+    ? statusPill('warn', '未绑定账号与主人')
+    : (life ? metaPill(`活跃记忆 ${activeMemoriesCount} 条 · 近期经历 ${life.events ?? 0} 条`) : null)
 
   const memoryCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
@@ -318,24 +315,24 @@ export function renderMemoryTab(state, actions) {
         }),
         el('button', { type: 'button', className: 'btn', disabled: !!state.busy, onClick: actions.searchExperiences }, '搜索'))),
     renderExportResult(state.memoryExport, actions),
-    state.lifeError ? el('div', { className: 'banner err', style: { marginTop: '10px', marginBottom: 0 } }, state.lifeError) : null,
+    state.lifeError ? banner('err', state.lifeError, { variant: 'compact' }) : null,
     searchResults
-      ? el('div', { style: { marginTop: '12px' } },
-          el('div', { className: 'inline', style: { justifyContent: 'space-between', marginBottom: '6px' } },
+      ? el('div', { className: 'section-mt' },
+          el('div', { className: 'inline-between mb-6' },
             el('strong', {}, `检索结果（共 ${searchResults.length} 条 · 当前上限 ${state.lifeSearchLimitUsed || state.lifeLimit || 20} 条）`),
             el('button', { type: 'button', className: 'btn sm', onClick: () => { state.lifeSearchItems = null; actions.rerender() } }, '收起结果')),
           searchResults.length === 0
             ? el('div', { className: 'row-hint' }, '未找到与该关键词相关的经历记录。')
             : el('div', {}, ...searchResults.map(item => el('div', { className: 'item-card' },
                 el('div', {}, item.text || item.summary || JSON.stringify(item).slice(0, 200)),
-                el('div', { className: 'row-hint mono', style: { marginTop: '4px' } },
+                el('div', { className: 'row-hint mono hint-mt' },
                   `${eventKindLabel(item.kind)}${item.target ? ' · ' + item.target : ''}${item.at ? ' · ' + new Date(item.at).toLocaleString('zh-CN') : ''}`)))))
       : null,
     (life?.pending ?? []).length > 0
-      ? el('div', { className: 'item-card', style: { marginTop: '14px', borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' } },
+      ? el('div', { className: 'item-card warn' },
           el('strong', {}, `未确认发送核查（${life.pending.length} 条）`),
-          el('div', { className: 'row-hint', style: { marginTop: '4px' } }, '以下发送因网络超时结果未知；请到 B 站确认是否已发出后再手动结案，避免重复发送。'),
-          el('div', { className: 'inline', style: { marginTop: '8px' } },
+          el('div', { className: 'row-hint hint-mt' }, '以下发送因网络超时结果未知；请到 B 站确认是否已发出后再手动结案，避免重复发送。'),
+          el('div', { className: 'inline mt-8' },
             el('label', { className: 'switch' },
               el('input', { type: 'checkbox', checked: state.lifeVerified, onChange: e => { state.lifeVerified = e.target.checked; actions.rerender() } }),
               el('span', {}, '我已到 B 站核查')),
@@ -343,7 +340,7 @@ export function renderMemoryTab(state, actions) {
               state.lifeReceipt = e.target.value
               for (const button of sentButtons) button.disabled = !!state.busy || !state.lifeVerified || !state.lifeReceipt.trim()
             } })),
-          ...life.pending.map(p => el('div', { className: 'inline', style: { justifyContent: 'space-between', marginTop: '8px' } },
+          ...life.pending.map(p => el('div', { className: 'inline-between mt-8' },
             el('span', {}, `${channelLabel(p.channel)} → ${p.target}`),
             el('div', { className: 'inline' },
               confirmSentButton(p),

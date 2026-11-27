@@ -1,3 +1,6 @@
+/**
+ * 测试夹具：按运行时文件清单构造临时插件安装包目录。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'

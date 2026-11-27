@@ -1,3 +1,6 @@
+/**
+ * MCP App 控制台专用工具定义与分发器：提供左侧栏全局入口及对模型隐藏的管理页读写工具。
+ */
 export const APP_URI = 'ui://antigravity-bili-whale/app.html'
 
 const APP_ONLY_META = { ui: { visibility: ['app'] } }
@@ -61,7 +64,7 @@ export function appToolDefinitions() {
     },
     {
       name: 'whale_app_auth',
-      title: 'B站扫码登录与登出',
+      title: 'B 站扫码登录与登出',
       description: '执行 B 站二维码扫码登录或退出登录清除凭据（凭据绝不回显，仅 UI 调用）。',
       inputSchema: {
         type: 'object',

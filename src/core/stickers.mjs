@@ -1,3 +1,6 @@
+/**
+ * 内置 42 张表情包与用户自定义表情目录解析、检索及提示词摘要生成。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'

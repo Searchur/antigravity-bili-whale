@@ -1,4 +1,7 @@
-// All comparisons use absolute local-calendar timestamps, including midnight/DST.
+/**
+ * 作息时间窗校验与分段随机排期引擎（基于宿主机本地绝对时间戳，支持跨午夜）。
+ */
+// 所有时间比较均使用本地日历绝对时间戳（含跨午夜与夏令时）。
 export {localDay as dayOf} from '../core/local-date.mjs'
 import {localDay as dayOf} from '../core/local-date.mjs'
 const stamp = (day, minutes) => {
@@ -61,14 +64,14 @@ export function occurrences(cfg, now = Date.now()) {
 }
 export const inWindow = (cfg, now = Date.now()) => occurrences(cfg, now).some(w => w.startsAt <= now)
 
-// Keep history by dated window occurrence. A configuration save must not erase it.
+// 按日期窗口保留执行历史，保存配置不得清空已有记录。
 export function historyOf(state = {}, now = Date.now()) {
   const usedCount = { ...(state.usedCount ?? {}) }
   const skippedWindows = new Set(state.skippedWindows ?? [])
   if (state.schema !== 2 && state.date) {
     for (const [label, count] of Object.entries(usedCount)) {
       if (!label.includes('|')) {
-        // Legacy plans reserved a wake before delivery; release only that reservation.
+        // 兼容旧版投递前预占机制：仅释放对应的预占记录。
         const reserved = state.action === 'wake' && !state.fired && !state.woke && label === state.window ? 1 : 0
         usedCount[`${state.date}|${label}`] = Math.max(0, Number(count) - reserved)
         delete usedCount[label]
@@ -86,7 +89,7 @@ export function isPending(state, now = Date.now()) {
     Number.isFinite(state.atMs) && Number.isFinite(state.endsAt) && state.endsAt > now
 }
 export function makePlan(cfg, state = {}, now = Date.now(), random = Math.random) {
-  // Persist both the random decision and its time, even after midnight.
+  // 持久化随机决策及其时刻，跨午夜亦保持一致。
   if (isPending(state, now)) return state
   const history = historyOf(state, now)
   const done = reason => ({ ...history, action: 'done', done: true, reason })

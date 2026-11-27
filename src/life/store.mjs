@@ -1,3 +1,6 @@
+/**
+ * 长期状态权威事务存储：提供跨进程锁事务、检查点提交、外发预占/派发/结案与线程预算管理。
+ */
 import {captureSessionBoundary,sessionBoundaryChanged} from '../config/session-boundary.mjs'
 import {attachAffect,ensureAffect,syncAffect,affectSendCheck,bindAffectSend,affectDispatched,affectSettled} from '../affect/state.mjs'
 import {validateAffect,affectContext} from '../affect/engine.mjs'
@@ -63,7 +66,7 @@ export function createLifeStore({whaleHome=WHALE_HOME,account='',owner='',ownerN
       validateAffect(s.affect)
       checkOperation();archive(s);checkOperation()
       if(JSON.stringify(s)===before&&fs.existsSync(checkpointFile)){
-        // No new commit, but repair a missing/behind compatibility projection.
+        // 无新提交时若兼容投影缺失或落后则自动补写修复。
         let projectionRevision
         try{projectionRevision=JSON.parse(fs.readFileSync(file,'utf8')).revision}catch(e){if(e.code!=='ENOENT')throw e}
         if(projectionRevision!==s.revision){try{atomic(file,s)}catch(e){if(!projectionOptional)throw e}}
@@ -342,7 +345,7 @@ export function createLifeStore({whaleHome=WHALE_HOME,account='',owner='',ownerN
       if(result.blocked)throw Error('强制记忆规则超出预算，停止投递；请调整 life.memoryChars 或审核适用范围')
       return result.text
     },
-    // Only trusted adapters may construct this facade. It is not a sandbox for shell access.
+    // 仅受信任适配器可构造此只读门面，不作为 Shell 访问沙箱。
     reader(scene){
       assertScene(scene)
       return Object.freeze({

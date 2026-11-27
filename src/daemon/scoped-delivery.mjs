@@ -1,3 +1,6 @@
+/**
+ * 账号与场景隔离的会话投递路由：防止跨账号串话并维护投递身份一致性校验。
+ */
 import crypto from 'node:crypto'
 import {createSessionDelivery} from './session-delivery.mjs'
 import {readDeliveries} from './delivery-state.mjs'
@@ -23,7 +26,7 @@ export function legacyScopeKeys(account,owner,scene,taskId){
   hash([account,owner,privateScene?'private-main':volatile?taskId:scene,privateScene?'main':volatile?taskId:'main'])
  ])]
 }
-// Routing metadata is trusted adapter input, never inferred from message text.
+// 路由元数据为受信任的适配器输入，绝不从消息正文中推断。
 export function createScopedDelivery(options){
  const routes=new Map()
  const pending=new Map()
@@ -33,7 +36,7 @@ export function createScopedDelivery(options){
   const {account,owner}=identity
   role??=scene.startsWith('private-')?'private-main':'public-task'
   if(!['private-main','browse-main','public-task'].includes(role)||role==='private-main'&&!scene.startsWith('private-')||role==='browse-main'&&scene!=='public-recommendation'||role==='public-task'&&scene.startsWith('private-'))throw Error('会话角色与场景不一致')
-  // Retain the verified private-main namespace; new roles use schema 2 keys.
+  // 保留已验证的 private-main 命名空间，新角色使用 schema 2 键格式。
   const key=role==='private-main'?hash([account,owner,'private-main','main']):hash([account,owner,2,role,role==='browse-main'?'main':scene,role==='browse-main'?'main':taskId])
   const legacy=role==='browse-main'?['public-recommendation','private-recommendation'].flatMap(s=>legacyScopeKeys(account,owner,s,taskId)):legacyScopeKeys(account,owner,scene,taskId)
   if(expectedScope&&key!==expectedScope&&!legacy.includes(expectedScope))return null

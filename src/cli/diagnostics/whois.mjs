@@ -1,3 +1,6 @@
+/**
+ * CLI 诊断工具 `whois`：按 UID 查询 B 站账号基础资料（只读）。
+ */
 import { HOME, dataPath } from '../../core/paths.mjs'
 import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 // 按 mid 查昵称（WBI 签名）。用法: node whois.mjs <mid> [mid...]

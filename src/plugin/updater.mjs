@@ -1,3 +1,6 @@
+/**
+ * GitHub 零限流版本检查（raw/atom/codeload）与本地原地覆盖更新器。
+ */
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -17,8 +20,8 @@ function readJsonSafe(file) {
 
 export function readLocalPluginMeta({ pluginRoot = PLUGIN_ROOT, whaleHome = WHALE_HOME } = {}) {
   const manifest = readJsonSafe(path.join(pluginRoot, 'plugin.json')) ?? {}
-  // New installation receipts are switched with the runtime payload. Accept a
-  // matching legacy receipt for installs made by older plugin versions.
+  // 新版安装回执随运行负载一同切换，同时兼容
+  // 旧版插件安装留下的匹配回执。
   const receipt = readJsonSafe(path.join(pluginRoot, INSTALL_INFO))
   const state = receipt?.installedVersion === manifest.version ? receipt : {}
   const isGitCheckout = fs.existsSync(path.join(pluginRoot, '.git'))

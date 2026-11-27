@@ -1,3 +1,6 @@
+/**
+ * 记忆可见性与场景隔离策略：严格区分私密与公开场景，防止私人记忆外泄。
+ */
 export const SCENES=['private-reply','private-recommendation','public-comment','reply','public-recommendation','local-management','private','public']
 export const publicScene=scene=>['public','public-comment','reply','public-recommendation'].includes(scene)
 export function assertScene(scene){if(!SCENES.includes(scene))throw Error('未知记忆场景');return scene}
