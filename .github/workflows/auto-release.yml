@@ -61,9 +61,9 @@ jobs:
           for (const file of ['plugin.json', 'package.json']) syncJsonVersion(file, value => value)
           syncJsonVersion('package-lock.json', value => value.packages[''])
 
-          for (const file of ['mcp/server.mjs', 'ui-src/bridge.js', 'mcp/app-tools.mjs']) {
+          for (const file of ['mcp/server.mjs', 'ui-src/bridge.js']) {
             const src = fs.readFileSync(file, 'utf8')
-            const pattern = file === 'mcp/app-tools.mjs' ? /(\?\?\s*)'\d+\.\d+\.\d+'/ : /(version:\s*)'\d+\.\d+\.\d+'/
+            const pattern = /(version:\s*)'\d+\.\d+\.\d+'/
             if (!pattern.test(src)) throw new Error(`Version declaration missing in ${file}`)
             const updated = src.replace(pattern, `$1'${target}'`)
             if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
@@ -76,6 +76,13 @@ jobs:
       - name: Install locked development dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Install ffmpeg for cover decoding tests
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+
       - name: Build and test release
         run: |
           npm run build:ui
@@ -86,7 +93,7 @@ jobs:
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          git add plugin.json package.json package-lock.json mcp/server.mjs ui-src/bridge.js mcp/app-tools.mjs mcp/dist/app.html
+          git add plugin.json package.json package-lock.json mcp/server.mjs ui-src/bridge.js mcp/dist/app.html
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): $TAG [skip ci]"
             git push origin HEAD:main
