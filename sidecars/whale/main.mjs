@@ -7,13 +7,13 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { PLUGIN_ROOT, WHALE_HOME, workDirPath, configPath } from '../../tools/lib/paths.mjs'
-import { createAntigravityRpc } from '../../lib/antigravity-rpc.js'
-import { createAntigravitySessionController } from '../../lib/antigravity-session.js'
-import { createSafetyReviewer } from '../../lib/safety-worker.js'
-import { startScheduler } from '../../lib/scheduler.js'
-import { startSidecarIpc } from '../../lib/sidecar-ipc.js'
-import { resolveWorkDir } from '../../lib/work-dir.js'
+import { biliCliPath, WHALE_HOME, workDirPath, configPath } from '../../src/core/paths.mjs'
+import { createAntigravityRpc } from '../../src/host/antigravity-rpc.mjs'
+import { createAntigravitySessionController } from '../../src/host/antigravity-session.mjs'
+import { createSafetyReviewer } from '../../src/daemon/safety-worker.mjs'
+import { startScheduler } from '../../src/daemon/scheduler.mjs'
+import { startSidecarIpc } from '../../src/host/sidecar-ipc.mjs'
+import { resolveWorkDir } from '../../src/core/work-dir.mjs'
 
 const log = (msg) => {
   try { console.error(`[${new Date().toISOString()}] ${msg}`) } catch {}
@@ -36,7 +36,7 @@ const sessionController = createAntigravitySessionController({
 })
 const safetyReviewer = createSafetyReviewer({ rpc, config: readCfgSafe })
 
-const biliMjs = path.join(PLUGIN_ROOT, 'tools', 'bili.mjs')
+const biliMjs = biliCliPath
 let sched = null
 let schedStatus = { ok: false, reason: '初始化中', at: new Date().toISOString() }
 

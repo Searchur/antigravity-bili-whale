@@ -1,8 +1,8 @@
 /** Deploy the runtime payload to the Windows Antigravity plugin directory. */
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { configPath, HOME, WHALE_HOME } from '../tools/lib/paths.mjs'
-import { installPluginPayload } from '../lib/plugin-install.js'
+import { configPath, HOME, WHALE_HOME } from '../src/core/paths.mjs'
+import { installPluginPayload } from '../src/plugin/install.mjs'
 
 const source = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 const destination = path.join(HOME, '.gemini', 'config', 'plugins', 'antigravity-bili-whale')

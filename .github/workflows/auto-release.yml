@@ -61,7 +61,7 @@ jobs:
           for (const file of ['plugin.json', 'package.json']) syncJsonVersion(file, value => value)
           syncJsonVersion('package-lock.json', value => value.packages[''])
 
-          for (const file of ['mcp/server.mjs', 'ui-src/bridge.js']) {
+          for (const file of ['src/mcp/server.mjs', 'web/bridge.mjs']) {
             const src = fs.readFileSync(file, 'utf8')
             const pattern = /(version:\s*)'\d+\.\d+\.\d+'/
             if (!pattern.test(src)) throw new Error(`Version declaration missing in ${file}`)
@@ -86,14 +86,15 @@ jobs:
       - name: Build and test release
         run: |
           npm run build:ui
+          npm run check:structure
           npm test
-          node --input-type=module -e 'import { validatePluginPayload } from "./lib/plugin-install.js"; validatePluginPayload(process.cwd())'
+          node --input-type=module -e 'import { validatePluginPayload } from "./src/plugin/install.mjs"; validatePluginPayload(process.cwd())'
 
       - name: Sync verified release files to main
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
-          git add plugin.json package.json package-lock.json mcp/server.mjs ui-src/bridge.js mcp/dist/app.html
+          git add plugin.json package.json package-lock.json src/mcp/server.mjs web/bridge.mjs dist/app.html
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): $TAG [skip ci]"
             git push origin HEAD:main

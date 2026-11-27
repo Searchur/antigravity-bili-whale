@@ -26,11 +26,12 @@ class Element {
 export async function openConsole(t, handle) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'whale-ui-'))
   t.after(() => fs.rm(dir, { recursive: true, force: true }))
-  const uiDir = path.join(dir, 'ui-src')
-  await fs.cp(new URL('../../ui-src/', import.meta.url), uiDir, { recursive: true })
-  await fs.cp(new URL('../../lib/quota-percentage.js', import.meta.url), path.join(dir, 'lib', 'quota-percentage.js'))
+  const uiDir = path.join(dir, 'web')
+  await fs.cp(new URL('../../web/', import.meta.url), uiDir, { recursive: true })
+  await fs.mkdir(path.join(dir, 'src', 'shared'), { recursive: true })
+  await fs.cp(new URL('../../src/shared/quota-percentage.mjs', import.meta.url), path.join(dir, 'src', 'shared', 'quota-percentage.mjs'))
   await fs.writeFile(path.join(dir, 'package.json'), '{"type":"module"}')
-  await fs.writeFile(path.join(uiDir, 'bridge.js'), 'export const createMcpBridge = () => globalThis.testBridge')
+  await fs.writeFile(path.join(uiDir, 'bridge.mjs'), 'export const createMcpBridge = () => globalThis.testBridge')
   const root = new Element('div')
   const document = {
     getElementById: id => id === 'root' ? root : root.nodes().find(n => n.attrs.id === id),
@@ -51,7 +52,7 @@ export async function openConsole(t, handle) {
     },
   }
   t.after(() => { delete globalThis.document; delete globalThis.testBridge })
-  await import(pathToFileURL(path.join(uiDir, 'main.js')).href)
+  await import(pathToFileURL(path.join(uiDir, 'main.mjs')).href)
   await new Promise(setImmediate)
   const button = label => root.nodes().find(n => n.tag === 'button' && n.textContent.includes(label))
   const input = placeholder => root.nodes().find(n => n.attrs.placeholder === placeholder)

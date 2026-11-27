@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
-const uiDir = path.join(root, 'ui-src')
-const outFile = path.join(root, 'mcp', 'dist', 'app.html')
+const uiDir = path.join(root, 'web')
+const outFile = path.join(root, 'dist', 'app.html')
 
 const jsResult = await build({
   absWorkingDir: root,
-  entryPoints: [path.join(uiDir, 'main.js')],
+  entryPoints: [path.join(uiDir, 'main.mjs')],
   bundle: true,
   format: 'iife',
   target: ['es2022'],

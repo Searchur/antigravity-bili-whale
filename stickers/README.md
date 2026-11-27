@@ -9,9 +9,9 @@
 在 Antigravity 中可直接通过 MCP 工具 `bili_read`（`command="stickers"`, `args=["list"]` / `["get","开心"]`）或命令行调用：
 
 ```powershell
-node tools/bili.mjs stickers list        # 分页查看目录（编号 / 名称 / 情绪）
-node tools/bili.mjs stickers list 20     # 从第 20 条继续
-node tools/bili.mjs stickers get 开心     # 获取准确本地图片路径
+node src/cli/bili.mjs stickers list        # 分页查看目录（编号 / 名称 / 情绪）
+node src/cli/bili.mjs stickers list 20     # 从第 20 条继续
+node src/cli/bili.mjs stickers get 开心     # 获取准确本地图片路径
 ```
 
 配图时将返回的 `path` 传给发图参数即可（没有合适情绪时不必强行配图）。

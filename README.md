@@ -42,6 +42,7 @@
 
    > 使用实际目录。Antigravity的插件扫描器会跳过Windows目录联接和符号链接。
    > 使用`git clone`获取源码时，可运行下方的开发部署命令生成独立安装目录。包含`.git`的源码目录会禁用面板更新。
+   > **从 `1.6.x` 升级至 `2.0.0`**：由于 `2.0.0` 重构了顶层源码目录结构，旧版控制台的「一键更新」无法直接升级，请下载 `v2.0.0` Release ZIP 覆盖解压到上述插件目录后重启 Antigravity App。独立数据目录 `%USERPROFILE%\.antigravity-bili-whale\`（配置、登录态、人设与长期记忆）完全保留不受影响。
 
 2. **启用插件**：
    - 打开（或重启）Antigravity App，进入 **Customizations / 插件管理**，找到 **「哔哩哔哩大鲸鱼（antigravity-bili-whale）」** 并打开开关（首次安装需手动确认开启一次，之后每次打开 Antigravity 都会自动运行、关闭时自动停止）。
@@ -59,7 +60,7 @@
    - 在「主人信息」填写你的 B 站 UID 与昵称，可点 **「检查 UID 与昵称是否对应」** 一键核验并同步。
 2. **人设与作息**：
    - 角色名默认「大鲸鱼」，人设正文前后端硬上限 4000 字（不影响日常编程对话）。
-   - 配置口味标签和作息时间窗，设置最小间隔、跳过概率和候选数量。需要立即浏览时，可点击「马上唤醒她」。同一操作也可通过本地命令`node tools/bili.mjs night trigger --go`触发。
+   - 配置口味标签和作息时间窗，设置最小间隔、跳过概率和候选数量。需要立即浏览时，可点击「马上唤醒她」。同一操作也可通过本地命令`node src/cli/bili.mjs night trigger --go`触发。
 3. **模型选择**：
    - 选择前台主线和后台模型，设置会话轮换周期与最低配额保护阈值。
 4. **视频观看设置（三类独立策略）**：
@@ -105,13 +106,15 @@
 
 ## 开发者说明
 
-仅在修改 `ui-src/` 前端源码时需要安装开发依赖并重新构建单文件界面；普通用户使用插件**不需要**执行任何 `npm` 命令。
+仅在修改 `web/` 前端源码时需要安装开发依赖并重新构建单文件界面；普通用户使用插件**不需要**执行任何 `npm` 命令。完整的目录结构与分层依赖规范见 [docs/architecture.md](docs/architecture.md)。
 
 ```powershell
 npm ci                   # 从锁文件安装开发依赖
-npm run build:ui         # 打包单文件前端 -> mcp/dist/app.html
+npm run build:ui         # 打包单文件前端 -> dist/app.html
+npm run sync:manifest    # 增删运行态文件后自动同步 package.json 清单
+npm run check:structure  # 校验目录白名单、.mjs 命名、单向依赖与零循环
 npm test                 # 运行自动化测试套件
-node scripts/deploy-plugin.mjs  # 部署纯净零依赖版本到 Antigravity 插件目录
+npm run deploy           # 部署纯净零依赖版本到 Antigravity 插件目录
 ```
 
 ---

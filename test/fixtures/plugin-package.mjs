@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { RUNTIME_PAYLOAD } from '../../lib/plugin-install.js'
+import { RUNTIME_PAYLOAD } from '../../src/plugin/install.mjs'
 
 const source = fileURLToPath(new URL('../..', import.meta.url))
 

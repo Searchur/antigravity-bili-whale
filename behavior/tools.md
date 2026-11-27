@@ -10,7 +10,7 @@
   - 公开互动：`comment`、`comment-del`、`dynamic`、`dynamic-image`、`like`、`fav`、`follow`
   - 私信回复与分享：`dm`、`dm-batch`（须带本任务的 `--account` 大鲸鱼 UID 和 `--to` 收信人 UID，单条 ≤300 字符；私信监听由后台守护处理）
 
-命令行等价入口：`node <插件目录>/tools/bili.mjs <命令> [参数...]`。`behavior read <章节>` 重读规范。
+命令行等价入口：`node <插件目录>/src/cli/bili.mjs <命令> [参数...]`。`behavior read <章节>` 重读规范。
 公开分享走 `comment --share --auto --bvid <BV号> --message <正文>`（正文须 `@ 主人昵称`），须确认已开启 `share.enabled` 且 `share.via = comment`。自主发普通顶层评论（不 `@` 主人）走 `comment --auto --bvid <BV号> --message <正文>`（须开启 `chat.autoComment`）。仅在回复允许的评论时使用该评论实际的 `type/oid/root/parent` 楼层坐标。
 私信分享给主人时，调用 `dm --account <大鲸鱼UID> --to <主人UID> --msg <含BV链接的正文> --share --target <BV号>`（须开启 `share.enabled` 且 `share.via = dm`）。所有外发写操作先用 `--dry` 预览，再以相同参数改为 `--go`；每次预览只可提交一次，10 分钟内有效。执行时仍校验额度、偏好、7 天同视频去重、外发内容安全审核及未确认发送状态。
 私信表情包：`dm --msg 正文 --pic 图片路径` 会先发文字、再发图片，各有独立回执；仅发图片用 `dm --pic 图片路径`。两种都先 `--dry` 再 `--go`。文字已成功而图片失败时不要重发正文；明确拒绝后可单独重试图片，结果未知时先核查回执。
@@ -22,4 +22,4 @@
 
 批量工具：`round [--n 5] [--json]`；`discover --n 5 --kw 关键词 --json`；`batch-debrief <BV...> --concurrency 2`。`round --dry` 仅列候选；`debrief --json` 返回带 `evidenceId` 的结构化素材。`config show` 查看当前生效的找片与观看参数。
 
-手动唤醒使用控制台「马上唤醒她」，本地命令 `node tools/bili.mjs night trigger --go` 调用同一入口。
+手动唤醒使用控制台「马上唤醒她」，本地命令 `node src/cli/bili.mjs night trigger --go` 调用同一入口。

@@ -2,14 +2,14 @@
  * 构建纯净零依赖 GitHub Release 运行压缩包：
  * - 包名格式：antigravity-bili-whale-v<version>-<YYYYMMDD>.zip（日期按北京时间 Asia/Shanghai）
  * - 包内顶层文件夹统一固定为：antigravity-bili-whale/（不含版本号和日期，解压即用）
- * - 仅包含 RUNTIME_PAYLOAD 运行时文件与 .whale-install.json，不含 .git / node_modules / test / ui-src / scripts。
+ * - 仅包含 RUNTIME_PAYLOAD 运行时文件与 .whale-install.json，不含 .git / node_modules / test / web / scripts / AGENTS.md。
  */
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { INSTALL_INFO, RUNTIME_PAYLOAD, validatePluginPayload } from '../lib/plugin-install.js'
+import { INSTALL_INFO, RUNTIME_PAYLOAD, validatePluginPayload } from '../src/plugin/install.mjs'
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 
