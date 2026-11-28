@@ -8,6 +8,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { startSidecarIpc, callSidecarIpc } from '../../src/host/sidecar-ipc.mjs'
 import { createApiHandlers } from '../../src/console/api-handlers.mjs'
+import { createModelQuotaGuard } from '../../src/host/model-quota-guard.mjs'
+import { createAppToolRunner } from '../../src/mcp/app-tools.mjs'
+import { normalizeModelCatalog } from '../../src/host/rpc.mjs'
+import { modelUsageFixture } from '../fixtures/model-usage.mjs'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -186,7 +190,7 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
   }
 })
 
-test('console can read exhausted models from an older running Sidecar without exposing its presets', async t => {
+test('an older Sidecar can supply model choices without supplying authoritative quota', async t => {
   const previousPreset = { id: 'flash', groupKey: 'auto-tier', remainingFraction: null }
   const depleted = { id: 'gemini-4-neon-low', groupKey: 'gemini-4-neon', remainingFraction: null, resetTime: '2026-11-29T00:00:00Z' }
   const unknown = { id: 'unreported', groupKey: 'unreported', remainingFraction: null, resetTime: null }
@@ -206,11 +210,50 @@ test('console can read exhausted models from an older running Sidecar without ex
 
   const result = await api.getModels()
   assert.equal(result.total, 2)
-  assert.deepEqual(result.models.map(model => [model.id, model.remainingFraction]), [
-    ['gemini-4-neon-low', 0], ['unreported', null],
-  ])
-  assert.deepEqual(result.groups.map(group => [group.key, group.remainingFraction]), [
-    ['gemini-4-neon', 0], ['unreported', null],
-  ])
-  assert.equal(result.groups[0].variants[0].remainingFraction, 0)
+  assert.deepEqual(result.models.map(model => model.id), ['gemini-4-neon-low', 'unreported'])
+  assert.deepEqual(result.groups.map(group => group.key), ['gemini-4-neon', 'unreported'])
+  assert.equal(result.usage.state, 'unavailable')
+  assert.equal(result.groups[0].variants[0].remainingFraction, undefined)
+})
+
+test('manual app refresh passes through IPC and installs the same usage in background protection', async t => {
+  const dir = mkTmp('ag-whale-quota-ipc-')
+  const file = path.join(dir, 'sidecar-ipc.json')
+  const id = 'claude-sonnet-5-5-low'
+  const catalog = normalizeModelCatalog({ clientModelConfigs: [{ modelId: id }] })
+  const hostReads = []
+  const guard = createModelQuotaGuard({
+    config: () => ({ models: { main: id, worker: id, minQuotaPercent: 20 } }),
+    rpc: {
+      available: () => true,
+      async getModelCatalog({ forceRefresh }) {
+        hostReads.push(forceRefresh)
+        return { ...catalog, usage: modelUsageFixture({ 'claude-gpt': forceRefresh ? 0.11 : 1 }) }
+      },
+    },
+  })
+  const ipc = await startSidecarIpc({
+    file, protect: () => {},
+    getModels: guard.getCatalog,
+    getStatus: () => ({ modelQuota: guard.status() }),
+  })
+  const api = createApiHandlers({
+    whaleHome: dir,
+    rpc: { available: () => true, getModelCatalog: () => assert.fail('the Sidecar owns the snapshot') },
+    ipcClient: (endpoint, options) => callSidecarIpc(endpoint, { ...options, file }),
+  })
+  t.after(async () => {
+    api.dispose()
+    await ipc.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+  assert.equal((await guard.check()).paused, false)
+  const invoke = createAppToolRunner(api)
+  const { structuredContent } = await invoke('whale_app_ops', { action: 'models', forceRefresh: true })
+  assert.equal(structuredContent.modelQuota.remainingPercent, 11)
+  assert.equal(structuredContent.modelQuota.checkedAt, structuredContent.usage.checkedAt)
+  const current = await callSidecarIpc('/status', { file })
+  assert.deepEqual(current.modelQuota, structuredContent.modelQuota)
+  assert.equal((await guard.check()).paused, true)
+  assert.deepEqual(hostReads, [false, true])
 })

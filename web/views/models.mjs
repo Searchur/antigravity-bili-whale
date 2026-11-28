@@ -3,11 +3,15 @@
  */
 import { el, getPath, row, selectCtrl, metaPill, banner } from './sections.mjs'
 import {
-  evaluateSelectedModelQuota, findCatalogModel, formatModelTitle, modelThinkingLabel, sameModelQuotaConfig,
+  evaluateSelectedModelQuota, findCatalogModel, formatModelTitle, formatRemainingQuota, isKnownQuotaFraction,
+  modelQuotaGroupId, modelThinkingLabel, MODEL_QUOTA_GROUP_NAMES, sameModelQuotaConfig,
 } from '../../src/shared/model-quota.mjs'
-import { remainingQuotaPercent } from '../../src/shared/quota-percentage.mjs'
 
 const LEGACY_PRESETS = new Set(['flash', 'flash_lite', 'pro'])
+const PERIOD_LABELS = { weekly: '周额度', 'five-hour': '五小时额度' }
+const quotaClock = new Intl.DateTimeFormat('zh-CN', {
+  month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+})
 
 function tagClass(tagTitle) {
   const t = String(tagTitle || '').toLowerCase()
@@ -16,14 +20,35 @@ function tagClass(tagTitle) {
   return ''
 }
 
-function renderQuota(fraction) {
-  if (!Number.isFinite(fraction)) return el('span', { className: 'quota-wrap' }, '配额未返回')
-  const pct = remainingQuotaPercent(fraction)
-  const fillCls = pct <= 20 ? 'low' : pct <= 50 ? 'mid' : ''
-  return el('span', { className: 'quota-wrap' },
-    el('span', { className: 'quota-bar', 'aria-hidden': 'true' },
-      el('span', { className: `quota-fill ${fillCls}`.trim(), style: { width: `${pct}%` } })),
-    `剩余 ${pct}%`)
+function formatQuotaTime(value) {
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? quotaClock.format(time) : ''
+}
+
+function renderUsageWindow(window) {
+  const reset = !window.disabled && formatQuotaTime(window.resetTime)
+  let value = '配额未返回'
+  if (window.disabled) value = '不适用'
+  else if (isKnownQuotaFraction(window.remainingFraction)) value = formatRemainingQuota(window.remainingFraction)
+  return el('div', { className: 'model-usage-window' },
+    el('dt', {}, PERIOD_LABELS[window.period]),
+    el('dd', {},
+      el('span', { className: 'model-usage-value' }, value),
+      reset ? el('time', { className: 'row-hint', datetime: window.resetTime }, `${reset} 重置`) : null))
+}
+
+function renderModelUsage(usage, loading) {
+  const ready = usage?.state === 'ready'
+  const time = ready ? formatQuotaTime(usage.checkedAt) : ''
+  const message = loading ? '正在读取用量…' : time ? `${time} 已更新` : '用量未更新'
+  return el('section', { className: 'model-usage' },
+    el('div', { className: 'model-usage-head' },
+      el('h3', { className: 'model-section-title' }, '模型组用量'),
+      el('span', { className: 'row-hint', role: 'status' }, message)),
+    ready ? el('div', { className: 'model-usage-grid' }, ...usage.groups.map(group =>
+      el('div', { className: 'model-usage-group' },
+        el('h4', {}, group.name),
+        el('dl', {}, ...group.windows.map(renderUsageWindow))))) : null)
 }
 
 function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
@@ -32,8 +57,10 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
   const otherLabel = activeRole === 'main' ? '后台辅助模型' : '前台主线模型'
   const variants = group.variants ?? []
   const activeVariant = variants.find(v => v.id === activeId)
-  const groupFraction = group.remainingFraction ?? null
-  const quotaVaries = variants.some(v => (v.remainingFraction ?? null) !== groupFraction)
+  const quotaGroup = modelQuotaGroupId(variants[0])
+  const groupLabel = quotaGroup && variants.every(v => modelQuotaGroupId(v) === quotaGroup)
+    ? MODEL_QUOTA_GROUP_NAMES[quotaGroup]
+    : null
 
   return el('div', { className: 'model-group' + (activeVariant ? ' has-active' : '') },
     el('span', { className: 'model-name' }, group.name),
@@ -49,9 +76,7 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
         const isOther = v.id === otherId && otherId !== activeId
         const cls = ['effort-btn', isCurrent ? 'active' : '', isOther ? 'other-role' : ''].filter(Boolean).join(' ')
         const label = modelThinkingLabel(v) || v.label || v.id
-        const quotaText = quotaVaries && (Number.isFinite(v.remainingFraction)
-          ? `${remainingQuotaPercent(v.remainingFraction)}%` : '配额未返回')
-        const description = [label, quotaText, isOther ? `${otherLabel}已选` : ''].filter(Boolean).join('，')
+        const description = isOther ? `${label}，${otherLabel}已选` : label
         return el('button', {
           type: 'button',
           className: cls,
@@ -60,11 +85,9 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
           'aria-pressed': String(isCurrent),
           onClick: () => onPick(activeRole, v.id),
         },
-        el('span', { className: 'model-control-label' }, label),
-        quotaText ? el('span', { className: 'effort-quota' }, quotaText) : null)
+        el('span', { className: 'model-control-label' }, label))
       })),
-    el('div', { className: 'model-quota' },
-      activeVariant || !quotaVaries ? renderQuota(activeVariant ? activeVariant.remainingFraction : groupFraction) : null))
+    el('div', { className: 'model-quota' }, groupLabel))
 }
 
 /**
@@ -117,6 +140,7 @@ export function renderModelsTab(state, actions) {
   const preview = evaluateSelectedModelQuota(catalog, selection)
   const serverQuota = state.status?.modelQuota
   const confirmedPause = !isDraft && minQuotaVal > 0 && serverQuota?.paused
+    && serverQuota.checkedAt && serverQuota.checkedAt === catalog?.usage?.checkedAt
     && [mainId, workerId].includes(serverQuota.modelId)
     && sameModelQuotaConfig(selection, { ...serverQuota.selection, minQuotaPercent: serverQuota.threshold })
   let quotaBannerText = ''
@@ -124,7 +148,7 @@ export function renderModelsTab(state, actions) {
     quotaBannerText = serverQuota.reason
   } else if (preview.paused) {
     const ending = isDraft ? '，保存后将暂停全部后台活动。' : '。'
-    quotaBannerText = `模型【${preview.modelLabel}】剩余配额 ${preview.remainingPercent}% 低于保护阈值 ${minQuotaVal}%${ending}`
+    quotaBannerText = `模型【${preview.modelLabel}】剩余配额 ${preview.remainingText} 低于保护阈值 ${minQuotaVal}%${ending}`
   }
 
   const roleCard = (role, title, desc, modelId, model) => {
@@ -153,7 +177,7 @@ export function renderModelsTab(state, actions) {
     el('p', { className: 'card-sub' }, '设置剩余配额保护阈值以避免耗尽 Antigravity 配额；定期轮换新会话可控制上下文开销，长期记忆自动续接。'),
     row(
       '配额保护阈值',
-      '取前台主线和后台辅助已选档位中较低的已知配额。低于阈值时暂停全部后台活动，配额恢复后自动解除。',
+      '按前台和后台所选模型的配额组，取适用周期中较低的已知配额。低于阈值时暂停全部后台活动，配额恢复后自动解除。',
       selectCtrl(
         String(minQuotaVal),
         minQuotaOptions,
@@ -176,7 +200,7 @@ export function renderModelsTab(state, actions) {
           type: 'button',
           className: 'btn',
           disabled: !!state.busy,
-          onClick: actions.refreshModels,
+          onClick: () => actions.refreshModels(true),
         }, state.busy === 'models' ? '读取中…' : '刷新模型列表')),
       el('p', { className: 'card-sub' }, '选择要设置的用途和模型档位，再点击【保存配置】生效。'),
       quotaBannerText ? banner('warn', quotaBannerText) : null,
@@ -189,6 +213,7 @@ export function renderModelsTab(state, actions) {
       state.modelsError
         ? banner('err', state.modelsError)
         : null,
+      renderModelUsage(catalog?.usage, state.busy === 'models'),
       missingInCatalog
         ? banner('warn', !activeId || LEGACY_PRESETS.has(activeId)
           ? '请从下方清单为当前用途选择一个模型档位并保存。'

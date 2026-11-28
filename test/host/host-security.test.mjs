@@ -8,6 +8,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { copyRuntimeFixture } from '../fixtures/plugin-package.mjs'
+import { modelUsageFixture } from '../fixtures/model-usage.mjs'
 import { installPluginPayload, validatePluginPayload } from '../../src/plugin/install.mjs'
 import { createSafetyReviewer } from '../../src/daemon/safety-worker.mjs'
 import { enforceOutboundSafety } from '../../src/social/content-safety.mjs'
@@ -198,11 +199,11 @@ test('confirmation reads a bounded number of ledgers and recovers retained tasks
 })
 
 test('all supported quota thresholds keep equality available and report fractional remaining quota', () => {
-  const model = 'fixture-model'
+  const model = 'gemini-fixture-model'
   for(let threshold=1;threshold<=80;threshold++){
     const config = {main:model,worker:model,minQuotaPercent:threshold}
     for(const [fraction,paused] of [[threshold/100,false],[(threshold-0.01)/100,true],[(threshold+0.01)/100,false]]){
-      const result=evaluateModelQuota({source:'live',models:[{id:model,remainingFraction:fraction}]},config)
+      const result=evaluateModelQuota({ source: 'live', models: [{ id: model }], usage: modelUsageFixture({ gemini: fraction }) },config)
       assert.equal(result.paused,paused,threshold+'%')
       if(paused)assert.ok(result.remainingPercent<threshold, 'display must report a value below '+threshold)
     }

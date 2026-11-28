@@ -1013,6 +1013,7 @@ function initializeScheduler(host, opts, health) {
     affectStatus: () => affect.status(),
     formationTick,
     formationStatus: () => formation.status(),
+    getModelCatalog: quotaGuard.getCatalog,
     modelQuotaStatus: () => quotaGuard.status(),
     health: () => health.state,
   }

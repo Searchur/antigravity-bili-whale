@@ -84,6 +84,7 @@ export function appToolDefinitions() {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['models', 'deps', 'wake_now', 'verify_owner', 'status', 'export_diag', 'open_path', 'about', 'update_check', 'update_apply'] },
+          forceRefresh: { type: 'boolean' },
           ref: { type: 'string' },
           mid: { type: 'string' },
           name: { type: 'string' },
@@ -141,7 +142,8 @@ export function createAppToolRunner(api) {
             api.getModels(),
             api.getAbout(),
           ])
-          return okResult({ ok: true, settings, persona, status, models, about })
+          const currentStatus = models?.modelQuota ? { ...status, modelQuota: models.modelQuota } : status
+          return okResult({ ok: true, settings, persona, status: currentStatus, models, about })
         }
         case 'whale_app_settings': {
           if (args.action === 'get') return okResult(await api.getSettings())
@@ -161,7 +163,7 @@ export function createAppToolRunner(api) {
           throw new Error('未知 auth action: ' + args.action)
         }
         case 'whale_app_ops': {
-          if (args.action === 'models') return okResult(await api.getModels())
+          if (args.action === 'models') return okResult(await api.getModels({ forceRefresh: args.forceRefresh === true }))
           if (args.action === 'deps') return okResult({ ok: true, report: await api.checkDeps() })
           if (args.action === 'wake_now') return okResult(await api.wakeNow())
           if (args.action === 'verify_owner') return okResult(await api.verifyOwner(args.mid, args.name))

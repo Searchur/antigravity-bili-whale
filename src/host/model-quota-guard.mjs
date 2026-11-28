@@ -3,6 +3,7 @@
  */
 import { normalizeModels } from '../config/index.mjs'
 import { evaluateSelectedModelQuota, sameModelQuotaConfig } from '../shared/model-quota.mjs'
+import { fallbackModelCatalog } from './rpc.mjs'
 
 /**
  * 评估当前所选模型剩余配额是否低于用户设置的保护阈值。
@@ -24,52 +25,64 @@ export function createModelQuotaGuard({
 } = {}) {
   const readModelConfig = () => normalizeModels(config()?.models)
   let cached = null
+  let lastLiveModels = null
   let revision = 0
+  let latestRead = null
 
-  function remember(catalog, models) {
-    const status = evaluateSelectedModelQuota(catalog, models)
-    cached = { models, status, checkedAt: now() }
-    return status
+  function currentStatus(models) {
+    return cached && sameModelQuotaConfig(cached.models, models) && now() - cached.readAt < cacheMs
+      ? cached.status
+      : null
   }
 
-  async function check({ fresh = false } = {}) {
-    for (;;) {
-      const models = readModelConfig()
-      if (models.minQuotaPercent <= 0) return remember(null, models)
-      if (!fresh && cached && sameModelQuotaConfig(cached.models, models) && now() - cached.checkedAt < cacheMs) {
-        return cached.status
-      }
-      if (!rpc?.available?.() || typeof rpc.getModelCatalog !== 'function') return remember(null, models)
-
-      const requestRevision = revision
-      let catalog
-      let failed = false
-      try { catalog = await rpc.getModelCatalog() } catch { failed = true }
-      // 读配额期间保存了配置时，重新按当前档位判断，丢弃旧结果。
-      if (requestRevision !== revision || !sameModelQuotaConfig(models, readModelConfig())) {
-        fresh = false
-        continue
-      }
-      if (failed) {
-        return cached && sameModelQuotaConfig(cached.models, models)
-          ? cached.status
-          : evaluateSelectedModelQuota(null, models)
-      }
-      return remember(catalog, models)
+  async function readCatalog(forceRefresh) {
+    if (!rpc?.available?.() || typeof rpc.getModelCatalog !== 'function') return fallbackModelCatalog()
+    try {
+      return await rpc.getModelCatalog({ forceRefresh }) ?? fallbackModelCatalog()
+    } catch {
+      return fallbackModelCatalog()
     }
   }
 
+  function getCatalog({ forceRefresh = false } = {}) {
+    if (latestRead?.revision === revision && latestRead.pending && (!forceRefresh || latestRead.forceRefresh)) {
+      return latestRead.result
+    }
+    const read = { revision, forceRefresh, pending: true }
+    latestRead = read
+    read.result = readCatalog(forceRefresh).then(catalog => {
+      read.pending = false
+      // 强制刷新或配置更新后的读取优先，旧回包不会覆盖当前用量。
+      if (read !== latestRead && latestRead.revision === revision) return latestRead.result
+      if (read.revision !== revision) return getCatalog()
+      const models = readModelConfig()
+      if (catalog.source === 'live') lastLiveModels = catalog.models
+      if (lastLiveModels && catalog.usage?.state === 'ready') {
+        // 清单短时不可用时，用本会话上次确认的模型匹配刚取得的用量。
+        const status = evaluateSelectedModelQuota({ source: 'live', models: lastLiveModels, usage: catalog.usage }, models)
+        cached = { models, status, readAt: now() }
+        return { ...catalog, modelQuota: status }
+      }
+      return { ...catalog, modelQuota: currentStatus(models) ?? evaluateSelectedModelQuota(null, models) }
+    })
+    return read.result
+  }
+
   return {
-    check,
+    getCatalog,
+    async check({ fresh = false } = {}) {
+      const models = readModelConfig()
+      if (models.minQuotaPercent <= 0) return evaluateSelectedModelQuota(null, models)
+      const prior = fresh ? null : currentStatus(models)
+      return prior ?? (await getCatalog()).modelQuota
+    },
     invalidate() {
       revision++
       cached = null
     },
     status() {
       const models = readModelConfig()
-      return cached && sameModelQuotaConfig(cached.models, models)
-        ? cached.status
-        : evaluateSelectedModelQuota(null, models)
+      return currentStatus(models) ?? evaluateSelectedModelQuota(null, models)
     },
   }
 }

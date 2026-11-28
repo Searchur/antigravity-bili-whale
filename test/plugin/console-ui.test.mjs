@@ -4,6 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openConsole } from '../fixtures/console-ui.mjs'
+import { modelUsageFixture } from '../fixtures/model-usage.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -78,7 +79,7 @@ test('environment panel shows the triggering operations and how to recover from 
 test('model picker only offers host choices and displays a depleted model as zero percent', async t => {
   const config = { models: { main: 'flash', worker: 'flash_lite', minQuotaPercent: 20 } }
   const offline = fallbackModelCatalog('暂未读取 Antigravity 模型清单。')
-  const live = normalizeModelCatalog({
+  const live = { ...normalizeModelCatalog({
     groupedModels: {
       'gemini-4-neon': { displayName: 'Gemini 4 Neon', supportedThinkingLevels: [
         { thinkingSuffix: 'low', thinkingDisplayName: 'Low' },
@@ -90,7 +91,8 @@ test('model picker only offers host choices and displays a depleted model as zer
       { modelId: 'gemini-4-neon-low', quotaInfo: { resetTime: '2026-11-29T00:00:00Z' } },
       { modelId: 'no-quota', label: 'Unknown quota' },
     ],
-  })
+  }), usage: modelUsageFixture({ gemini: 0 }) }
+  live.usage.groups[0].windows.push({ period: 'five-hour', disabled: true, resetTime: '2026-11-28T16:00:00Z' })
   let online = false
   let saved
   const ui = await openConsole(t, (name, args) => {
@@ -112,12 +114,14 @@ test('model picker only offers host choices and displays a depleted model as zer
   assert.doesNotMatch(ui.root.textContent, /自适应档位|自动档位|Flash（均衡）/)
   const group = name => ui.root.nodes().find(node => node.className?.startsWith('model-group')
     && node.querySelector('.model-name')?.textContent === name)?.textContent ?? ''
-  assert.match(group('Gemini 4 Neon'), /Low.*0%.*High.*100%/)
-  assert.match(group('Unknown quota'), /配额未返回/)
+  assert.match(group('Gemini 4 Neon'), /Low.*High/)
+  assert.match(ui.root.textContent, /周额度.*0%.*五小时额度.*不适用/)
+  const inactiveWindow = ui.root.nodes().find(node => node.className === 'model-usage-window'
+    && node.textContent.includes('不适用'))
+  assert.equal(inactiveWindow.nodes().some(node => node.tag === 'time'), false)
   assert.doesNotMatch(group('Unknown quota'), /剩余 0%/)
 
   await ui.click('Low')
-  assert.match(group('Gemini 4 Neon'), /剩余 0%/)
   assert.match(ui.root.textContent, /剩余配额 0% 低于保护阈值/)
   await ui.click('保存配置')
   assert.equal(saved.models.main, 'gemini-4-neon-low')
@@ -129,7 +133,7 @@ test('model picker shows only the current selection’s quota and refreshes prot
   const carbon = 'gemini-4-carbon-medium'
   const config = { models: { main: sonnet, worker: sonnet, minQuotaPercent: 20 } }
   const medium = [{ thinkingSuffix: 'medium', thinkingDisplayName: 'Medium' }]
-  const catalog = normalizeModelCatalog({
+  const catalog = { ...normalizeModelCatalog({
     groupedModels: {
       'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', supportedThinkingLevels: medium },
       'gemini-4-carbon': { displayName: 'Gemini 4 Carbon', supportedThinkingLevels: medium },
@@ -138,9 +142,10 @@ test('model picker shows only the current selection’s quota and refreshes prot
       { modelId: sonnet, quotaInfo: { remainingFraction: 1 } },
       { modelId: carbon, quotaInfo: { remainingFraction: 0 } },
     ],
-  })
+  }), usage: modelUsageFixture({ gemini: 0, 'claude-gpt': 1 }) }
   const carbonPause = {
     selection: { main: sonnet, worker: carbon }, paused: true, modelId: carbon, threshold: 20,
+    checkedAt: catalog.usage.checkedAt,
     reason: '模型【Gemini 4 Carbon（Medium）】剩余配额 0% 低于保护阈值 20%，已暂停全部后台活动。',
   }
   const earlierStatus = Promise.withResolvers()
@@ -158,7 +163,7 @@ test('model picker shows only the current selection’s quota and refreshes prot
   })
   ui.click('模型与配额')
   assert.doesNotMatch(ui.root.textContent, /已暂停全部后台活动|配额保护已暂停|个实时模型档位/)
-  assert.equal(ui.root.querySelector('.model-section-title').textContent, '当前完整模型清单')
+  assert.ok(ui.root.nodes().some(node => node.tag === 'h3' && node.textContent === '当前完整模型清单'))
   assert.match(ui.root.textContent, /Claude Sonnet 5\.5（Medium）/)
 
   ui.click('后台辅助模型')
@@ -177,6 +182,72 @@ test('model picker shows only the current selection’s quota and refreshes prot
   earlierStatus.resolve({ modelQuota: { selection: { main: sonnet, worker: sonnet }, paused: false, modelId: sonnet, threshold: 20 } })
   await new Promise(setImmediate)
   assert.match(ui.root.textContent, /Gemini 4 Carbon（Medium）】剩余配额 0%.*已暂停全部后台活动/)
+})
+
+test('model refresh forces native usage, updates protection and reports an unsuccessful read', async t => {
+  const main = 'claude-sonnet-5-5-low'
+  const worker = 'claude-sonnet-5-5-medium'
+  const config = { models: { main, worker, minQuotaPercent: 20 } }
+  const base = normalizeModelCatalog({ clientModelConfigs: [{ modelId: main }, { modelId: worker }] })
+  const previousUsage = modelUsageFixture({ 'claude-gpt': 1 })
+  const usage = modelUsageFixture({ 'claude-gpt': 0.11 }, '2026-11-28T12:03:00.000Z')
+  usage.groups[0].windows.push({ period: 'five-hour', remainingFraction: 0.64, resetTime: '2026-11-28T16:00:00Z' })
+  const previousStatus = Promise.withResolvers()
+  const modelQuota = {
+    selection: { main, worker }, checkedAt: usage.checkedAt, paused: true, modelId: main,
+    threshold: 20, remainingPercent: 11, reason: '模型【Claude】剩余配额 11% 低于保护阈值 20%，已暂停全部后台活动。',
+  }
+  const refreshes = []
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_bootstrap') return { settings: { config }, models: { ...base, usage: previousUsage }, status: {} }
+    if (name === 'whale_app_ops' && args.action === 'status') return previousStatus.promise
+    if (name === 'whale_app_ops' && args.action === 'models') {
+      refreshes.push(args.forceRefresh)
+      if (refreshes.length === 1) return { ...fallbackModelCatalog('模型清单未更新'), usage, modelQuota }
+      return { ...base, usage: { state: 'unavailable', checkedAt: null, groups: [] }, modelQuota: null }
+    }
+  })
+  ui.click('模型与配额')
+  await ui.click('刷新模型列表')
+  assert.deepEqual(refreshes, [true])
+  assert.match(ui.root.textContent, /周额度.*11%.*五小时额度.*64%/)
+  assert.match(ui.root.textContent, /重置/)
+  assert.match(ui.root.textContent, /模型清单未更新/)
+  assert.ok(ui.root.nodes().some(node => node.tag === 'h3' && node.textContent === '当前完整模型清单'))
+  assert.match(ui.root.textContent, /11% 低于保护阈值 20%，已暂停全部后台活动/)
+  previousStatus.resolve({ modelQuota: { ...modelQuota, checkedAt: previousUsage.checkedAt, paused: false, remainingPercent: 100 } })
+  await new Promise(setImmediate)
+  assert.match(ui.root.textContent, /11% 低于保护阈值 20%，已暂停全部后台活动/)
+  await ui.click('刷新模型列表')
+  assert.match(ui.root.textContent, /用量未更新/)
+  assert.doesNotMatch(ui.root.textContent, /11%|64%|剩余 0%|剩余 100%/)
+})
+
+test('opening the model tab reconciles a newer Sidecar quota with an older catalog', async t => {
+  const id = 'claude-sonnet-5-5-low'
+  const config = { models: { main: id, worker: id, minQuotaPercent: 20 } }
+  const base = normalizeModelCatalog({ clientModelConfigs: [{ modelId: id }] })
+  const previous = modelUsageFixture({ 'claude-gpt': 1 })
+  const usage = modelUsageFixture({ 'claude-gpt': 0.11 }, '2026-11-28T12:01:00.000Z')
+  const modelQuota = {
+    selection: { main: id, worker: id }, checkedAt: usage.checkedAt, threshold: 20,
+    paused: true, modelId: id, remainingPercent: 11, reason: '剩余配额 11%，已暂停全部后台活动。',
+  }
+  const reads = []
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_bootstrap') return { settings: { config }, models: { ...base, usage: previous }, status: {} }
+    if (name === 'whale_app_ops' && args.action === 'status') return { modelQuota }
+    if (name === 'whale_app_ops' && args.action === 'models') {
+      reads.push(args.forceRefresh)
+      return { ...base, usage, modelQuota }
+    }
+  })
+  ui.click('模型与配额')
+  await new Promise(setImmediate)
+  assert.deepEqual(reads, [false])
+  assert.match(ui.root.textContent, /周额度11%/)
+  assert.match(ui.root.textContent, /11%，已暂停全部后台活动/)
+  assert.doesNotMatch(ui.root.textContent, /100%/)
 })
 
 test('About path labels are Chinese and the original paths and operations are preserved', async t => {

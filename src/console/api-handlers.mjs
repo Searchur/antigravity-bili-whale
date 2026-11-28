@@ -51,6 +51,7 @@ import { deliveryStatus } from '../daemon/delivery-state.mjs'
 import { readSchedulerHealth } from '../daemon/scheduler-health.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../core/node-runtime.mjs'
 import { callSidecarIpc } from '../host/sidecar-ipc.mjs'
+import { UNAVAILABLE_MODEL_USAGE } from '../host/model-usage.mjs'
 import { createAntigravityRpc, fallbackModelCatalog } from '../host/rpc.mjs'
 import { readLocalPluginMeta, checkForUpdate, applyPluginUpdate } from '../plugin/updater.mjs'
 
@@ -550,39 +551,37 @@ export function createApiHandlers({
     })
   }
 
-  async function getModels() {
-    if (rpc?.available?.()) {
-      const cat = await rpc.getModelCatalog()
-      if (cat?.source === 'live') return cat
+  async function getModels({ forceRefresh = false } = {}) {
+    const options = { timeoutMs: 12_000 }
+    let viaIpc = await ipcClient(forceRefresh ? '/models?forceRefresh=1' : '/models', options)
+    if (forceRefresh && !viaIpc?.running && /^(?:not found|HTTP 404)$/i.test(viaIpc?.error ?? '')) {
+      viaIpc = await ipcClient('/models', options)
     }
-    const viaIpc = await ipcClient('/models', { timeoutMs: 8_000 })
+    let sidecarCatalog = null
     if (viaIpc?.running && Array.isArray(viaIpc.groups)) {
-      let groups = viaIpc.groups
-      let models = viaIpc.models ?? []
-      const legacy = groups.some(group => group.key === 'auto-tier')
-      if (legacy) {
-        // 旧版后台守护仍会保留重置时间，但把省略的零配额记成空值。
-        const restoreQuota = model => model.remainingFraction === null && model.resetTime
-          ? { ...model, remainingFraction: 0 }
-          : model
-        models = models.filter(model => model.groupKey !== 'auto-tier').map(restoreQuota)
-        groups = groups.filter(group => group.key !== 'auto-tier').map(group => {
-          const variants = group.variants.map(restoreQuota)
-          return { ...group, variants, remainingFraction: group.remainingFraction ?? variants[0]?.remainingFraction ?? null }
-        })
-      }
-      if (!groups.length) return fallbackModelCatalog(legacy ? '' : viaIpc.note)
-      return {
-        ok: true,
-        source: viaIpc.source || 'live',
-        total: models.length,
-        liveCount: models.length,
-        groups,
-        models,
-        note: viaIpc.note || '',
+      const withoutLegacyQuota = ({ remainingFraction, resetTime, ...item }) => item
+      const models = (viaIpc.models ?? []).filter(model => model.groupKey !== 'auto-tier').map(withoutLegacyQuota)
+      const groups = viaIpc.groups.filter(group => group.key !== 'auto-tier').map(group => ({
+        ...withoutLegacyQuota(group),
+        variants: (group.variants ?? []).map(withoutLegacyQuota),
+      }))
+      const source = groups.length && viaIpc.source !== 'fallback' ? 'live' : 'fallback'
+      if (source === 'live' || viaIpc.usage) {
+        sidecarCatalog = {
+          ok: true, source, total: models.length, liveCount: models.length,
+          groups, models, note: viaIpc.note || '',
+          usage: viaIpc.usage ?? UNAVAILABLE_MODEL_USAGE,
+          modelQuota: viaIpc.usage ? viaIpc.modelQuota ?? null : null,
+        }
+        // 优先接收后台守护已用于配额保护的同一次读取结果。
+        if (viaIpc.usage) return sidecarCatalog
       }
     }
-    return fallbackModelCatalog('未能读取 Antigravity 实时模型清单，请确认后台守护已启动后点击刷新。')
+    if (rpc?.available?.()) {
+      const direct = await rpc.getModelCatalog({ forceRefresh })
+      if (direct?.source === 'live' || direct?.usage?.state === 'ready') return direct
+    }
+    return sidecarCatalog ?? fallbackModelCatalog('未能读取 Antigravity 实时模型清单，请确认后台守护已启动后点击刷新。')
   }
 
   function formatDepsCards(rawItems, scheduler, livePid = null) {
@@ -902,7 +901,7 @@ export function createApiHandlers({
       affectWorker: live.affectWorker ?? { status: live.running ? 'idle' : 'unavailable' },
       formation: live.formationWorker ?? { status: live.running ? 'idle' : 'unavailable' },
       safetyWorker: live.safetyWorker ?? { status: live.running ? 'idle' : 'unavailable' },
-      modelQuota: live.modelQuota ?? {
+      modelQuota: live.modelQuota?.checkedAt ? live.modelQuota : {
         enabled: (cfg.models?.minQuotaPercent ?? 0) > 0,
         paused: false,
         threshold: cfg.models?.minQuotaPercent ?? 0,

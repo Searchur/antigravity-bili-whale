@@ -57,8 +57,8 @@ export async function startSidecarIpc({
         send(200, { ok: true, pid: process.pid, ...getStatus() })
         return
       }
-      if (req.method === 'GET' && req.url === '/models') {
-        send(200, await getModels())
+      if (req.method === 'GET' && (req.url === '/models' || req.url === '/models?forceRefresh=1')) {
+        send(200, await getModels({ forceRefresh: req.url !== '/models' }))
         return
       }
       if (req.method === 'POST' && req.url === '/invalidate') {

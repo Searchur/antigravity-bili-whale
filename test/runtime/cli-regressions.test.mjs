@@ -11,6 +11,7 @@ import { promisify } from 'node:util'
 import test from 'node:test'
 import { fanCommentQuota } from '../../src/social/mention-summary.mjs'
 import { evaluateModelQuota } from '../../src/host/model-quota-guard.mjs'
+import { modelUsageFixture } from '../fixtures/model-usage.mjs'
 import { createSafetyReviewer } from '../../src/daemon/safety-worker.mjs'
 import { startSidecarIpc } from '../../src/host/sidecar-ipc.mjs'
 import { createModelToolRunner } from '../../src/mcp/model-tools.mjs'
@@ -73,13 +74,14 @@ test('night command dry-run and execution share the UI wake endpoint', async t =
 })
 
 test('the depleted Worker controls protection even when the main model has quota', () => {
-  const catalog = { source: 'live', models: [
-    { id: 'gemini-flash', label: 'Flash', remainingFraction: 0.9 },
-    { id: 'gemini-flash-lite', label: 'Flash Lite', remainingFraction: 0 },
-  ] }
-  const status = evaluateModelQuota(catalog, { main: 'gemini-flash', worker: 'gemini-flash-lite', minQuotaPercent: 20 })
+  const catalog = {
+    source: 'live',
+    models: [{ id: 'gemini-flash', label: 'Flash' }, { id: 'claude-sonnet-5-5-low', label: 'Sonnet' }],
+    usage: modelUsageFixture({ gemini: 0.9, 'claude-gpt': 0 }),
+  }
+  const status = evaluateModelQuota(catalog, { main: 'gemini-flash', worker: 'claude-sonnet-5-5-low', minQuotaPercent: 20 })
   assert.equal(status.paused, true)
-  assert.equal(status.modelId, 'gemini-flash-lite')
+  assert.equal(status.modelId, 'claude-sonnet-5-5-low')
 })
 
 test('fan summaries and ordinary replies have independent limits', async t => {

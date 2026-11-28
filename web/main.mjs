@@ -360,13 +360,23 @@ const actions = {
     }
   },
 
-  async refreshModels() {
+  async refreshModels(forceRefresh = false) {
+    if (state.busy) return
     state.busy = 'models'
     state.modelsError = ''
     render()
     try {
-      state.modelCatalog = await bridge.callTool('whale_app_ops', { action: 'models' })
+      const result = await bridge.callTool('whale_app_ops', { action: 'models', forceRefresh })
+      if (result.source !== 'live' && state.modelCatalog?.source === 'live') {
+        state.modelCatalog = { ...state.modelCatalog, usage: result.usage ?? null }
+        state.modelsError = result.note || '未能刷新 Antigravity 模型列表。'
+      } else {
+        state.modelCatalog = result
+      }
+      statusRequestRevision++
+      state.status = { ...state.status, modelQuota: result.modelQuota ?? null }
     } catch (e) {
+      if (state.modelCatalog) state.modelCatalog = { ...state.modelCatalog, usage: null }
       state.modelsError = '读取 Antigravity 模型列表失败：' + e.message
     } finally {
       state.busy = ''
@@ -597,6 +607,14 @@ const actions = {
       const status = await bridge.callTool('whale_app_ops', { action: 'status' })
       if (revision !== identityRevision || statusRequest !== statusRequestRevision) return
       state.status = status
+      const checkedAt = Date.parse(status?.modelQuota?.checkedAt)
+      const shownAt = Date.parse(state.modelCatalog?.usage?.checkedAt)
+      if (state.tab === 'models' && !state.busy && Number.isFinite(checkedAt)
+        && (!Number.isFinite(shownAt) || checkedAt > shownAt)) {
+        if (state.modelCatalog) state.modelCatalog = { ...state.modelCatalog, usage: null }
+        void actions.refreshModels()
+        return
+      }
       render()
     } catch {}
   },

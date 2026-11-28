@@ -8,6 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { compareSemver, parseLatestCommitAtom, checkForUpdate, applyPluginUpdate } from '../../src/plugin/updater.mjs'
 import { copyRuntimeFixture } from '../fixtures/plugin-package.mjs'
+import { modelUsageFixture } from '../fixtures/model-usage.mjs'
 import { createApiHandlers } from '../../src/console/api-handlers.mjs'
 import { wakePrompt } from '../../src/daemon/scheduler.mjs'
 import { mentionSummaryLines } from '../../src/social/mention-summary.mjs'
@@ -589,9 +590,10 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
     ok: true,
     source: 'live',
     models: [
-      { id: 'gemini-4-hydrogen-medium', groupKey: 'gemini-4-hydrogen', groupName: 'Gemini 4 Hydrogen', thinkingLabel: 'Medium', remainingFraction: 0.15 },
-      { id: 'gemini-4-neon-high', groupKey: 'gemini-4-neon', groupName: 'Gemini 4 Neon', thinkingLabel: 'High', remainingFraction: 0.6 },
+      { id: 'gemini-4-hydrogen-medium', groupKey: 'gemini-4-hydrogen', groupName: 'Gemini 4 Hydrogen', thinkingLabel: 'Medium' },
+      { id: 'claude-sonnet-5-5-high', groupKey: 'claude-sonnet-5-5', groupName: 'Claude Sonnet 5.5', thinkingLabel: 'High' },
     ],
+    usage: modelUsageFixture({ gemini: 0.15, 'claude-gpt': 0.6 }),
   }
   assert.equal(evaluateModelQuota(sampleCatalog, { main: 'gemini-4-hydrogen-medium', minQuotaPercent: 0 }).paused, false)
   const low = evaluateModelQuota(sampleCatalog, { main: 'gemini-4-hydrogen-medium', minQuotaPercent: 20 })
@@ -599,7 +601,7 @@ test('v1.5.0 model quota guard pauses when below threshold, checkDeps returns st
   assert.equal(low.remainingPercent, 15)
   assert.ok(low.reason.includes('低于保护阈值 20%'))
 
-  const okQuota = evaluateModelQuota(sampleCatalog, { main: 'gemini-4-neon-high', minQuotaPercent: 20 })
+  const okQuota = evaluateModelQuota(sampleCatalog, { main: 'claude-sonnet-5-5-high', minQuotaPercent: 20 })
   assert.equal(okQuota.paused, false)
   assert.equal(okQuota.remainingPercent, 60)
 

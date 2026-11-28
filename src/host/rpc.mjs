@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
+import { normalizeModelUsage, UNAVAILABLE_MODEL_USAGE } from './model-usage.mjs'
 
 /**
  * 将 GetCascadeModelConfigData 原始响应规整为前端可直接渲染的完整分组模型清单。
@@ -38,7 +39,8 @@ export function normalizeModelCatalog(raw) {
     for (const [prefix, meta] of groupEntries) {
       if (id.startsWith(prefix + '-')) {
         const suffix = id.slice(prefix.length + 1)
-        const level = (meta.supportedThinkingLevels || []).find(l => l.thinkingSuffix === suffix)
+        const levels = meta?.supportedThinkingLevels
+        const level = Array.isArray(levels) && levels.find(l => l?.thinkingSuffix === suffix)
         if (level) {
           groupKey = prefix
           groupName = meta.displayName || prefix
@@ -57,11 +59,6 @@ export function normalizeModelCatalog(raw) {
       thinkingLevel = id
     }
 
-    const quotaInfo = cfg.quotaInfo
-    // ProtoJSON 可以省略配额消息中默认值为零的数值字段。
-    const fraction = quotaInfo && typeof quotaInfo === 'object' && !Array.isArray(quotaInfo)
-      ? quotaInfo.remainingFraction ?? 0
-      : null
     const item = {
       id,
       label,
@@ -72,8 +69,6 @@ export function normalizeModelCatalog(raw) {
       tagTitle: String(cfg.tagTitle || ''),
       tagDescription: String(cfg.tagDescription || ''),
       supportsImages: cfg.supportsImages !== false,
-      remainingFraction: Number.isFinite(fraction) ? fraction : null,
-      resetTime: quotaInfo?.resetTime || null,
     }
     models.push(item)
 
@@ -84,7 +79,6 @@ export function normalizeModelCatalog(raw) {
         tagTitle: item.tagTitle,
         tagDescription: item.tagDescription,
         supportsImages: item.supportsImages,
-        remainingFraction: item.remainingFraction,
         variants: [],
       })
     }
@@ -105,6 +99,7 @@ export function normalizeModelCatalog(raw) {
     liveCount: models.length,
     groups: [...groupMap.values()],
     models,
+    usage: UNAVAILABLE_MODEL_USAGE,
   }
 }
 
@@ -232,13 +227,19 @@ export function createAntigravityRpc({ env = process.env, fetchImpl = globalThis
     })
   }
 
-  async function getModelCatalog(opts = {}) {
+  async function getModelCatalog({ forceRefresh = false, ...opts } = {}) {
     if (!available()) return fallbackModelCatalog()
-    try {
-      const raw = await lsRpc('GetCascadeModelConfigData', {}, { timeoutMs: 10_000, ...opts })
-      return normalizeModelCatalog(raw)
-    } catch (e) {
-      return fallbackModelCatalog(String(e?.message ?? e))
+    const options = { timeoutMs: 10_000, ...opts }
+    const [list, summary] = await Promise.allSettled([
+      lsRpc('GetCascadeModelConfigData', {}, options),
+      lsRpc('RetrieveUserQuotaSummary', { request: {}, forceRefresh: forceRefresh === true }, options),
+    ])
+    const catalog = list.status === 'fulfilled'
+      ? normalizeModelCatalog(list.value)
+      : fallbackModelCatalog(String(list.reason?.message ?? list.reason))
+    return {
+      ...catalog,
+      usage: summary.status === 'fulfilled' ? normalizeModelUsage(summary.value) : UNAVAILABLE_MODEL_USAGE,
     }
   }
 

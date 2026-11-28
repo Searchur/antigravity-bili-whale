@@ -9,8 +9,9 @@ import path from 'node:path'
 import { createAntigravitySessionController } from '../../src/host/session.mjs'
 import { createAntigravityTextComplete, extractJsonText } from '../../src/host/text-complete.mjs'
 import { createSessionDelivery } from '../../src/daemon/session-delivery.mjs'
-import { normalizeModelCatalog, fallbackModelCatalog } from '../../src/host/rpc.mjs'
+import { createAntigravityRpc, normalizeModelCatalog, fallbackModelCatalog } from '../../src/host/rpc.mjs'
 import { createModelQuotaGuard, evaluateModelQuota } from '../../src/host/model-quota-guard.mjs'
+import { modelUsageFixture } from '../fixtures/model-usage.mjs'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -244,54 +245,95 @@ test('normalizeModelCatalog groups families, sorts Thinking effort Low->XHigh, p
   assert.equal(fb.total, 0)
 })
 
-test('quota messages with an omitted zero remain available for display and quota protection', () => {
+test('model-list quota fields cannot manufacture a zero or a full group balance', () => {
   const resetTime = '2026-11-29T00:00:00Z'
   const catalog = normalizeModelCatalog({ clientModelConfigs: [
-    { modelId: 'exhausted-by-default', quotaInfo: { resetTime } },
-    { modelId: 'exhausted-explicit', quotaInfo: { remainingFraction: 0, resetTime } },
-    { modelId: 'exhausted-empty-message', quotaInfo: {} },
-    { modelId: 'available', quotaInfo: { remainingFraction: 1 } },
-    { modelId: 'unknown-quota' },
+    { modelId: 'gemini-4-neon-low', quotaInfo: { resetTime } },
+    { modelId: 'gemini-4-neon-medium', quotaInfo: {} },
+    { modelId: 'claude-sonnet-5-5-low', quotaInfo: { remainingFraction: 1 } },
   ] })
-  const readFraction = id => catalog.models.find(model => model.id === id)?.remainingFraction
-  assert.equal(readFraction('exhausted-by-default'), 0)
-  assert.equal(readFraction('exhausted-explicit'), 0)
-  assert.equal(readFraction('exhausted-empty-message'), 0)
-  assert.equal(readFraction('available'), 1)
-  assert.equal(readFraction('unknown-quota'), null)
-  assert.equal(catalog.groups.find(group => group.key === 'exhausted-by-default')?.remainingFraction, 0)
-
-  const status = evaluateModelQuota(catalog, { main: 'exhausted-by-default', worker: 'available', minQuotaPercent: 20 })
-  assert.equal(status.paused, true)
-  assert.equal(status.remainingPercent, 0)
-  assert.equal(status.resetTime, resetTime)
+  assert.ok(catalog.models.every(model => model.remainingFraction == null))
+  const status = evaluateModelQuota(catalog, { main: 'gemini-4-neon-low', worker: 'claude-sonnet-5-5-low', minQuotaPercent: 20 })
+  assert.equal(status.paused, false)
+  assert.equal(status.remainingPercent, null)
 })
 
-test('quota protection uses the exact selected variant and leaves unmatched legacy presets unknown', () => {
+test('manual RPC refresh reads native quota windows and protects from the tightest active window', async () => {
+  const resetTime = '2026-12-03T00:00:00Z'
+  const calls = []
+  const rpc = createAntigravityRpc({
+    env: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:43210', ANTIGRAVITY_CSRF_TOKEN: 'fixture-token' },
+    fetchImpl: async (url, init) => {
+      const name = new URL(url).pathname.split('/').at(-1)
+      calls.push([name, JSON.parse(init.body)])
+      if (name === 'GetCascadeModelConfigData') return Response.json({ clientModelConfigs: [
+        { modelId: 'gemini-4-neon-low', quotaInfo: { resetTime } },
+        { modelId: 'claude-sonnet-5-5-low', quotaInfo: { remainingFraction: 1 } },
+        { modelId: 'claude-sonnet-5-5-medium', quotaInfo: { remainingFraction: 1 } },
+      ] })
+      assert.equal(name, 'RetrieveUserQuotaSummary')
+      return Response.json({ response: { groups: [
+        { displayName: 'Gemini Models', buckets: [
+          { displayName: 'Weekly Limit Remaining', remainingFraction: 0, resetTime },
+          { displayName: 'Five Hour Limit Remaining', disabled: true },
+        ] },
+        { displayName: 'Claude and GPT models', buckets: [
+          { displayName: 'Weekly Limit Remaining', remainingFraction: 0.11, resetTime },
+          { displayName: 'Five Hour Limit Remaining', remainingFraction: 0.64 },
+        ] },
+      ] } })
+    },
+  })
+  const catalog = await rpc.getModelCatalog({ forceRefresh: true })
+  assert.deepEqual(calls, [
+    ['GetCascadeModelConfigData', {}],
+    ['RetrieveUserQuotaSummary', { request: {}, forceRefresh: true }],
+  ])
+  assert.equal(catalog.usage.state, 'ready')
+  assert.ok(Number.isFinite(Date.parse(catalog.usage.checkedAt)))
+  const gemini = catalog.usage.groups.find(group => group.id === 'gemini')
+  assert.deepEqual(gemini.windows.map(window => [window.period, window.remainingFraction, window.disabled]), [
+    ['weekly', 0, false], ['five-hour', null, true],
+  ])
+  const status = evaluateModelQuota(catalog, {
+    main: 'claude-sonnet-5-5-low', worker: 'claude-sonnet-5-5-medium', minQuotaPercent: 20,
+  })
+  assert.equal(status.remainingPercent, 11)
+  assert.equal(status.paused, true)
+  assert.equal(status.resetTime, resetTime)
+  assert.equal(status.checkedAt, catalog.usage.checkedAt)
+})
+
+test('quota protection resolves exact selected IDs and ignores missing, inapplicable and legacy readings', () => {
   const models = [
-    { id: 'gemini-4-carbon-low', label: 'Gemini 4 Carbon (Low)', remainingFraction: 0 },
-    { id: 'gemini-4-carbon-medium', label: 'Gemini 4 Carbon (Medium)', remainingFraction: 0.2 },
-    { id: 'unreported-model', remainingFraction: null },
+    { id: 'gemini-4-carbon-low', label: 'Gemini 4 Carbon (Low)' },
+    { id: 'gemini-4-carbon-medium', label: 'Gemini 4 Carbon (Medium)' },
+    { id: 'claude-sonnet-5-5-low', label: 'Claude Sonnet 5.5 (Low)' },
+    { id: 'unreported-model' },
   ]
-  const catalog = { source: 'live', models }
+  const usage = modelUsageFixture({ gemini: 0.2, 'claude-gpt': null })
+  usage.groups[0].windows.push({ period: 'five-hour', remainingFraction: 0, disabled: true })
+  const catalog = { source: 'live', models, usage }
   const medium = evaluateModelQuota(catalog, {
-    main: 'gemini-4-carbon-medium', worker: 'gemini-4-carbon-medium', minQuotaPercent: 20,
+    main: 'gemini-4-carbon-medium', worker: 'gemini-4-carbon-low', minQuotaPercent: 20,
   })
   assert.equal(medium.remainingPercent, 20)
   assert.equal(medium.paused, false)
   const unknown = evaluateModelQuota(catalog, {
-    main: 'flash', worker: 'unreported-model', minQuotaPercent: 20,
+    main: 'gemini-not-in-the-catalog', worker: 'claude-sonnet-5-5-low', minQuotaPercent: 20,
   })
   assert.equal(unknown.remainingPercent, null)
   assert.equal(unknown.paused, false)
+  assert.equal(evaluateModelQuota(catalog, { main: 'flash', worker: 'unreported-model', minQuotaPercent: 20 }).paused, false)
 })
 
 test('an in-flight quota check uses the newly saved models when the old catalog response arrives last', async () => {
   const previous = Promise.withResolvers()
-  const catalog = { source: 'live', models: [
-    { id: 'gemini-4-carbon-medium', remainingFraction: 0 },
-    { id: 'claude-sonnet-5-5-medium', remainingFraction: 1 },
-  ] }
+  const catalog = {
+    source: 'live',
+    models: [{ id: 'gemini-4-carbon-medium' }, { id: 'claude-sonnet-5-5-medium' }],
+    usage: modelUsageFixture({ gemini: 0, 'claude-gpt': 1 }),
+  }
   let models = { main: 'gemini-4-carbon-medium', worker: 'claude-sonnet-5-5-medium', minQuotaPercent: 20 }
   let reads = 0
   const guard = createModelQuotaGuard({
@@ -308,4 +350,61 @@ test('an in-flight quota check uses the newly saved models when the old catalog 
   assert.equal(result.paused, false)
   assert.deepEqual(result.selection, { main: models.main, worker: models.worker })
   assert.equal(guard.status().remainingPercent, 100)
+})
+
+test('forcing a catalog refresh updates the quota guard and supersedes an older background response', async () => {
+  const pending = Promise.withResolvers()
+  const config = { models: { main: 'claude-sonnet-5-5-low', worker: 'claude-sonnet-5-5-medium', minQuotaPercent: 20 } }
+  const models = [{ id: config.models.main }, { id: config.models.worker }]
+  const previous = { source: 'live', models, usage: modelUsageFixture({ 'claude-gpt': 1 }) }
+  const refreshed = { source: 'live', models, usage: modelUsageFixture({ 'claude-gpt': 0.11 }, '2026-11-28T12:01:00.000Z') }
+  const calls = []
+  const guard = createModelQuotaGuard({
+    config: () => config,
+    rpc: { available: () => true, getModelCatalog: async ({ forceRefresh } = {}) => {
+      calls.push(Boolean(forceRefresh))
+      return forceRefresh ? refreshed : pending.promise
+    } },
+  })
+  const old = guard.check()
+  const result = await guard.getCatalog({ forceRefresh: true })
+  assert.equal(result.usage.checkedAt, refreshed.usage.checkedAt)
+  assert.equal(result.modelQuota.remainingPercent, 11)
+  assert.equal(guard.status().paused, true)
+  pending.resolve(previous)
+  assert.equal((await old).remainingPercent, 11)
+  assert.deepEqual(calls, [false, true])
+})
+
+test('native quota still updates protection when only the model list fails', async () => {
+  const id = 'claude-sonnet-5-5-low'
+  let listFails = false
+  const rpc = createAntigravityRpc({
+    env: { ANTIGRAVITY_LS_ADDRESS: '127.0.0.1:43210', ANTIGRAVITY_CSRF_TOKEN: 'fixture-token' },
+    fetchImpl: async (url) => {
+      const name = new URL(url).pathname.split('/').at(-1)
+      if (name === 'GetCascadeModelConfigData') {
+        if (listFails) return Response.json({ message: 'fixture list failure' }, { status: 503 })
+        return Response.json({ clientModelConfigs: [{ modelId: id }] })
+      }
+      assert.equal(name, 'RetrieveUserQuotaSummary')
+      return Response.json({ response: { groups: [
+        { displayName: 'Claude and GPT models', buckets: [
+          { window: 'weekly', remainingFraction: listFails ? 0.11 : 1 },
+          { window: 'PT5H', remainingAmount: '123', resetTime: '2026-11-28T16:00:00Z' },
+        ] },
+      ] } })
+    },
+  })
+  const guard = createModelQuotaGuard({
+    rpc, config: () => ({ models: { main: id, worker: id, minQuotaPercent: 20 } }),
+  })
+  assert.equal((await guard.check()).remainingPercent, 100)
+  listFails = true
+  const result = await guard.getCatalog({ forceRefresh: true })
+  assert.equal(result.source, 'fallback')
+  assert.equal(result.usage.state, 'ready')
+  assert.equal(result.usage.groups[0].windows[1].remainingFraction, null)
+  assert.equal(result.modelQuota.remainingPercent, 11)
+  assert.equal(guard.status().paused, true)
 })

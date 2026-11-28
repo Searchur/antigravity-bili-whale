@@ -68,7 +68,7 @@ const ipc = await startSidecarIpc({
     safetyWorker: safetyReviewer.status(),
     modelQuota: sched?.modelQuotaStatus?.() ?? { enabled: false, paused: false, threshold: 0, remainingPercent: null },
   }),
-  getModels: () => rpc.getModelCatalog(),
+  getModels: opts => sched ? sched.getModelCatalog(opts) : rpc.getModelCatalog(opts),
   onSafetyCheck: (payload) => safetyReviewer.review(payload),
   onInvalidate: (resetPlan) => { sched?.invalidate(resetPlan) },
   onTriggerTick: () => { sched?.tick?.() },
