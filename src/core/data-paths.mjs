@@ -51,6 +51,7 @@ export function dataPathsFor(whaleHome, { cfgFile } = {}) {
     cacheDir: at('cache'),
     apiCache: at('cache', 'api-cache.json'),
     apiBan: at('cache', 'api-ban.json'),
+    legacyApiBan: at('api-ban.json'), // 兼容重构前尚未到期的接口冷却记录。
     feedSearchCache: at('cache', 'feed-search.json'),
     pictureUploads: at('cache', 'picture-uploads.json'),
     shotsDir: at('cache', 'shots'),

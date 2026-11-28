@@ -5,8 +5,124 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { openConsole } from '../fixtures/console-ui.mjs'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { createTrafficGuard, RISK_DEFAULTS } from '../../src/bili/traffic.mjs'
 import { chatConfig } from '../../src/config/chat.mjs'
+import { createApiHandlers } from '../../src/console/api-handlers.mjs'
+import { fallbackModelCatalog, normalizeModelCatalog } from '../../src/host/rpc.mjs'
 import { deriveActivityStatus } from '../../src/shared/activity-status.mjs'
+
+test('environment panel shows the triggering operations and how to recover from each request pause', async t => {
+  const whaleHome = fs.mkdtempSync(path.join(os.tmpdir(), 'whale-ui-traffic-'))
+  const credFile = path.join(whaleHome, 'credentials.json')
+  const biliMjs = path.join(whaleHome, 'offline-deps.mjs')
+  fs.writeFileSync(credFile, JSON.stringify({ sessdata: 'fixture-session', bili_jct: 'a'.repeat(32) }))
+  fs.writeFileSync(biliMjs, `
+    globalThis.fetch = async () => { throw new Error('Network disabled in test') }
+    await import(${JSON.stringify(new URL('../../src/cli/commands/deps.mjs', import.meta.url).href)})
+  `)
+  const api = createApiHandlers({
+    whaleHome, credFile, biliMjs,
+    cfgFile: path.join(whaleHome, 'config.json'),
+    ipcClient: async () => ({ running: true, pid: process.pid }),
+  })
+  t.after(() => { api.dispose(); fs.rmSync(whaleHome, { recursive: true, force: true }) })
+
+  const headers = { cookie: 'SESSDATA=fixture-session' }
+  const guard = createTrafficGuard({
+    directory: whaleHome,
+    settings: () => ({ ...RISK_DEFAULTS, minGapMs: 0 }),
+    transport: async url => url.includes('/reply/add')
+      ? Response.json({ code: 12051 })
+      : Response.json({ code: 10031 }, { headers: { 'Retry-After': '900' } }),
+  })
+  await guard.fetch('https://api.bilibili.com/x/v2/reply/add?sign=fixture-secret', { method: 'POST', headers })
+  await guard.fetch('https://api.bilibili.com/x/v3/fav/resource/deal', { method: 'POST' })
+
+  let depsRequest
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_ops' && args.action === 'deps') {
+      depsRequest = api.checkDeps().then(report => ({ report }))
+      return depsRequest
+    }
+  })
+  ui.click('环境与依赖')
+  await depsRequest
+  await new Promise(setImmediate)
+
+  const row = name => ui.root.nodes().find(node => node.className === 'env-row'
+    && node.querySelector('.env-row-title')?.textContent === name)?.textContent ?? ''
+  const traffic = () => row('全局防风控保护')
+  assert.match(traffic(), /收藏视频.*10031/)
+  assert.match(traffic(), /冷却至.*（本地时间）/)
+  assert.match(traffic(), /发表评论或回复.*12051/)
+  assert.match(traffic(), /需要人工处理.*核查并解除暂停/)
+  assert.match(traffic(), /traffic resume --go/)
+  assert.doesNotMatch(traffic(), /无需人工处理|fixture-secret|fixture-session/)
+  assert.match(row('大鲸鱼 B 站登录状态'), /暂缓校验/)
+  assert.doesNotMatch(row('大鲸鱼 B 站登录状态'), /尚未登录|前往登录/)
+
+  const cli = fileURLToPath(new URL('../../src/cli/bili.mjs', import.meta.url))
+  execFileSync(process.execPath, [cli, 'traffic', 'resume', '--go'], {
+    env: { ...process.env, BILI_WHALE_HOME: whaleHome },
+  })
+  await ui.click('重新检测')
+  assert.match(traffic(), /收藏视频.*10031/)
+  assert.match(traffic(), /无需人工处理/)
+  assert.doesNotMatch(traffic(), /12051/)
+})
+
+test('model picker only offers host choices and displays a depleted model as zero percent', async t => {
+  const config = { models: { main: 'flash', worker: 'flash_lite', minQuotaPercent: 20 } }
+  const offline = fallbackModelCatalog('暂未读取 Antigravity 模型清单。')
+  const live = normalizeModelCatalog({
+    groupedModels: {
+      'gemini-4-neon': { displayName: 'Gemini 4 Neon', supportedThinkingLevels: [
+        { thinkingSuffix: 'low', thinkingDisplayName: 'Low' },
+        { thinkingSuffix: 'high', thinkingDisplayName: 'High' },
+      ] },
+    },
+    clientModelConfigs: [
+      { modelId: 'gemini-4-neon-high', quotaInfo: { remainingFraction: 1 } },
+      { modelId: 'gemini-4-neon-low', quotaInfo: { resetTime: '2026-11-29T00:00:00Z' } },
+      { modelId: 'no-quota', label: 'Unknown quota' },
+    ],
+  })
+  let online = false
+  let saved
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_bootstrap') return { settings: { config }, models: offline, status: {} }
+    if (name === 'whale_app_ops' && args.action === 'models') return online ? live : offline
+    if (name === 'whale_app_settings') {
+      saved = structuredClone(args.config)
+      return { config: saved }
+    }
+  })
+  ui.click('模型与配额')
+  await new Promise(setImmediate)
+  assert.doesNotMatch(ui.root.textContent, /自适应档位|自动档位|Flash（均衡）/)
+  assert.equal(ui.root.nodes().filter(node => node.className?.startsWith('effort-btn')).length, 0)
+
+  online = true
+  await ui.click('刷新模型列表')
+  assert.match(ui.root.textContent, /待选择实际模型/)
+  assert.doesNotMatch(ui.root.textContent, /自适应档位|自动档位|Flash（均衡）/)
+  const group = name => ui.root.nodes().find(node => node.className?.startsWith('model-group')
+    && node.querySelector('.model-name')?.textContent === name)?.textContent ?? ''
+  assert.match(group('Gemini 4 Neon'), /Low.*0%.*High.*100%/)
+  assert.match(group('Unknown quota'), /配额未返回/)
+  assert.doesNotMatch(group('Unknown quota'), /剩余 0%/)
+
+  await ui.click('Low')
+  assert.match(group('Gemini 4 Neon'), /剩余 0%/)
+  assert.match(ui.root.textContent, /剩余配额 0% 低于保护阈值/)
+  await ui.click('保存配置')
+  assert.equal(saved.models.main, 'gemini-4-neon-low')
+  assert.equal(saved.models.worker, 'flash_lite')
+})
 
 test('D07 late bootstrap cannot reinstate the old account after QR login succeeds', async t => {
   const previous = {settings:{config:{self:{mid:'100'},owner:{mid:'200'},preferences:{},night:{}}},status:{}}

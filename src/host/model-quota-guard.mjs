@@ -14,7 +14,7 @@ function pickLiveModel(catalog, modelId) {
   const exact = live.find(m => m.id === modelId)
   if (exact) return exact
 
-  // 自适应档位（flash / flash_lite / pro）按命名启发式映射至对应实时模型配额
+  // 兼容还未切换到实际模型 ID 的旧配置，按名称匹配相应的实时模型配额。
   const id = String(modelId || '').toLowerCase()
   if (id === 'flash_lite') {
     return live.find(m => LIGHT_MODEL.test(`${m.id} ${m.label}`)) ?? null

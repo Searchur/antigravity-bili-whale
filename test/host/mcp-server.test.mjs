@@ -87,12 +87,13 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.ok(!content.text.includes('手动导入 Cookie'))
     assert.ok(Buffer.byteLength(content.text, 'utf8') < 10 * 1024 * 1024)
 
-    // bootstrap 工具返回包含模型清单与关于元数据的结构化载荷
+    // 宿主离线时，控制台初始化返回空的可选模型清单与关于元数据。
     const boot = await router.handleRequest({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'whale_app_bootstrap', arguments: {} } })
     assert.equal(boot.result.structuredContent.ok, true)
     assert.equal(boot.result.structuredContent.settings.config.models.main, 'flash')
-    assert.ok(Array.isArray(boot.result.structuredContent.models.groups))
-    assert.ok(boot.result.structuredContent.models.groups.length >= 1)
+    assert.equal(boot.result.structuredContent.models.source, 'fallback')
+    assert.deepEqual(boot.result.structuredContent.models.groups, [])
+    assert.deepEqual(boot.result.structuredContent.models.models, [])
     assert.equal(boot.result.structuredContent.about.local.name, 'antigravity-bili-whale')
 
     // ops 的 about/models 正常工作，已下线 install_ffmpeg 并开放 wake_now
@@ -106,7 +107,8 @@ test('MCP router declares global-only sidebar entrypoint, app-only UI tools, and
     assert.ok(opsAbout.result.structuredContent.local.repository.includes('github.com/Searchur/antigravity-bili-whale'))
     const opsModels = await router.handleRequest({ jsonrpc: '2.0', id: 41, method: 'tools/call', params: { name: 'whale_app_ops', arguments: { action: 'models' } } })
     assert.equal(opsModels.result.structuredContent.ok, true)
-    assert.ok(Array.isArray(opsModels.result.structuredContent.groups))
+    assert.equal(opsModels.result.structuredContent.source, 'fallback')
+    assert.deepEqual(opsModels.result.structuredContent.groups, [])
 
     // 模型只读工具实际调用：bili_read stickers list
     const stickers = await router.handleRequest({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'bili_read', arguments: { command: 'stickers', args: ['list'] } } })

@@ -64,14 +64,12 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
   const liveCatalog = {
     ok: true,
     source: 'live',
-    total: 5,
-    liveCount: 2,
+    total: 1,
+    liveCount: 1,
     groups: [
-      { key: 'auto-tier', name: '自动档位', variants: [{ id: 'flash', label: 'Flash' }] },
       { key: 'gemini-4-neon', name: 'Gemini 4 Neon', variants: [{ id: 'gemini-4-neon-xhigh', label: 'Gemini 4 Neon (XHigh)', thinkingLabel: 'Extra High' }] },
     ],
     models: [
-      { id: 'flash', label: 'Flash' },
       { id: 'gemini-4-neon-xhigh', label: 'Gemini 4 Neon (XHigh)' },
     ],
   }
@@ -110,8 +108,8 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     // 动态模型清单返回实时分组结构
     const models = await api.getModels()
     assert.equal(models.source, 'live')
-    assert.equal(models.liveCount, 2)
-    assert.equal(models.groups[1].key, 'gemini-4-neon')
+    assert.equal(models.liveCount, 1)
+    assert.equal(models.groups[0].key, 'gemini-4-neon')
 
     // 扫码登录流程可正常启动与取消
     const qr = await api.qrStart()
@@ -186,4 +184,33 @@ test('createApiHandlers manages settings, dynamic models, persona, structured de
     api.dispose()
     fs.rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('console can read exhausted models from an older running Sidecar without exposing its presets', async t => {
+  const previousPreset = { id: 'flash', groupKey: 'auto-tier', remainingFraction: null }
+  const depleted = { id: 'gemini-4-neon-low', groupKey: 'gemini-4-neon', remainingFraction: null, resetTime: '2026-11-29T00:00:00Z' }
+  const unknown = { id: 'unreported', groupKey: 'unreported', remainingFraction: null, resetTime: null }
+  const api = createApiHandlers({
+    rpc: { available: () => false },
+    ipcClient: async () => ({
+      running: true, source: 'live', total: 3, liveCount: 2,
+      models: [previousPreset, depleted, unknown],
+      groups: [
+        { key: 'auto-tier', variants: [previousPreset], remainingFraction: null },
+        { key: 'gemini-4-neon', variants: [depleted], remainingFraction: null },
+        { key: 'unreported', variants: [unknown], remainingFraction: null },
+      ],
+    }),
+  })
+  t.after(() => api.dispose())
+
+  const result = await api.getModels()
+  assert.equal(result.total, 2)
+  assert.deepEqual(result.models.map(model => [model.id, model.remainingFraction]), [
+    ['gemini-4-neon-low', 0], ['unreported', null],
+  ])
+  assert.deepEqual(result.groups.map(group => [group.key, group.remainingFraction]), [
+    ['gemini-4-neon', 0], ['unreported', null],
+  ])
+  assert.equal(result.groups[0].variants[0].remainingFraction, 0)
 })

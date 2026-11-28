@@ -33,7 +33,8 @@ export class TrafficError extends Error { constructor(message) { super(message);
 // 每个本地插件数据目录共用一份状态与进程锁，由 CLI 子进程与
 // 后台守护共享；锁仅覆盖预留与更新，绝不覆盖网络 I/O。
 export function createTrafficGuard({ directory, transport = (...a) => globalThis.fetch(...a), settings = riskSettings, now = Date.now, sleep = delay } = {}) {
-  const stateFile = dataPathsFor(directory).traffic, lockFile = stateFile + '.lock'
+  const { traffic: stateFile, legacyApiBan } = dataPathsFor(directory)
+  const lockFile = stateFile + '.lock'
   function read() {
     try { const s = JSON.parse(fs.readFileSync(stateFile, 'utf8')); if (!s || typeof s !== 'object'||Array.isArray(s)||['until','nextAt','lastDispatch'].some(k=>s[k]!==undefined&&!Number.isFinite(s[k]))) throw Error('invalid state'); return s }
     catch (e) { if (e.code === 'ENOENT') return {}; throw new TrafficError('请求保护状态损坏，请检查 state/traffic.json；已停止网络请求') }
@@ -67,12 +68,39 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
       try { fs.unlinkSync(lockFile) } catch (e) { if (e?.code !== 'ENOENT') diagnose('traffic-lock-cleanup', e) }
     }
   }
-  function blocked(s, account) {
-    if (s.manual?.[account]) throw new TrafficError('账号需要人工处理登录或验证码；处理后运行 traffic resume --go')
-    if (Number(s.until ?? 0) > now()) throw new TrafficError(`请求已暂停，${new Date(s.until).toISOString()} 后再试（${s.reason ?? '平台限制'}）`)
+  function activeCooldown(s) {
     let legacy = {}
-    try { legacy=JSON.parse(fs.readFileSync(path.join(directory,'api-ban.json'),'utf8'));if(!legacy||typeof legacy!=='object'||Array.isArray(legacy)||legacy.until!==undefined&&!Number.isFinite(Number(legacy.until)))throw Error('invalid ban') } catch(e) { if(e.code!=='ENOENT'){diagnose('traffic-ban-read',e);throw new TrafficError('历史风控状态无法读取，已停止网络请求')} }
-    if (Number(legacy.until??0)>now()) throw new TrafficError('已有接口风控等待尚未结束，请等待恢复')
+    try {
+      legacy = JSON.parse(fs.readFileSync(legacyApiBan, 'utf8'))
+      if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy) || !Number.isFinite(Number(legacy.until ?? 0))) throw Error('invalid ban')
+    } catch (e) {
+      if (e.code !== 'ENOENT') {
+        diagnose('traffic-ban-read', e)
+        throw new TrafficError('历史风控状态无法读取，已停止网络请求')
+      }
+    }
+    const time = now()
+    const until = s.until ?? 0
+    const legacyUntil = Number(legacy.until ?? 0)
+    if (legacyUntil > Math.max(time, until)) {
+      return { until: legacyUntil, endpoint: legacy.endpoint ?? null, reason: legacy.why ?? null }
+    }
+    if (until <= time) return null
+    return {
+      ...s.riskRequest,
+      until,
+      endpoint: s.riskRequest?.endpoint ?? s.riskEndpoint ?? null,
+      reason: s.reason ?? null,
+    }
+  }
+  function blocked(s, account) {
+    const manual = s.manual?.[account]
+    if (manual) {
+      const message = manual.code === 12051 ? '重复评论触发限制，需要人工核查' : '账号需要人工处理登录或验证码'
+      throw new TrafficError(`${message}；处理后运行 traffic resume --go`)
+    }
+    const cooldown = activeCooldown(s)
+    if (cooldown) throw new TrafficError(`请求已暂停，${new Date(cooldown.until).toISOString()} 后再试（${cooldown.reason ?? '平台限制'}）`)
   }
   function identity(headers) {
     const cookie = new Headers(headers).get('cookie') ?? ''
@@ -172,11 +200,12 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
       }
       timing.bodyMs=now()-startedAt-timing.queuedMs-timing.transportMs
       phase='state-commit'
-      const code = Number(payload?.code)
-      const risk = [412,429].includes(response.status) || [-412,-352,-799,-509,-10403].includes(code)
+      const code = Number(payload?.code ?? NaN)
+      const request = { endpoint: url.pathname, method, http: response.status, code: Number.isFinite(code) ? code : null }
+      const risk = [412, 429].includes(response.status) || [-412, -352, -799, -509, -10403, 10031].includes(code)
       const session = (new Headers(headers).get('cookie')?.match(/(?:^|;)\s*SESSDATA=([^;]+)/i) ?? [])[1]
       const authenticated = !!session && !['undefined','null'].includes(session)
-      const manual = [12015,-105].includes(code) || (authenticated && (code === -101 || response.status === 401))
+      const manual = [12015, -105, 12051].includes(code) || (authenticated && (code === -101 || response.status === 401))
       const retry = response.headers?.get('retry-after')
       const retryMs = retry ? (/^\d+(\.\d+)?$/.test(retry) ? Number(retry)*1000 : Math.max(0, Date.parse(retry)-now())) : 0
       await locked(s => {
@@ -184,16 +213,20 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
         if (risk) {
           s.streak = Math.min(8, Number(s.streak ?? 0)+1)
           s.until = Math.max(Number(s.until??0),now()+Math.max(Number.isFinite(retryMs)?retryMs:0,Math.min(1800000,300000*2**(s.streak-1))))
-          s.reason = `HTTP ${response.status} / code ${Number.isFinite(code)?code:'unknown'}`
-          s.riskEndpoint = url.pathname
+          s.reason = `HTTP ${request.http} / code ${request.code ?? 'unknown'}`
+          s.riskEndpoint = request.endpoint
+          s.riskRequest = request
         } else if (code === 0 && s.riskEndpoint === url.pathname && now() >= Number(s.until??0)) s.streak = 0
-        if (manual) { s.manual ??= {}; s.manual[account] = {at:now(),code:Number.isFinite(code)?code:response.status} }
+        if (manual) {
+          s.manual ??= {}
+          s.manual[account] = { ...request, at: now() }
+        }
         if (id && s.operations?.[id]) {
           if (response.ok && code === 0) s.operations[id].status = 'confirmed'
           else if (payload && Number.isFinite(code) && code !== 0) delete s.operations[id]
           else s.operations[id].status = 'unknown'
         }
-        s.last = { at: now(), endpoint: url.pathname, method, http: response.status, code: Number.isFinite(code)?code:null, phase:bodyError?'response-body-error':'complete',...(bodyError?{errorCode:bodyError}:{}),elapsedMs:now()-startedAt,...timing }
+        s.last = { at: now(), ...request, phase:bodyError?'response-body-error':'complete',...(bodyError?{errorCode:bodyError}:{}),elapsedMs:now()-startedAt,...timing }
       })
       return response
     } catch (e) {
@@ -214,6 +247,10 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
       return inflight.get(key).then(r=>r.clone())
     },
     status: () => read(),
+    pauseStatus: headers => {
+      const state = read()
+      return { cooldown: activeCooldown(state), manual: state.manual?.[identity(headers)] ?? null }
+    },
     pauseReason: headers => { try { blocked(read(),identity(headers));return null } catch(e) {return e.message} },
     resume: headers => locked(s => { if (s.manual) delete s.manual[identity(headers)] }),
     resolve: (id, outcome) => locked(s => { if (!s.operations?.[id]) throw new TrafficError('找不到操作 ID'); if (outcome === 'not-sent') delete s.operations[id]; else if (outcome === 'confirmed') s.operations[id].status='confirmed'; else throw new TrafficError('outcome 必须是 confirmed 或 not-sent') }),

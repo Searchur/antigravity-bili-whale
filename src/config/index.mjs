@@ -78,7 +78,7 @@ export const MAX_DISLIKE_TAGS = 12
 export const MAX_PERSONA_CHARS = 4000
 export const MAX_CUSTOM_SAFETY_WORDS = 50
 
-/** 中性默认值：使用 Antigravity 自适应模型；对外分享/监听开关默认关闭（自主评论除外）；安全审核默认开启。 */
+/** 中性默认值：兼容旧版模型配置，默认关闭对外分享与监听，开启自主评论与安全审核。 */
 export const DEFAULTS = {
   browse: { ...BROWSE_DEFAULTS },
   chat: { ...CHAT_DEFAULTS },

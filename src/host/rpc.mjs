@@ -6,45 +6,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 
-export const TIER_MODELS = Object.freeze([
-  {
-    id: 'flash',
-    label: '自动 · Flash 档位（均衡推荐）',
-    groupKey: 'auto-tier',
-    groupName: '自动档位（随 Antigravity 自动更新）',
-    thinkingLevel: 'flash',
-    thinkingLabel: 'Flash（均衡）',
-    tagTitle: '推荐',
-    tagDescription: '自动映射到 Antigravity 当前主力高效模型，无需随版本下线手动切换。',
-    supportsImages: true,
-    remainingFraction: null,
-  },
-  {
-    id: 'flash_lite',
-    label: '自动 · Flash Lite 档位（极速省配额）',
-    groupKey: 'auto-tier',
-    groupName: '自动档位（随 Antigravity 自动更新）',
-    thinkingLevel: 'flash_lite',
-    thinkingLabel: 'Flash Lite（省配额）',
-    tagTitle: '后台推荐',
-    tagDescription: '自动映射到 Antigravity 当前轻量模型，适合记忆归纳、安全复审与心情分析。',
-    supportsImages: true,
-    remainingFraction: null,
-  },
-  {
-    id: 'pro',
-    label: '自动 · Pro 档位（深度推理）',
-    groupKey: 'auto-tier',
-    groupName: '自动档位（随 Antigravity 自动更新）',
-    thinkingLevel: 'pro',
-    thinkingLabel: 'Pro（深度）',
-    tagTitle: '',
-    tagDescription: '自动映射到 Antigravity 当前旗舰深度推理模型。',
-    supportsImages: true,
-    remainingFraction: null,
-  },
-])
-
 /**
  * 将 GetCascadeModelConfigData 原始响应规整为前端可直接渲染的完整分组模型清单。
  */
@@ -96,6 +57,11 @@ export function normalizeModelCatalog(raw) {
       thinkingLevel = id
     }
 
+    const quotaInfo = cfg.quotaInfo
+    // ProtoJSON 可以省略配额消息中默认值为零的数值字段。
+    const fraction = quotaInfo && typeof quotaInfo === 'object' && !Array.isArray(quotaInfo)
+      ? quotaInfo.remainingFraction ?? 0
+      : null
     const item = {
       id,
       label,
@@ -106,8 +72,8 @@ export function normalizeModelCatalog(raw) {
       tagTitle: String(cfg.tagTitle || ''),
       tagDescription: String(cfg.tagDescription || ''),
       supportsImages: cfg.supportsImages !== false,
-      remainingFraction: typeof cfg.quotaInfo?.remainingFraction === 'number' ? cfg.quotaInfo.remainingFraction : null,
-      resetTime: cfg.quotaInfo?.resetTime || null,
+      remainingFraction: Number.isFinite(fraction) ? fraction : null,
+      resetTime: quotaInfo?.resetTime || null,
     }
     models.push(item)
 
@@ -132,31 +98,20 @@ export function normalizeModelCatalog(raw) {
     grp.variants.sort((a, b) => (EFFORT_RANK[a.thinkingLevel] ?? 99) - (EFFORT_RANK[b.thinkingLevel] ?? 99))
   }
 
-  const tierGroup = {
-    key: 'auto-tier',
-    name: '自动档位（随 Antigravity 自动更新）',
-    tagTitle: '自适应',
-    tagDescription: '自动跟随当前版本对应档位，不会因旧模型下线而失效。',
-    supportsImages: true,
-    remainingFraction: null,
-    variants: [...TIER_MODELS],
-  }
-
   return {
     ok: true,
     source: models.length ? 'live' : 'fallback',
-    total: models.length + TIER_MODELS.length,
+    total: models.length,
     liveCount: models.length,
-    groups: [tierGroup, ...groupMap.values()],
-    models: [...TIER_MODELS, ...models],
+    groups: [...groupMap.values()],
+    models,
   }
 }
 
 export function fallbackModelCatalog(reason = '') {
   return {
     ...normalizeModelCatalog({}),
-    source: 'fallback',
-    note: reason || '未连接到 Antigravity Language Server，暂时仅显示自适应档位。',
+    note: reason || '暂未读取 Antigravity 模型清单，请确认后台守护已启动后刷新。',
   }
 }
 

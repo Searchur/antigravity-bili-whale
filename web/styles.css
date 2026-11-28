@@ -15,9 +15,12 @@
   --err: var(--color-text-danger, #dc2626);
   --info-bg: var(--color-background-info, rgba(14, 165, 233, 0.12));
   --font: var(--font-sans, "Segoe UI", system-ui, -apple-system, sans-serif);
+  --settings-indent: 12px;
+  --settings-divider-width: 2px;
 }
 
 * { box-sizing: border-box; }
+html { scrollbar-gutter: stable; }
 html, body {
   margin: 0;
   padding: 0;
@@ -124,6 +127,7 @@ html, body {
 }
 
 .tab-btn {
+  width: 7em;
   background: transparent;
   color: var(--fg-2);
   border: 1px solid transparent;
@@ -153,6 +157,7 @@ html, body {
 }
 
 .card {
+  container-type: inline-size;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
   border-radius: 10px;
@@ -211,9 +216,14 @@ html, body {
 .input, .select {
   height: 30px;
   padding: 0 9px;
-  min-width: 200px;
 }
 
+.input { min-width: 200px; }
+.select {
+  /* 以卡片内容宽度为准，为带缩进的设置行预留同等空间。 */
+  width: min(352px, 100%, calc(100cqi - 2 * var(--settings-indent) - var(--settings-divider-width)));
+  min-width: 0;
+}
 .input.wide { min-width: 290px; }
 .input.sm { width: 84px; min-width: 84px; }
 .input.xs { width: 62px; min-width: 62px; }
@@ -488,6 +498,7 @@ html, body {
 }
 
 .quota-fill {
+  display: block;
   height: 100%;
   border-radius: 999px;
   background: var(--ok);
@@ -1024,9 +1035,9 @@ html, body {
 .rule-tier-v { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
 
 .sub-block {
-  margin: 6px 0 4px 12px;
-  padding-left: 12px;
-  border-left: 2px solid var(--border-2);
+  margin: 6px 0 4px var(--settings-indent);
+  padding-left: var(--settings-indent);
+  border-left: var(--settings-divider-width) solid var(--border-2);
 }
 
 .frame-calc-box {

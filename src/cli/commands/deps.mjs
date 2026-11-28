@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { WHALE_HOME, credentialsPath, configPath, DATA_PATHS } from '../../core/paths.mjs'
 import { guardedFetch as fetch, trafficGuard } from '../../bili/traffic.mjs'
+import { makeHeaders } from '../../bili/message-feed.mjs'
 import { deliveryStatus } from '../../daemon/delivery-state.mjs'
 import { readSchedulerHealth } from '../../daemon/scheduler-health.mjs'
 import { ffmpegInfo } from '../../media/ffmpeg.mjs'
@@ -15,28 +16,32 @@ const asJson = process.argv.includes('--json')
 const items = []
 
 // 1. B站 cookie
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 let credOk = false, credNote = ''
+let loginPaused = false
+let probedHeaders
 try {
   const c = JSON.parse(fs.readFileSync(cred, 'utf8'))
   const miss = ['sessdata', 'bili_jct'].filter((k) => !c[k] || !String(c[k]).trim())
   if (miss.length) { credNote = `缺字段：${miss.join(', ')}` }
   else {
-    const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
-      headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: `SESSDATA=${c.sessdata}; bili_jct=${c.bili_jct}; buvid3=${c.buvid3}` },
-    })).json()
+    probedHeaders = makeHeaders(c)
+    const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', { headers: probedHeaders })).json()
     credOk = nav.code === 0 && !!nav.data?.isLogin
     credNote = credOk
       ? `已登录：${nav.data.uname}（mid ${nav.data.mid}）`
       : `cookie 无效：code=${nav.code} ${nav.message ?? ''} —— 请在左侧栏「哔哩哔哩大鲸鱼」重新扫码登录`
   }
-} catch (e) { credNote = e.code === 'BILI_TRAFFIC_PAUSED' ? e.message : `尚未登录或无法验证凭据：${e.message}` }
-items.push({
+} catch (e) {
+  loginPaused = e.code === 'BILI_TRAFFIC_PAUSED'
+  credNote = `尚未登录或无法验证凭据：${e.message}`
+}
+const loginCheck = {
   name: 'B站 cookie',
   ok: credOk,
   detail: credNote,
   fix: '在左侧栏「哔哩哔哩大鲸鱼」→「大鲸鱼与主人」扫码登录；若处于请求保护暂停请先等待恢复。',
-})
+}
+items.push(loginCheck)
 
 // 2. ffmpeg
 const ff = ffmpegInfo()
@@ -157,19 +162,41 @@ try {
 
 // 8. 全局请求保护
 try {
-  const state = trafficGuard().status()
-  const manual = Object.keys(state.manual ?? {}).length
-  let currentPause
-  try { const c = JSON.parse(fs.readFileSync(cred, 'utf8')); currentPause = trafficGuard().pauseReason({ cookie: `SESSDATA=${c.sessdata}` }) } catch {}
+  const guard = trafficGuard()
+  // 在线检查期间可能换号，按当前凭据查人工暂停。
+  let currentHeaders
+  try {
+    const current = JSON.parse(fs.readFileSync(cred, 'utf8'))
+    if (current?.sessdata) currentHeaders = makeHeaders(current)
+  } catch {}
+  const pause = guard.pauseStatus(currentHeaders)
+  const paused = Boolean(pause.cooldown || pause.manual)
+  if (!credOk && probedHeaders && paused) loginPaused = true
+  const state = guard.status()
   const pending = Object.values(state.operations ?? {}).filter(x => ['pending', 'unknown'].includes(x.status)).length
+  const pendingDetail = pending ? `${pending} 条发送结果待核查。` : ''
+  const detail = [
+    pause.manual ? '当前会话已暂停，等待人工处理。' : '',
+    pause.cooldown ? `请求冷却至 ${new Date(pause.cooldown.until).toLocaleString('zh-CN')}（本地时间）。${pause.cooldown.reason ?? ''}` : '',
+    pendingDetail,
+  ].filter(Boolean).join(' ')
   items.push({
     name: '全局请求保护',
-    ok: !currentPause && !pending,
-    detail: `${currentPause ?? '当前账号可请求'}；${manual} 个会话凭据曾需人工处理，${pending} 条发送结果待核查`,
-    fix: '运行 node src/cli/bili.mjs traffic status 查看。人工核查前不要重发或解除暂停。',
+    ok: !paused && !pending,
+    detail: detail || '当前可请求。',
+    fix: [
+      pause.manual ? '处理后可在插件目录运行 node src/cli/bili.mjs traffic resume --go。' : '',
+      pending ? '请先核查发送结果，再决定是否重发。' : '',
+    ].filter(Boolean).join(' '),
+    ...(paused && { pause, pendingDetail }),
   })
 } catch (e) {
   items.push({ name: '全局请求保护', ok: false, detail: e.message, fix: '检查请求保护状态文件' })
+}
+if (loginPaused) {
+  loginCheck.paused = true
+  loginCheck.detail = '全局请求保护已暂停在线登录校验。'
+  loginCheck.fix = '请查看「全局防风控保护」。'
 }
 
 const bad = items.filter((i) => !i.ok)

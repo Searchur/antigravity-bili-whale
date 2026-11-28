@@ -557,13 +557,28 @@ export function createApiHandlers({
     }
     const viaIpc = await ipcClient('/models', { timeoutMs: 8_000 })
     if (viaIpc?.running && Array.isArray(viaIpc.groups)) {
+      let groups = viaIpc.groups
+      let models = viaIpc.models ?? []
+      const legacy = groups.some(group => group.key === 'auto-tier')
+      if (legacy) {
+        // 旧版后台守护仍会保留重置时间，但把省略的零配额记成空值。
+        const restoreQuota = model => model.remainingFraction === null && model.resetTime
+          ? { ...model, remainingFraction: 0 }
+          : model
+        models = models.filter(model => model.groupKey !== 'auto-tier').map(restoreQuota)
+        groups = groups.filter(group => group.key !== 'auto-tier').map(group => {
+          const variants = group.variants.map(restoreQuota)
+          return { ...group, variants, remainingFraction: group.remainingFraction ?? variants[0]?.remainingFraction ?? null }
+        })
+      }
+      if (!groups.length) return fallbackModelCatalog(legacy ? '' : viaIpc.note)
       return {
         ok: true,
         source: viaIpc.source || 'live',
-        total: viaIpc.total ?? viaIpc.models?.length ?? 0,
-        liveCount: viaIpc.liveCount ?? 0,
-        groups: viaIpc.groups,
-        models: viaIpc.models ?? [],
+        total: models.length,
+        liveCount: models.length,
+        groups,
+        models,
         note: viaIpc.note || '',
       }
     }
@@ -580,11 +595,12 @@ export function createApiHandlers({
 
       let key = 'other'
       let name = rawName
-      let optional = false
       let version = ''
       let location = ''
       let summary = detail
       let action = null
+      let pause
+      let status = it.ok ? 'ok' : 'error'
 
       if (rawName.startsWith('Node.js')) {
         key = 'node'
@@ -597,7 +613,7 @@ export function createApiHandlers({
       } else if (rawName.startsWith('ffmpeg')) {
         key = 'ffmpeg'
         name = 'ffmpeg（视频抽帧组件）'
-        optional = true
+        if (!it.ok) status = 'optional'
         const [firstLine, secondLine] = detail.split('\n').map(s => s.trim())
         const verMatch = firstLine.match(/ffmpeg\s+version\s+([^\s]+)/i)
         const cleanVer = verMatch ? verMatch[1].replace(/-www\.[^-]+$/i, '') : firstLine.slice(0, 36)
@@ -607,10 +623,18 @@ export function createApiHandlers({
       } else if (rawName.includes('cookie')) {
         key = 'bilibili'
         name = '大鲸鱼 B 站登录状态'
-        const m = detail.match(/已登录：(.+?)（mid (\d+)）/)
-        version = it.ok ? (m ? `${m[1]}（UID ${m[2]}）` : detail) : '尚未登录'
-        summary = it.ok ? '登录凭据校验有效，仅当前 Windows 用户可读。' : '尚未连接大鲸鱼 B 站账号，请前往「账号与主人」扫码登录。'
-        if (!it.ok) action = 'goto_login'
+        if (it.paused) {
+          version = '暂缓校验'
+          status = 'paused'
+        } else if (it.ok) {
+          const m = detail.match(/已登录：(.+?)（mid (\d+)）/)
+          version = m ? `${m[1]}（UID ${m[2]}）` : detail
+          summary = '登录凭据校验有效，仅当前 Windows 用户可读。'
+        } else {
+          version = '尚未登录'
+          summary = '尚未连接大鲸鱼 B 站账号，请前往「账号与主人」扫码登录。'
+          action = 'goto_login'
+        }
       } else if (rawName.includes('限流')) {
         key = 'rate'
         name = 'B 站接口限流保护'
@@ -618,19 +642,23 @@ export function createApiHandlers({
       } else if (rawName.includes('请求保护')) {
         key = 'traffic'
         name = '全局防风控保护'
-        version = it.ok ? '正常' : '需核查'
+        pause = it.pause
+        version = pause?.manual ? '等待人工处理' : pause?.cooldown ? '冷却中' : it.ok ? '正常' : '需核查'
+        if (pause) summary = it.pendingDetail ?? ''
+        if (pause?.cooldown && !pause.manual && !it.pendingDetail) status = 'paused'
       }
 
       cards.push({
         key,
         name,
         ok: Boolean(it.ok),
-        status: it.ok ? 'ok' : optional ? 'optional' : 'error',
+        status,
         version,
         location,
         detail: summary,
         fix: it.ok ? '' : (it.fix || ''),
         action,
+        ...(pause && { pause }),
       })
     }
 
@@ -786,7 +814,7 @@ export function createApiHandlers({
         }
       } catch {}
       const cards = formatDepsCards(parsed.items ?? [], scheduler, livePid)
-      const allRequiredOk = cards.every(c => c.status !== 'error')
+      const allRequiredOk = cards.every(c => c.ok || c.status === 'optional')
       return {
         ok: allRequiredOk,
         checkedAt: new Date().toISOString(),

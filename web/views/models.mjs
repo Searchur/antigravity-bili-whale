@@ -4,50 +4,27 @@
 import { el, getPath, row, selectCtrl, statusPill, metaPill, banner } from './sections.mjs'
 import { belowQuotaThreshold, remainingQuotaPercent } from '../../src/shared/quota-percentage.mjs'
 
-const LIGHT_MODEL_RE = /(?:^|[^a-z0-9])(?:lite|mini)(?:$|[^a-z0-9])|flashlite/i
+const LEGACY_PRESETS = new Set(['flash', 'flash_lite', 'pro'])
 
 function findModel(catalog, id) {
   const list = catalog?.models ?? []
-  return list.find(m => m.id === id) || null
+  return list.find(m => m.groupKey !== 'auto-tier' && m.id === id) || null
 }
 
-function resolveQuotaModel(catalog, modelId) {
-  const live = (catalog?.models ?? []).filter(
-    m => m && m.groupKey !== 'auto-tier' && typeof m.remainingFraction === 'number' && !Number.isNaN(m.remainingFraction),
-  )
-  if (!live.length) return null
-  const exact = live.find(m => m.id === modelId)
-  if (exact) return exact
-  const id = String(modelId || '').toLowerCase()
-  if (id === 'flash_lite') {
-    return live.find(m => LIGHT_MODEL_RE.test(`${m.id} ${m.label}`)) || null
-  }
-  if (id === 'flash') {
-    return live.find(m => /flash|hydrogen|carbon/i.test(`${m.id} ${m.label}`) && !LIGHT_MODEL_RE.test(`${m.id} ${m.label}`)) || null
-  }
-  if (id === 'pro') {
-    return live.find(m => /pro|neon|opus|sonnet/i.test(`${m.id} ${m.label}`)) || null
-  }
-  return null
-}
-
-function formatModelTitle(catalog, id) {
-  const m = findModel(catalog, id)
-  if (!m) return id || '未选择'
-  if (m.groupKey === 'auto-tier') return m.label
+function formatModelTitle(m) {
   if (m.thinkingLabel && m.thinkingLabel !== '默认') return `${m.groupName} · ${m.thinkingLabel}`
   return m.label || m.groupName
 }
 
 function tagClass(tagTitle) {
   const t = String(tagTitle || '').toLowerCase()
-  if (t.includes('new') || t.includes('推荐') || t.includes('自适应')) return 'new'
+  if (t.includes('new') || t.includes('推荐')) return 'new'
   if (t.includes('leaving') || t.includes('soon') || t.includes('notice')) return 'warn'
   return ''
 }
 
 function renderQuota(fraction) {
-  if (typeof fraction !== 'number' || Number.isNaN(fraction)) return null
+  if (!Number.isFinite(fraction)) return el('span', { className: 'quota-wrap' }, '配额未返回')
   const pct = remainingQuotaPercent(fraction)
   const fillCls = pct <= 20 ? 'low' : pct <= 50 ? 'mid' : ''
   return el('span', { className: 'quota-wrap' },
@@ -60,23 +37,25 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
   const activeId = activeRole === 'main' ? mainId : workerId
   const otherId = activeRole === 'main' ? workerId : mainId
   const otherLabel = activeRole === 'main' ? '后台' : '主线'
-  const hasActive = (group.variants ?? []).some(v => v.id === activeId)
-  const isAuto = group.key === 'auto-tier'
+  const variants = group.variants ?? []
+  const activeVariant = variants.find(v => v.id === activeId)
+  const groupFraction = group.remainingFraction ?? null
+  const quotaVaries = variants.some(v => (v.remainingFraction ?? null) !== groupFraction)
 
-  return el('div', { className: 'model-group' + (hasActive ? ' has-active' : '') },
+  return el('div', { className: 'model-group' + (activeVariant ? ' has-active' : '') },
     el('div', { className: 'model-head' },
       el('div', { className: 'model-title-wrap' },
         el('span', { className: 'model-name' }, group.name),
         group.tagTitle
           ? el('span', { className: `model-tag ${tagClass(group.tagTitle)}`.trim() }, group.tagTitle)
           : null,
-        !isAuto && group.supportsImages
+        group.supportsImages
           ? el('span', { className: 'model-tag ok' }, '支持看图')
           : null),
-      !isAuto ? renderQuota(group.remainingFraction) : null),
+      activeVariant || !quotaVaries ? renderQuota(activeVariant ? activeVariant.remainingFraction : groupFraction) : null),
     el('div', { className: 'effort-row' },
-      el('span', { className: 'effort-label' }, isAuto ? '选择档位：' : 'Thinking 强度 / 规格：'),
-      ...(group.variants ?? []).map((v) => {
+      el('span', { className: 'effort-label' }, 'Thinking 强度或规格'),
+      ...variants.map(v => {
         const isCurrent = v.id === activeId
         const isOther = v.id === otherId && otherId !== activeId
         const cls = ['effort-btn', isCurrent ? 'active' : '', isOther ? 'other-role' : ''].filter(Boolean).join(' ')
@@ -86,6 +65,8 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
           onClick: () => onPick(activeRole, v.id),
         },
         v.thinkingLabel || v.label,
+        quotaVaries ? el('span', { className: 'effort-badge' }, Number.isFinite(v.remainingFraction)
+          ? `${remainingQuotaPercent(v.remainingFraction)}%` : '配额未返回') : null,
         isOther ? el('span', { className: 'effort-badge' }, otherLabel) : null)
       })))
 }
@@ -96,8 +77,8 @@ function renderGroupCard(group, { activeRole, mainId, workerId, onPick }) {
 export function renderModelsTab(state, actions) {
   const cfg = state.cfg
   const catalog = state.modelCatalog
-  const mainId = getPath(cfg, ['models', 'main']) || 'flash'
-  const workerId = getPath(cfg, ['models', 'worker']) || 'flash_lite'
+  const mainId = getPath(cfg, ['models', 'main']) || ''
+  const workerId = getPath(cfg, ['models', 'worker']) || ''
   const minQuotaChoices = [0, 10, 20, 30, 40, 50]
   const rawMinQuota = Number(getPath(cfg, ['models', 'minQuotaPercent']) ?? 20)
   const minQuotaVal = Number.isFinite(rawMinQuota) ? Math.max(0, Math.min(95, Math.floor(rawMinQuota))) : 20
@@ -114,12 +95,13 @@ export function renderModelsTab(state, actions) {
   }
   const activeRole = state.modelRole === 'worker' ? 'worker' : 'main'
   const isLive = catalog?.source === 'live'
-  const groups = catalog?.groups ?? []
-  const autoGroups = groups.filter(g => g.key === 'auto-tier')
-  const liveGroups = groups.filter(g => g.key !== 'auto-tier')
+  const liveGroups = (catalog?.groups ?? []).filter(g => g.key !== 'auto-tier')
+  const mainModel = findModel(catalog, mainId)
+  const workerModel = findModel(catalog, workerId)
 
   const activeId = activeRole === 'main' ? mainId : workerId
-  const missingInCatalog = isLive && activeId && !findModel(catalog, activeId)
+  const activeModel = activeRole === 'main' ? mainModel : workerModel
+  const missingInCatalog = isLive && !activeModel
   const rawRotate = Number(getPath(cfg, ['sessionRotateDays']) ?? 7)
   const rotateChoices = [0, 3, 7, 14, 30]
   const rotateVal = Number.isFinite(rawRotate) ? Math.max(0, Math.min(365, Math.floor(rawRotate))) : 7
@@ -134,8 +116,8 @@ export function renderModelsTab(state, actions) {
     rotateOptions.push([String(rotateVal), `每 ${rotateVal} 天轮换一次（自定义）`])
   }
 
-  const mainLive = isLive ? resolveQuotaModel(catalog, mainId) : null
-  const workerLive = isLive ? resolveQuotaModel(catalog, workerId) : null
+  const mainLive = isLive && Number.isFinite(mainModel?.remainingFraction) ? mainModel : null
+  const workerLive = isLive && Number.isFinite(workerModel?.remainingFraction) ? workerModel : null
   const lowHit = workerLive && (!mainLive || workerLive.remainingFraction < mainLive.remainingFraction)
     ? { role: '后台辅助模型', model: workerLive }
     : (mainLive ? { role: '前台主线模型', model: mainLive } : null)
@@ -148,11 +130,13 @@ export function renderModelsTab(state, actions) {
   const quotaBannerText = serverQuota?.paused && serverQuota.reason
     ? serverQuota.reason
     : (localBelow
-      ? `当前${lowHit.role}（${formatModelTitle(catalog, lowHit.model.id)}）剩余配额 ${lowQuotaPct}% 低于保护阈值 ${minQuotaVal}%，保存后将暂停全部自动后台活动，待配额恢复后自动解除。`
+      ? `当前${lowHit.role}（${formatModelTitle(lowHit.model)}）剩余配额 ${lowQuotaPct}% 低于保护阈值 ${minQuotaVal}%，保存后将暂停全部自动后台活动，待配额恢复后自动解除。`
       : '')
 
-  const roleCard = (role, title, desc, modelId) => {
+  const roleCard = (role, title, desc, modelId, model) => {
     const selected = activeRole === role
+    const needsSelection = !model && (!modelId || LEGACY_PRESETS.has(modelId))
+    const modelTitle = model ? formatModelTitle(model) : needsSelection ? '待选择实际模型' : modelId
     return el('button', {
       type: 'button',
       className: 'role-card' + (selected ? ' active' : ''),
@@ -162,8 +146,8 @@ export function renderModelsTab(state, actions) {
       el('span', { className: 'role-card-title' }, title),
       metaPill(selected ? '当前正在设置' : '点击切换设置', selected ? 'info' : '')),
     el('div', { className: 'role-card-desc' }, desc),
-    el('div', { className: 'role-card-val' }, formatModelTitle(catalog, modelId)),
-    el('div', { className: 'role-card-id mono' }, modelId))
+    el('div', { className: 'role-card-val' }, modelTitle),
+    needsSelection ? null : el('div', { className: 'role-card-id mono' }, modelId))
   }
 
   const sessionCard = el('div', { className: 'card' },
@@ -193,7 +177,7 @@ export function renderModelsTab(state, actions) {
           el('h2', {}, '内置模型选择'),
           isLive
             ? statusPill('ok', `已读取 ${catalog.liveCount} 个实时模型档位`)
-            : statusPill('warn', '自适应档位模式'),
+            : statusPill('warn', '未读取模型清单'),
           quotaPausedNow
             ? statusPill('warn', '配额保护已暂停')
             : null),
@@ -206,22 +190,18 @@ export function renderModelsTab(state, actions) {
       el('p', { className: 'card-sub' }, '全程仅使用 Antigravity 内置模型，无需外部 API Key。先选择上方要配置的模型用途，再点击下方模型档位；修改后请点击右上角「保存配置」生效。'),
       quotaBannerText ? banner('warn', quotaBannerText) : null,
       el('div', { className: 'role-grid' },
-        roleCard('main', '前台主线模型', '负责视频观看、画面理解、私信对话与评论互动；建议选择均衡或高性能模型。', mainId),
-        roleCard('worker', '后台辅助模型', '负责长期记忆归纳、心情分析与外发安全语义复审，运行后自动归档；建议选择低消耗轻量模型。', workerId)),
-      !isLive && catalog?.note
-        ? banner('warn', `${catalog.note.replace(/。$/, '')}。后台守护启动后点击右上角「刷新模型列表」即可拉取完整清单。`)
+        roleCard('main', '前台主线模型', '负责视频观看、画面理解、私信对话与评论互动；建议选择均衡或高性能模型。', mainId, mainModel),
+        roleCard('worker', '后台辅助模型', '负责长期记忆归纳、心情分析与外发安全语义复审，运行后自动归档；建议选择低消耗轻量模型。', workerId, workerModel)),
+      !isLive && !state.modelsError && state.busy !== 'models'
+        ? banner('warn', catalog?.note || '请确认后台守护已启动，再点击「刷新模型列表」。')
         : null,
       state.modelsError
         ? banner('err', state.modelsError)
         : null,
       missingInCatalog
-        ? banner('warn', `当前已保存的模型「${activeId}」不在本次读取的可用清单中，请在下方重新点选。`)
-        : null,
-      autoGroups.length > 0 ? el('div', { className: 'model-section-title' }, '自适应档位（推荐 · 随 Antigravity 自动映射）') : null,
-      autoGroups.length > 0
-        ? el('div', { className: 'model-list' }, ...autoGroups.map(g => renderGroupCard(g, {
-            activeRole, mainId, workerId, onPick: actions.selectModel,
-          })))
+        ? banner('warn', !activeId || LEGACY_PRESETS.has(activeId)
+          ? '请从下方清单为当前用途选择一个模型档位并保存。'
+          : `当前已保存的模型「${activeId}」不在本次读取的可用清单中，请在下方重新点选。`)
         : null,
       liveGroups.length > 0 ? el('div', { className: 'model-section-title' }, `当前 Antigravity 完整模型清单（${liveGroups.length} 个模型家族 · 点击 Thinking 强度即选）`) : null,
       liveGroups.length > 0

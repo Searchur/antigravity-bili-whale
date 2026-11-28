@@ -10,6 +10,7 @@ import { createAntigravitySessionController } from '../../src/host/session.mjs'
 import { createAntigravityTextComplete, extractJsonText } from '../../src/host/text-complete.mjs'
 import { createSessionDelivery } from '../../src/daemon/session-delivery.mjs'
 import { normalizeModelCatalog, fallbackModelCatalog } from '../../src/host/rpc.mjs'
+import { evaluateModelQuota } from '../../src/host/model-quota-guard.mjs'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -228,14 +229,40 @@ test('normalizeModelCatalog groups families, sorts Thinking effort Low->XHigh, p
   const cat = normalizeModelCatalog(raw)
   assert.equal(cat.source, 'live')
   assert.equal(cat.liveCount, 5)
-  assert.deepEqual(cat.groups.map(g => g.key), ['auto-tier', 'gemini-4-neon', 'orchestrator', 'claude-opus-5-5'])
+  assert.equal(cat.total, 5)
+  assert.deepEqual(cat.groups.map(g => g.key), ['gemini-4-neon', 'orchestrator', 'claude-opus-5-5'])
+  assert.ok(cat.models.every(model => raw.clientModelConfigs.some(cfg => cfg.modelId === model.id)))
   // 即使 sortLabels 中 XHigh 在前，Thinking 档位仍应按 Low 到 Extra High 升序排列
-  assert.deepEqual(cat.groups[1].variants.map(v => v.thinkingLabel), ['Low', 'Extra High'])
-  assert.equal(cat.groups[2].variants[0].thinkingLabel, 'Neon')
-  assert.deepEqual(cat.groups[3].variants.map(v => v.thinkingLabel), ['Low', 'High'])
+  assert.deepEqual(cat.groups[0].variants.map(v => v.thinkingLabel), ['Low', 'Extra High'])
+  assert.equal(cat.groups[1].variants[0].thinkingLabel, 'Neon')
+  assert.deepEqual(cat.groups[2].variants.map(v => v.thinkingLabel), ['Low', 'High'])
 
   const fb = fallbackModelCatalog('offline')
   assert.equal(fb.source, 'fallback')
-  assert.equal(fb.groups.length, 1)
-  assert.equal(fb.groups[0].key, 'auto-tier')
+  assert.deepEqual(fb.groups, [])
+  assert.deepEqual(fb.models, [])
+  assert.equal(fb.total, 0)
+})
+
+test('quota messages with an omitted zero remain available for display and quota protection', () => {
+  const resetTime = '2026-11-29T00:00:00Z'
+  const catalog = normalizeModelCatalog({ clientModelConfigs: [
+    { modelId: 'exhausted-by-default', quotaInfo: { resetTime } },
+    { modelId: 'exhausted-explicit', quotaInfo: { remainingFraction: 0, resetTime } },
+    { modelId: 'exhausted-empty-message', quotaInfo: {} },
+    { modelId: 'available', quotaInfo: { remainingFraction: 1 } },
+    { modelId: 'unknown-quota' },
+  ] })
+  const readFraction = id => catalog.models.find(model => model.id === id)?.remainingFraction
+  assert.equal(readFraction('exhausted-by-default'), 0)
+  assert.equal(readFraction('exhausted-explicit'), 0)
+  assert.equal(readFraction('exhausted-empty-message'), 0)
+  assert.equal(readFraction('available'), 1)
+  assert.equal(readFraction('unknown-quota'), null)
+  assert.equal(catalog.groups.find(group => group.key === 'exhausted-by-default')?.remainingFraction, 0)
+
+  const status = evaluateModelQuota(catalog, { main: 'exhausted-by-default', worker: 'available', minQuotaPercent: 20 })
+  assert.equal(status.paused, true)
+  assert.equal(status.remainingPercent, 0)
+  assert.equal(status.resetTime, resetTime)
 })
