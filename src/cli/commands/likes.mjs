@@ -47,7 +47,7 @@ try {
   const uniq = [...new Map(merged.map((x) => [String(x.id), x])).values()]
   items = uniq.filter((x) => Number(x.like_time ?? 0) >= since)
 } catch (e) {
-  console.error('取「收到的赞」失败：' + String(e.message).slice(0, 160)); process.exit(3)
+  console.error('取【收到的赞】失败：' + String(e.message).slice(0, 160)); process.exit(3)
 }
 
 const ownerLiked = items.filter((it) => (it.users ?? []).some((u) => String(u.mid) === ownerMid))
@@ -62,9 +62,9 @@ if (JSONOUT) {
 if (ONLY_OWNER) {
   if (ownerLiked.length) {
     console.log(`✓ 主人在近 ${HOURS} 小时赞了她 ${ownerLiked.length} 次：`)
-    for (const it of selected) console.log(`  ${fmt(it.like_time)} · 共 ${it.counts} 赞 · ${it.item?.title ?? it.item?.business_id ?? ''}`)
+    for (const it of selected) console.log(`  ${fmt(it.like_time)}，共 ${it.counts} 赞，${it.item?.title ?? it.item?.business_id ?? ''}`)
   } else {
-    console.log(`（近 ${HOURS} 小时主人没点赞${ownerName ? ` · 主人=${ownerName}` : ''}）`)
+    console.log(`（近 ${HOURS} 小时主人没点赞${ownerName ? ` - 主人=${ownerName}` : ''}）`)
   }
   process.exit(0)
 }
@@ -73,6 +73,6 @@ console.log(`【收到的赞】近 ${HOURS} 小时 —— 共 ${items.length} �
 for (const it of items.slice(0, 20)) {
   const who = (it.users ?? []).map((u) => `${u.nickname}(mid ${u.mid})`).join(', ')
   const mine = (it.users ?? []).some((u) => String(u.mid) === ownerMid) ? ' ⭐主人' : ''
-  console.log(`· ${fmt(it.like_time)}  共 ${it.counts} 赞  ← ${who}${mine}`)
+  console.log(`- ${fmt(it.like_time)}  共 ${it.counts} 赞  ← ${who}${mine}`)
   if (it.item?.title) console.log(`    ${String(it.item.title).slice(0, 60)}`)
 }

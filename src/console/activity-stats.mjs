@@ -206,7 +206,7 @@ export function buildActivityCalendar({
     const fanAt = Number.isFinite(Number(fq?.lastAt)) && Number(fq.lastAt) > 0
       ? Number(fq.lastAt)
       : Math.min(nowMs, Date.parse(`${d}T23:59:59`))
-    pushItem(b, fanAt, 'fan', '粉丝互动', parts.join(' · '), '当日汇总')
+    pushItem(b, fanAt, 'fan', '粉丝互动', parts.join('、'), '当日汇总')
   }
 
   // 5. logs/safety-blocked.jsonl：按日统计内容安全审核拦截

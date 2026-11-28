@@ -91,7 +91,7 @@ if (AS_JSON) {
   process.exit(0)
 }
 
-console.log(`评论「${d.title}」`)
+console.log(`评论【${d.title}】`)
 console.log(`BV=${bvid}  aid=${aid}  总评论≈${rep.data?.page?.count ?? d.stat?.reply ?? '?'}  sort=${SORT === 2 ? '热度' : '时间'}  pn=${PN}  本页 ${list.length} 条`)
 if (!list.length) console.log('（这一页没有评论：可能关了评论区，或页码超了）')
 for (const [i, c] of list.entries()) {

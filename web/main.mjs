@@ -284,7 +284,7 @@ const actions = {
         ...state.ownerCheck,
         matched: true,
         expectedName: actualName,
-        detail: `已同步为 B 站实际昵称「${actualName}」，请点击右上角「保存配置」生效。`,
+        detail: `已同步为 B 站实际昵称【${actualName}】，请点击右上角【保存配置】生效。`,
       }
     }
     render()
@@ -514,7 +514,7 @@ const actions = {
               ok: false,
               status: 'error',
               version: '检测异常',
-              detail: '本次环境检测未能返回完整结果，请稍后点击「重新检测」。',
+              detail: '本次环境检测未能返回完整结果，请稍后点击【重新检测】。',
               action: null,
             },
           ],
@@ -532,7 +532,7 @@ const actions = {
             ok: false,
             status: 'error',
             version: '暂不可用',
-            detail: '未能连接到插件环境检测接口，请确认插件正在运行后点击「重新检测」。',
+            detail: '未能连接到插件环境检测接口，请确认插件正在运行后点击【重新检测】。',
             action: null,
           },
         ],

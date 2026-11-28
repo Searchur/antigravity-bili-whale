@@ -29,7 +29,7 @@ function line(mark, label, detail) {
 }
 
 const pkgVersion = (() => { try { return JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'package.json'), 'utf8')).version ?? '?' } catch { return '?' } })()
-console.log('哔哩哔哩大鲸鱼（antigravity-bili-whale）' + pkgVersion + ' · 启动检查')
+console.log(`哔哩哔哩大鲸鱼（antigravity-bili-whale）${pkgVersion} 启动检查`)
 
 let current
 try {
@@ -38,11 +38,11 @@ try {
   current = config()
   lifeConfig(current.life)
   line(OK, '配置文件', configPath)
-  line(current.self?.mid ? OK : NO, 'B 站账号', current.self?.mid ?? '请在左侧栏「哔哩哔哩大鲸鱼」→「大鲸鱼与主人」扫码登录')
-  line(current.owner?.mid ? OK : NO, '主人 UID', current.owner?.mid ?? '请在左侧栏「哔哩哔哩大鲸鱼」→「大鲸鱼与主人」填写主人 UID')
-  line(OK, '内置模型配置', `前台 ${current.models?.main ?? 'flash'} · 后台 Worker ${current.models?.worker ?? 'flash_lite'}`)
+  line(current.self?.mid ? OK : NO, 'B 站账号', current.self?.mid ?? '请在左侧栏【哔哩哔哩大鲸鱼】→【大鲸鱼与主人】扫码登录')
+  line(current.owner?.mid ? OK : NO, '主人 UID', current.owner?.mid ?? '请在左侧栏【哔哩哔哩大鲸鱼】→【大鲸鱼与主人】填写主人 UID')
+  line(OK, '内置模型配置', `前台 ${current.models?.main ?? 'flash'}，后台 Worker ${current.models?.worker ?? 'flash_lite'}`)
 } catch {
-  line(NO, '配置文件', configPath + '（缺失或不合法，请先在左侧栏「哔哩哔哩大鲸鱼」保存一次配置）')
+  line(NO, '配置文件', configPath + '（缺失或不合法，请先在左侧栏【哔哩哔哩大鲸鱼】保存一次配置）')
 }
 line(fs.existsSync(WHALE_HOME) ? OK : NO, '独立数据目录', WHALE_HOME)
 
@@ -68,6 +68,6 @@ if (failures === 0) {
   } catch {}
   console.log('✓ 启动检查通过')
 } else {
-  console.log(`✗ ${failures} 项需要处理。可在左侧栏「哔哩哔哩大鲸鱼」→「环境与依赖」查看详情。`)
+  console.log(`✗ ${failures} 项需要处理。可在左侧栏【哔哩哔哩大鲸鱼】→【环境与依赖】查看详情。`)
 }
 process.exitCode = failures === 0 ? 0 : 1

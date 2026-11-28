@@ -441,7 +441,7 @@ export function createApiHandlers({
         actualName,
         expectedName: '',
         sign,
-        detail: `已查到 UID ${mid} 对应的 B 站昵称为「${actualName}」，可点击一键填入。`,
+        detail: `已查到 UID ${mid} 对应的 B 站昵称为【${actualName}】，可点击一键填入。`,
       }
     }
     const matched = actualName === expectedName
@@ -453,8 +453,8 @@ export function createApiHandlers({
       expectedName,
       sign,
       detail: matched
-        ? `核验通过：UID ${mid} 与昵称「${actualName}」一致。`
-        : `核验不一致：UID ${mid} 在 B 站的实际昵称为「${actualName}」，与当前填写的「${expectedName}」不同。`,
+        ? `核验通过：UID ${mid} 与昵称【${actualName}】一致。`
+        : `核验不一致：UID ${mid} 在 B 站的实际昵称为【${actualName}】，与当前填写的【${expectedName}】不同。`,
     }
   }
 
@@ -632,7 +632,7 @@ export function createApiHandlers({
           summary = '登录凭据校验有效，仅当前 Windows 用户可读。'
         } else {
           version = '尚未登录'
-          summary = '尚未连接大鲸鱼 B 站账号，请前往「账号与主人」扫码登录。'
+          summary = '尚未连接大鲸鱼 B 站账号，请前往【账号与主人】扫码登录。'
           action = 'goto_login'
         }
       } else if (rawName.includes('限流')) {
@@ -676,7 +676,7 @@ export function createApiHandlers({
       name: '后台守护（Sidecar）',
       ok: Boolean(scheduler?.ok),
       status: scheduler?.ok ? 'ok' : 'error',
-      version: scheduler?.ok ? (livePid ? `运行中 · PID ${livePid}` : '运行中') : '未连接',
+      version: scheduler?.ok ? (livePid ? `运行中（PID ${livePid}）` : '运行中') : '未连接',
       location: '',
       detail: scheduler?.reason || '',
       fix: scheduler?.ok ? '' : '请确认插件已启用，或重启 Antigravity 后稍等几秒再检测。',
@@ -707,7 +707,7 @@ export function createApiHandlers({
         name: '后台守护（Sidecar）',
         ok: Boolean(scheduler?.ok),
         status: scheduler?.ok ? 'ok' : 'error',
-        version: scheduler?.ok ? (livePid ? `运行中 · PID ${livePid}` : '运行中') : '未连接',
+        version: scheduler?.ok ? (livePid ? `运行中（PID ${livePid}）` : '运行中') : '未连接',
         location: '',
         detail: scheduler?.reason || '',
         fix: scheduler?.ok ? '' : '请确认插件已启用，或重启 Antigravity 后稍等几秒再检测。',
@@ -742,7 +742,7 @@ export function createApiHandlers({
         status: 'error',
         version: cred.present ? '待重新校验' : '尚未登录',
         location: '',
-        detail: cred.present ? `本地存在登录凭据，但本次在线校验未完成（${shortReason}）。` : '尚未连接大鲸鱼 B 站账号，请前往「账号与主人」扫码登录。',
+        detail: cred.present ? `本地存在登录凭据，但本次在线校验未完成（${shortReason}）。` : '尚未连接大鲸鱼 B 站账号，请前往【账号与主人】扫码登录。',
         fix: '',
         action: cred.present ? null : 'goto_login',
       },
@@ -753,7 +753,7 @@ export function createApiHandlers({
         status: 'error',
         version: '检测未完成',
         location: '',
-        detail: `未能完成本次环境子进程检测（${shortReason}），请点击「重新检测」。`,
+        detail: `未能完成本次环境子进程检测（${shortReason}），请点击【重新检测】。`,
         fix: '',
         action: null,
       },
@@ -764,7 +764,7 @@ export function createApiHandlers({
         status: 'error',
         version: '检测未完成',
         location: '',
-        detail: '请点击「重新检测」或导出诊断日志排查。',
+        detail: '请点击【重新检测】或导出诊断日志排查。',
         fix: '',
         action: null,
       },
@@ -855,12 +855,12 @@ export function createApiHandlers({
     const id = identitySummary(cfg)
     if (id.ready) return id
     if (!id.hasAccount && !id.hasOwner) {
-      throw Error(`请先在「账号与主人」完成 B 站扫码登录并填写主人 UID，保存后再${actionLabel}。`)
+      throw Error(`请先在【账号与主人】完成 B 站扫码登录并填写主人 UID，保存后再${actionLabel}。`)
     }
     if (!id.hasAccount) {
-      throw Error(`尚未登录大鲸鱼 B 站账号，请先在「账号与主人」扫码登录后再${actionLabel}。`)
+      throw Error(`尚未登录大鲸鱼 B 站账号，请先在【账号与主人】扫码登录后再${actionLabel}。`)
     }
-    throw Error(`尚未配置主人 UID，请先在「账号与主人」填写并保存主人信息后再${actionLabel}。`)
+    throw Error(`尚未配置主人 UID，请先在【账号与主人】填写并保存主人信息后再${actionLabel}。`)
   }
 
   async function getStatus() {

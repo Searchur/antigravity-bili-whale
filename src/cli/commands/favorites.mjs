@@ -84,7 +84,7 @@ if (opt.list) {
   for (const x of items) {
     const days = Math.floor((Date.now() - new Date(x.at).getTime()) / DAY)
     console.log(`  ${x.bv}  ${String(x.title ?? '').slice(0, 42)}`)
-    console.log(`     理由：${x.reason}    （${days} 天前 · 类别 ${x.kind}）`)
+    console.log(`     理由：${x.reason}    （${days} 天前，类别 ${x.kind}）`)
   }
   process.exit(0)
 }
@@ -98,7 +98,7 @@ if (opt['migrate-preview'] || opt['claim-legacy']) {
     console.log(`有 ${legacy.length} 条旧收藏没有账号归属（不会自动并进任何账号）：\n`)
     for (const { index, item } of legacy) {
       console.log(`  [${index}] ${item.bv}  ${String(item.title ?? '').slice(0, 40)}`)
-      console.log(`      理由：${item.reason ?? '-'}   （${String(item.at ?? '').slice(0, 10)} · 类别 ${item.kind ?? '-'}）`)
+      console.log(`      理由：${item.reason ?? '-'}   （${String(item.at ?? '').slice(0, 10)}，类别 ${item.kind ?? '-'}）`)
     }
     console.log('\n确认属于当前账号后再认领：')
     console.log('  node src/cli/bili.mjs fav --claim-legacy all --go        # 全部认领')
@@ -165,7 +165,7 @@ function checkRules({ bv, reason, better, kind }) {
   }
   const k = kind || inferKind(reason)
   const sameKind = items.filter((x) => x.kind === k)
-  if (sameKind.length >= 2 && !better) return `「${k}」这类已经收了 ${sameKind.length} 条 —— 除非明显更好（--better），不然别让收藏夹变仓库 ✗`
+  if (sameKind.length >= 2 && !better) return `【${k}】这类已经收了 ${sameKind.length} 条 —— 除非明显更好（--better），不然别让收藏夹变仓库 ✗`
   return null
 }
 
@@ -201,10 +201,10 @@ try {
   info = await videoInfo(bv); fav = await defaultFavId(account)
 }
 catch (error) { console.error(error.message); process.exit(3) }
-console.log(`[fav] ${bv}  「${info.title.slice(0, 44)}」  @${info.up}`)
+console.log(`[fav] ${bv}  【${info.title.slice(0, 44)}】  @${info.up}`)
 console.log(`  理由：${reason}`)
 console.log(`  类别：${String(opt.kind ?? '') || inferKind(reason)}（可选 --kind 想学|想再看|和我有关|以后要提 覆盖）`)
-console.log(`  收藏夹：「${fav.title}」（media_id=${fav.id}）· 今天第 ${favoriteItems(load(), selfMid).filter((x) => new Date(x.at).toLocaleDateString('sv-SE') === today()).length + 1}/3 条`)
+console.log(`  收藏夹：【${fav.title}】（media_id=${fav.id}），今天第 ${favoriteItems(load(), selfMid).filter((x) => new Date(x.at).toLocaleDateString('sv-SE') === today()).length + 1}/3 条`)
 
 if (GO === DRY) { console.error('✗ 必须且只能给 --dry 或 --go'); process.exit(2) }
 requireWritePreview('favorite', { bv, folder: fav.id, reason, kind, better: !!opt.better }, { dry: DRY, credentials: cred })
@@ -242,7 +242,7 @@ if (j.code !== 0) {
   // 2026-10-21：把常见返回码翻译成人话 —— 裸的 -111 用户完全看不懂 ✗
   const HINT = {
     '-101': '账号未登录：登录态已失效，请在控制台重新扫码登录',
-    '-111': 'CSRF 校验失败：请在控制台「大鲸鱼与主人」重新扫码登录',
+    '-111': 'CSRF 校验失败：请在控制台【大鲸鱼与主人】重新扫码登录',
     '-352': '风控拦截：等几分钟再来',
     11010: '收藏夹不存在或不属于当前账号，请重新登录并检查收藏夹',
     10031: '操作太快：退避一会儿',
@@ -259,6 +259,6 @@ d.items = [...(d.items ?? []), {
   at: new Date().toISOString(), reason, kind: String(opt.kind ?? '') || inferKind(reason), favId: fav.id,
 }]
 save(d)
-console.log(`  ✓ 已收藏（HTTP ${r.status}）· 本地账 +1（共 ${d.items.length} 条）`)
+console.log(`  ✓ 已收藏（HTTP ${r.status}），本地账 +1（共 ${d.items.length} 条）`)
 
 } catch(error) { console.error(error.message); process.exitCode=4 } finally { await release() }

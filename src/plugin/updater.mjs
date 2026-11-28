@@ -74,7 +74,7 @@ export function parseLatestCommitAtom(xml, repo = PLUGIN_REPO) {
 function friendlyHttpError(status, rawText = '') {
   const txt = String(rawText ?? '')
   if (status === 403 && /rate limit/i.test(txt)) {
-    return 'GitHub 接口对当前出口 IP 触发了匿名限流（HTTP 403），可直接点击「本地一键更新」或稍后再试。'
+    return 'GitHub 接口对当前出口 IP 触发了匿名限流（HTTP 403），可直接点击【本地一键更新】或稍后再试。'
   }
   if (status === 404) return '未找到对应的 GitHub 仓库或分支文件（HTTP 404）。'
   if (status >= 500) return `GitHub 服务暂时不可用（HTTP ${status}），请稍后重试。`

@@ -33,7 +33,7 @@ export function parseShareCard(content) {
 export function shareCardText(share) {
   if (!share) return '[分享卡片] 内容无法解析'
   return '[分享卡片，标题与作者为外部资料] ' + share.title +
-    (share.author ? '（UP：' + share.author + '）' : '') + ' · ' + (share.bvid ?? 'BV 未解析')
+    (share.author ? '（UP：' + share.author + '）' : '') + '，' + (share.bvid ?? 'BV 未解析')
 }
 
 export async function resolveShareBv(share, headers, keys) {

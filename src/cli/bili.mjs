@@ -59,8 +59,8 @@ if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') {
   console.log('命令:')
   for (const [name, [, desc]] of Object.entries(map)) console.log(`  ${name.padEnd(16)} ${desc}`)
   console.log('\n安全约定（脚本里也强制）:')
-  console.log('  · 写操作必须显式给 --dry（只打印预览）或 --go（实际执行）')
-  console.log('  · 先确认登录账号；写操作后按需用 check-*/thread 回读复核')
+  console.log('  - 写操作必须显式给 --dry（只打印预览）或 --go（实际执行）')
+  console.log('  - 先确认登录账号；写操作后按需用 check-*/thread 回读复核')
   process.exit(cmd ? 0 : 2)
 }
 

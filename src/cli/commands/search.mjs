@@ -45,7 +45,7 @@ const autoWatch = config().watch?.auto ?? {}
 const minDurSec = Math.max(0, Number(autoWatch.minDurationSec ?? 60))
 const maxDurMin = Math.max(1, Number(autoWatch.maxDurationMin ?? 10))
 const maxDurSec = maxDurMin * 60
-console.log(`搜索「${kw}」 page=${page}  code=${d.code} ${d.message ?? ''}  结果数=${list.length}  （自主观看时长范围：${formatDurationZh(minDurSec)} – ${maxDurMin} 分钟）`)
+console.log(`搜索【${kw}】 page=${page}  code=${d.code} ${d.message ?? ''}  结果数=${list.length}  （自主观看时长范围：${formatDurationZh(minDurSec)} – ${maxDurMin} 分钟）`)
 if (d.code !== 0 || !list.length) {
   console.log(`data 的字段: ${Object.keys(d.data ?? {}).join(', ') || '(空)'}`)
   if (!list.length) console.log(JSON.stringify(d).slice(0, 400))

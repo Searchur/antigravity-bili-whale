@@ -77,7 +77,7 @@ const PREFLIGHT = (() => {
 if (PREFLIGHT) {
   const loaded = await loadProfile(PREFLIGHT.name)
   if (!loaded.ok) {
-    console.error(`[debrief] profile「${PREFLIGHT.name}」不能用，共 ${loaded.errors.length} 个问题：`)
+    console.error(`[debrief] profile【${PREFLIGHT.name}】不能用，共 ${loaded.errors.length} 个问题：`)
     for (const e of loaded.errors) console.error('  - ' + e)
     console.error(`\n  文件位置：${loaded.file}`)
     console.error('  契约：export function render(report) => { lines: string[] }')
@@ -85,7 +85,7 @@ if (PREFLIGHT) {
   }
   PREFLIGHT.fn = loaded.fn
   PREFLIGHT.required = loaded.required
-  console.error(`[debrief] 使用 profile「${PREFLIGHT.name}」${loaded.required.length ? '（声明了 ' + loaded.required.length + ' 个必需字段）' : ''}`)
+  console.error(`[debrief] 使用 profile【${PREFLIGHT.name}】${loaded.required.length ? '（声明了 ' + loaded.required.length + ' 个必需字段）' : ''}`)
 }
 
 {
@@ -95,8 +95,8 @@ if (PREFLIGHT) {
   const _log = console.log
   console.log = (...args) => _log(...args.map((a) => {
     let s = String(a)
-    if (name.length >= 2) s = s.split(name).join('「主人昵称·已打码」')
-    if (mid.length >= 4) s = s.split(mid).join('「主人mid·已打码」')
+    if (name.length >= 2) s = s.split(name).join('【主人昵称已打码】')
+    if (mid.length >= 4) s = s.split(mid).join('【主人 UID 已打码】')
     return s
   }))
 }
@@ -261,17 +261,17 @@ const renderReport = async (r) => {
   const name = PREFLIGHT.name
   const req = checkRequired(PREFLIGHT.required, r)
   if (!req.ok) {
-    console.error(`[debrief] profile「${name}」要用但 report 里没有的字段（共 ${req.missing.length} 个）：`)
+    console.error(`[debrief] profile【${name}】要用但 report 里没有的字段（共 ${req.missing.length} 个）：`)
     for (const m of req.missing) console.error('  - ' + m)
     console.error('  report 现有顶层字段：' + req.available.join(', '))
     process.exit(2)
   }
   let out
   try { out = await PREFLIGHT.fn(r) }
-  catch (e) { console.error(`[debrief] profile「${name}」渲染时抛错：${String(e?.stack ?? e?.message ?? e)}`); process.exit(2) }
+  catch (e) { console.error(`[debrief] profile【${name}】渲染时抛错：${String(e?.stack ?? e?.message ?? e)}`); process.exit(2) }
   const lines = Array.isArray(out) ? out : out?.lines
   if (!Array.isArray(lines) || lines.some((l) => typeof l !== 'string')) {
-    console.error(`[debrief] profile「${name}」的 render() 返回不符合契约，应该是 { lines: string[] }`)
+    console.error(`[debrief] profile【${name}】的 render() 返回不符合契约，应该是 { lines: string[] }`)
     process.exit(2)
   }
   return lines
@@ -312,7 +312,7 @@ if (!opt.json) {
 if (opt.json) {
   const ow = config().owner ?? {}
   const redact = value => typeof value === 'string'
-    ? [['name', '「主人昵称·已打码」', 2], ['mid', '「主人mid·已打码」', 4]].reduce((s, [k, label, min]) => String(ow[k] ?? '').length >= min ? s.split(String(ow[k])).join(label) : s, value)
+    ? [['name', '【主人昵称已打码】', 2], ['mid', '【主人 UID 已打码】', 4]].reduce((s, [k, label, min]) => String(ow[k] ?? '').length >= min ? s.split(String(ow[k])).join(label) : s, value)
     : Array.isArray(value)
       ? value.map(redact)
       : value && typeof value === 'object'

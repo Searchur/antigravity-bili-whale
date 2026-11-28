@@ -11,7 +11,7 @@ export const modelThinkingLabel = model => THINKING_LABELS.get(model.thinkingLev
 
 export function formatModelTitle(model) {
   const thinking = modelThinkingLabel(model)
-  if (model.groupName && thinking && thinking !== '默认') return `${model.groupName} · ${thinking}`
+  if (model.groupName && thinking && thinking !== '默认') return `${model.groupName}（${thinking}）`
   return model.groupName || model.label || model.id
 }
 
@@ -48,7 +48,7 @@ export function evaluateSelectedModelQuota(catalog, { main, worker, minQuotaPerc
     modelLabel,
     resetTime: model?.resetTime || null,
     reason: paused
-      ? `模型「${modelLabel}」剩余配额 ${remainingPercent}% 低于保护阈值 ${threshold}%，已暂停全部后台活动。`
+      ? `模型【${modelLabel}】剩余配额 ${remainingPercent}% 低于保护阈值 ${threshold}%，已暂停全部后台活动。`
       : '',
   }
 }

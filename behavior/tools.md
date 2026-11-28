@@ -25,4 +25,4 @@
 - 多段私信最多 6 条（每条 ≤300 字符）。先使用 `dm-batch --file <字符串数组.json> --task <本次taskId> --dry`，再以相同参数改为 `--go`。`--resume <组ID> --dry` 预览原组的剩余正文，确认后再改用 `--go`。结果未确认时先在控制台核查。
 - 公开动态：开启 `chat.dynamic` 后可用 `dynamic post --text <正文> --dry` 再 `--go`，或用 `dynamic-image --image <图片路径> --text <正文> --dry` 再 `--go`（每日受 `dynamicDailyMax` 上限约束）。不要把私人素材改标为公开。
 - 批量工具：`round [--n 5] [--json]`；`discover --n 5 --kw 关键词 --json`；`batch-debrief <BV...> --concurrency 2`。`round --dry` 仅列候选；`debrief --json` 返回带 `evidenceId` 的结构化素材。`config show` 查看当前生效的找片与观看参数。
-- 手动唤醒使用控制台「马上唤醒她」，本地命令 `node src/cli/bili.mjs night trigger --go` 调用同一入口。
+- 手动唤醒使用控制台【马上唤醒她】，本地命令 `node src/cli/bili.mjs night trigger --go` 调用同一入口。

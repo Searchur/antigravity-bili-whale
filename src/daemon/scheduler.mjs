@@ -276,7 +276,7 @@ function initializeScheduler(host, opts, health) {
     // 本轮随机跳过，静默结束且不消耗模型。
     if (st.action === 'skip') {
       settlePlan(run, st, 'accepted')
-      log('[bili-whale] 本次作息按概率跳过看视频 · ' + st.atText)
+      log('[bili-whale] 本次作息按概率跳过看视频，' + st.atText)
       return
     }
 
@@ -316,7 +316,7 @@ function initializeScheduler(host, opts, health) {
     run.check()
     settlePlan(run, st, 'accepted')
     run.phase('post-delivery')
-    log('[bili-whale] 已投递主动看片唤醒 · ' + st.atText)
+    log('[bili-whale] 已投递主动看片唤醒，' + st.atText)
   }
 
   async function tick() {
@@ -872,7 +872,7 @@ function initializeScheduler(host, opts, health) {
   }
 
   health.started()
-  try { log(`[bili-whale] 后台生物钟守护已启动（每 ${TICK_MS / 1000}s tick · 数据目录 ${whaleHome}）`) } catch {}
+  try { log(`[bili-whale] 后台生物钟守护已启动（每 ${TICK_MS / 1000}s tick，数据目录 ${whaleHome}）`) } catch {}
 
   async function wakeNow() {
     if (stopped) throw Error('后台守护已停止运行。')
@@ -883,7 +883,7 @@ function initializeScheduler(host, opts, health) {
       throw Error('大鲸鱼当前正在执行唤醒轮次，请等待本轮结束后再试。')
     }
     if (!hasValidCredentials()) {
-      throw Error('尚未登录大鲸鱼 B 站账号，请先在「账号与主人」扫码登录。')
+      throw Error('尚未登录大鲸鱼 B 站账号，请先在【账号与主人】扫码登录。')
     }
     if (networkPaused()) {
       throw Error('当前处于 B 站接口限流或风控冷却期，暂不可立即唤醒。')
@@ -891,19 +891,19 @@ function initializeScheduler(host, opts, health) {
     const cfg = readCfgNow()
     const identity = captureDeliveryIdentity(cfg)
     if (!identity.account) {
-      throw Error('尚未登录大鲸鱼 B 站账号，请先在「账号与主人」扫码登录。')
+      throw Error('尚未登录大鲸鱼 B 站账号，请先在【账号与主人】扫码登录。')
     }
     if (!identity.owner) {
-      throw Error('尚未配置主人 UID，请先在「账号与主人」填写并保存主人信息。')
+      throw Error('尚未配置主人 UID，请先在【账号与主人】填写并保存主人信息。')
     }
     assertDeliveryIdentity(readCfgNow(), identity)
     const life = getLife(cfg)
     if (lifeConfig(cfg.life).paused || life.read().settings.paused) {
-      throw Error('主动活动已暂停，请先在「动态与记忆」恢复主动活动。')
+      throw Error('主动活动已暂停，请先在【动态与记忆】恢复主动活动。')
     }
     const qPaused = await checkQuotaPaused(true)
     if (qPaused) {
-      throw Error(`${qPaused.reason.replace(/。$/, '')}，可在「模型与配额」调低配额保护阈值或等待配额恢复。`)
+      throw Error(`${qPaused.reason.replace(/。$/, '')}，可在【模型与配额】调低配额保护阈值或等待配额恢复。`)
     }
     const busy = await refreshBusyState()
     if (busy === 'still-working') {
@@ -973,7 +973,7 @@ function initializeScheduler(host, opts, health) {
       busyUntil = Date.now() + COOLDOWN_MS
       run.phase('post-delivery')
       run.phase('completed')
-      log('[bili-whale] 已投递手动立即唤醒 · ' + atText)
+      log('[bili-whale] 已投递手动立即唤醒，' + atText)
       return reqId
     })
 

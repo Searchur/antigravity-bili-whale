@@ -53,20 +53,30 @@ function buildMonthGrid(monthStr) {
   return { year, month, cells }
 }
 
-function metricTile(label, value, sub = '') {
-  return el('div', { className: 'metric-tile' },
-    el('div', { className: 'metric-k' }, label),
-    el('div', { className: 'metric-v' }, value),
-    sub ? el('div', { className: 'metric-sub' }, sub) : null)
-}
-
-function ownerSubText(s) {
-  return `私信 ${s.ownerDm ?? 0} · 评论 ${s.ownerComment ?? 0}`
-}
-
-function fanSubText(s) {
-  const base = `私信 ${s.fanDm ?? 0} · 评论 ${s.fanComment ?? 0}`
-  return (s.fanMention ?? 0) > 0 ? `${base} · @ 总结 ${s.fanMention}` : base
+function renderActivityMetrics(stats, windowLabel, limits = {}) {
+  const metric = (label, key, unit, detail = '') => {
+    const limit = limits[key]
+    return el('div', { className: 'activity-metric' },
+      el('dt', { className: 'activity-metric-label' }, label),
+      el('dd', { className: 'activity-metric-count' }, `${stats[key]} ${unit}`,
+        limit == null ? null : el('span', { className: 'activity-metric-limit' }, `（上限 ${limit} ${unit}）`)),
+      detail ? el('dd', { className: 'activity-metric-detail' }, detail) : null)
+  }
+  const owner = `私信 ${stats.ownerDm ?? 0}，评论 ${stats.ownerComment ?? 0}`
+  const fan = `私信 ${stats.fanDm ?? 0}，评论 ${stats.fanComment ?? 0}`
+  const fanMention = stats.fanMention > 0 ? `，@ 总结 ${stats.fanMention}` : ''
+  const wake = stats.opportunitiesUsed > 0
+    ? `${windowLabel}窗口已用 ${stats.opportunitiesUsed} 次机会`
+    : ''
+  return el('dl', { className: 'activity-metrics' },
+    metric('观看视频', 'watched', '条'),
+    metric('主动分享', 'shares', '条'),
+    metric('公开动态', 'dynamics', '条'),
+    metric('自主评论', 'autoComments', '条'),
+    metric('主人互动', 'ownerInteract', '次', owner),
+    metric('粉丝互动', 'fanInteract', '次', fan + fanMention),
+    metric('作息唤醒', 'wakes', '次', wake),
+    metric('安全拦截', 'safetyBlocked', '次'))
 }
 
 const PLAN_ACTION_LABELS = {
@@ -79,7 +89,7 @@ function formatPlanStatus(plan) {
   if (!plan) return '尚无今日计划'
   const wakes = Number(plan.wakes ?? 0)
   const label = PLAN_ACTION_LABELS[plan.action] || '待排期'
-  const timePart = plan.action === 'done' || !plan.atText ? '' : ` · ${plan.atText}`
+  const timePart = plan.action === 'done' || !plan.atText ? '' : `，${plan.atText}`
   return `${label}${timePart}（已用 ${wakes} 次机会）`
 }
 
@@ -155,22 +165,12 @@ export function renderMemoryTab(state, actions) {
   const dayStat = { ...EMPTY_STAT, ...(daysMap[selectedDay] ?? {}) }
   const { year, month, cells } = buildMonthGrid(activeMonth)
 
-  const summaryBlock = el('div', { className: 'cal-summary-box' },
-    cal.incomplete ? el('p', { role:'status' }, '部分长期记录读取或校验失败，日历仅统计已核实的记录。') : null,
+  const summaryBlock = el('section', { className: 'cal-summary' },
+    cal.incomplete ? el('p', { className: 'row-hint', role: 'status' }, '部分长期记录读取或校验失败，日历仅统计已核实的记录。') : null,
     el('div', { className: 'cal-section-head' },
-      el('div', { className: 'inline' },
-        el('strong', {}, '累计总计'),
-        metaPill(`活跃 ${cal.activeDays ?? 0} 天`),
-        metaPill(`共 ${totals.total ?? 0} 项活动`, 'info'))),
-    el('div', { className: 'metric-grid' },
-      metricTile('观看视频', `${totals.watched} 条`),
-      metricTile('主动分享', `${totals.shares} 条`),
-      metricTile('公开动态', `${totals.dynamics} 条`),
-      metricTile('自主评论', `${totals.autoComments} 条`),
-      metricTile('主人互动', `${totals.ownerInteract} 次`, ownerSubText(totals)),
-      metricTile('粉丝互动', `${totals.fanInteract} 次`, fanSubText(totals)),
-      metricTile('作息唤醒', `${totals.wakes} 次`, totals.opportunitiesUsed > 0 ? `近期窗口已用 ${totals.opportunitiesUsed} 次机会` : ''),
-      metricTile('安全拦截', `${totals.safetyBlocked} 次`)))
+      el('h3', { className: 'cal-section-title' }, '累计总计'),
+      el('span', { className: 'cal-total' }, `活跃 ${cal.activeDays ?? 0} 天，共 ${totals.total ?? 0} 项活动`)),
+    renderActivityMetrics(totals, '近期'))
 
   const calendarPanel = el('div', { className: 'cal-panel' },
     el('div', { className: 'cal-nav' },
@@ -194,6 +194,9 @@ export function renderMemoryTab(state, actions) {
       return el('button', {
         type: 'button',
         className: cls,
+        'aria-label': `${c.dayStr}，${count} 项活动`,
+        'aria-current': c.dayStr === today ? 'date' : null,
+        'aria-pressed': String(c.dayStr === selectedDay),
         onClick: () => actions.selectCalDay(c.dayStr),
       },
       el('span', { className: 'cal-day-num' }, String(c.dayNum)),
@@ -206,12 +209,13 @@ export function renderMemoryTab(state, actions) {
       el('span', { className: 'cal-legend-item' }, el('span', { className: 'cal-dot lvl-3' }), '7+')))
 
   const dayEvents = Array.isArray(dayStat.items) ? dayStat.items.slice(0, 5) : []
-  const detailPanel = el('div', { className: 'cal-detail' },
+  const todayLimits = isToday
+    ? { shares: st.sharesMax ?? 3, dynamics: st.dynamicDailyMax ?? 1, autoComments: st.autoCommentDailyMax ?? 3 }
+    : undefined
+  const detailPanel = el('section', { className: 'cal-detail' },
     el('div', { className: 'cal-section-head' },
-      el('div', { className: 'inline' },
-        el('strong', {}, isToday ? `今日统计（${selectedDay}）` : `${selectedDay} 统计`),
-        metaPill(isToday ? '今天' : '历史日期', isToday ? 'ok' : ''),
-        metaPill(`共 ${dayStat.total ?? 0} 项`)),
+      el('h3', { className: 'cal-section-title' }, isToday ? `今日统计（${selectedDay}）` : `${selectedDay} 统计`),
+      el('span', { className: 'cal-total' }, `共 ${dayStat.total ?? 0} 项`),
       !isToday
         ? el('button', { type: 'button', className: 'btn sm', onClick: actions.jumpCalToday }, '回到今天')
         : null),
@@ -220,21 +224,13 @@ export function renderMemoryTab(state, actions) {
           el('span', { className: 'row-hint' }, '今日作息计划：'),
           el('span', {}, formatPlanStatus(st.plan)))
       : null,
-    el('div', { className: 'day-stat-grid' },
-      metricTile('观看视频', `${dayStat.watched} 条`),
-      metricTile('主动分享', isToday ? `${dayStat.shares} / ${st.sharesMax ?? 3} 条` : `${dayStat.shares} 条`),
-      metricTile('公开动态', isToday ? `${dayStat.dynamics} / ${st.dynamicDailyMax ?? 1} 条` : `${dayStat.dynamics} 条`),
-      metricTile('自主评论', isToday ? `${dayStat.autoComments} / ${st.autoCommentDailyMax ?? 3} 条` : `${dayStat.autoComments} 条`),
-      metricTile('主人互动', `${dayStat.ownerInteract} 次`, ownerSubText(dayStat)),
-      metricTile('粉丝互动', `${dayStat.fanInteract} 次`, fanSubText(dayStat)),
-      metricTile('作息唤醒', `${dayStat.wakes} 次`, dayStat.opportunitiesUsed > 0 ? `当日窗口已用 ${dayStat.opportunitiesUsed} 次机会` : ''),
-      metricTile('安全拦截', `${dayStat.safetyBlocked} 次`)),
+    renderActivityMetrics(dayStat, '当日', todayLimits),
     el('div', { className: 'day-events-wrap' },
-      el('div', { className: 'row-hint hint-title' },
+      el('h4', { className: 'cal-section-title' },
         dayEvents.length > 0 ? `当日活动明细（最近 ${dayEvents.length} 条）` : '当日活动明细'),
       dayEvents.length === 0
         ? el('div', { className: 'row-hint' }, '该日期暂无记录到的活动。')
-        : el('div', { className: 'day-events' }, ...dayEvents.map(ev => el('div', { className: 'day-event-item' },
+        : el('ul', { className: 'day-events' }, ...dayEvents.map(ev => el('li', { className: 'day-event-item' },
             el('span', { className: 'day-event-time mono' }, ev.time || '--:--'),
             metaPill(ev.label, ev.kind === 'safety' ? 'warn' : ev.kind === 'owner' ? 'info' : ''),
             el('span', { className: 'day-event-text' }, ev.text || '-'))))))
@@ -271,7 +267,7 @@ export function renderMemoryTab(state, actions) {
     el('div', { className: 'card-head' },
       el('div', { className: 'inline' },
         el('h2', {}, '活动统计与日历查看'),
-        statusPill(activity.badge.kind, activity.badge.text)),
+        activity.identity.ready ? statusPill(activity.badge.kind, activity.badge.text) : null),
       el('div', { className: 'inline' },
         renderActivityAction(activity.primaryAction),
         renderActivityAction(activity.secondaryAction),
@@ -282,9 +278,9 @@ export function renderMemoryTab(state, actions) {
     el('div', { className: 'cal-layout' }, calendarPanel, detailPanel),
     st.scheduler?.lastError ? banner('err', '最近调度异常：' + st.scheduler.lastError.message, { variant: 'compact' }) : null)
 
-  const memoryBadge = !activity.identity.ready
-    ? statusPill('warn', '未绑定账号与主人')
-    : (life ? metaPill(`活跃记忆 ${activeMemoriesCount} 条 · 近期经历 ${life.events ?? 0} 条`) : null)
+  const memoryBadge = activity.identity.ready && life
+    ? metaPill(`活跃记忆 ${activeMemoriesCount} 条，近期经历 ${life.events ?? 0} 条`)
+    : null
 
   const memoryCard = el('div', { className: 'card' },
     el('div', { className: 'card-head' },
@@ -319,14 +315,14 @@ export function renderMemoryTab(state, actions) {
     searchResults
       ? el('div', { className: 'section-mt' },
           el('div', { className: 'inline-between mb-6' },
-            el('strong', {}, `检索结果（共 ${searchResults.length} 条 · 当前上限 ${state.lifeSearchLimitUsed || state.lifeLimit || 20} 条）`),
+            el('strong', {}, `检索结果（共 ${searchResults.length} 条，当前上限 ${state.lifeSearchLimitUsed || state.lifeLimit || 20} 条）`),
             el('button', { type: 'button', className: 'btn sm', onClick: () => { state.lifeSearchItems = null; actions.rerender() } }, '收起结果')),
           searchResults.length === 0
             ? el('div', { className: 'row-hint' }, '未找到与该关键词相关的经历记录。')
             : el('div', {}, ...searchResults.map(item => el('div', { className: 'item-card' },
                 el('div', {}, item.text || item.summary || JSON.stringify(item).slice(0, 200)),
                 el('div', { className: 'row-hint mono hint-mt' },
-                  `${eventKindLabel(item.kind)}${item.target ? ' · ' + item.target : ''}${item.at ? ' · ' + new Date(item.at).toLocaleString('zh-CN') : ''}`)))))
+                  `${eventKindLabel(item.kind)}${item.target ? '，' + item.target : ''}${item.at ? '，' + new Date(item.at).toLocaleString('zh-CN') : ''}`)))))
       : null,
     (life?.pending ?? []).length > 0
       ? el('div', { className: 'item-card warn' },

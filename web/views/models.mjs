@@ -124,7 +124,7 @@ export function renderModelsTab(state, actions) {
     quotaBannerText = serverQuota.reason
   } else if (preview.paused) {
     const ending = isDraft ? '，保存后将暂停全部后台活动。' : '。'
-    quotaBannerText = `模型「${preview.modelLabel}」剩余配额 ${preview.remainingPercent}% 低于保护阈值 ${minQuotaVal}%${ending}`
+    quotaBannerText = `模型【${preview.modelLabel}】剩余配额 ${preview.remainingPercent}% 低于保护阈值 ${minQuotaVal}%${ending}`
   }
 
   const roleCard = (role, title, desc, modelId, model) => {
@@ -161,7 +161,7 @@ export function renderModelsTab(state, actions) {
       )),
     row(
       '会话自动轮换周期',
-      '每隔指定天数在空闲时自动新建会话以控制上下文长度；选择「不自动轮换」则持续复用同一会话。',
+      '每隔指定天数在空闲时自动新建会话以控制上下文长度；选择【不自动轮换】则持续复用同一会话。',
       selectCtrl(
         String(rotateVal),
         rotateOptions,
@@ -178,13 +178,13 @@ export function renderModelsTab(state, actions) {
           disabled: !!state.busy,
           onClick: actions.refreshModels,
         }, state.busy === 'models' ? '读取中…' : '刷新模型列表')),
-      el('p', { className: 'card-sub' }, '选择要设置的用途和模型档位，再点击「保存配置」生效。'),
+      el('p', { className: 'card-sub' }, '选择要设置的用途和模型档位，再点击【保存配置】生效。'),
       quotaBannerText ? banner('warn', quotaBannerText) : null,
       el('div', { className: 'role-grid' },
         roleCard('main', '前台主线模型', '负责视频观看、画面理解、私信对话与评论互动；建议选择均衡或高性能模型。', mainId, mainModel),
         roleCard('worker', '后台辅助模型', '负责长期记忆归纳、心情分析与外发安全语义复审，运行后自动归档；建议选择低消耗轻量模型。', workerId, workerModel)),
       !isLive && !state.modelsError && state.busy !== 'models'
-        ? banner('warn', catalog?.note || '请确认后台守护已启动，再点击「刷新模型列表」。')
+        ? banner('warn', catalog?.note || '请确认后台守护已启动，再点击【刷新模型列表】。')
         : null,
       state.modelsError
         ? banner('err', state.modelsError)
@@ -192,7 +192,7 @@ export function renderModelsTab(state, actions) {
       missingInCatalog
         ? banner('warn', !activeId || LEGACY_PRESETS.has(activeId)
           ? '请从下方清单为当前用途选择一个模型档位并保存。'
-          : `当前已保存的模型「${activeId}」不在本次读取的可用清单中，请在下方重新点选。`)
+          : `当前已保存的模型【${activeId}】不在本次读取的可用清单中，请在下方重新点选。`)
         : null,
       liveGroups.length > 0 ? el('h3', { className: 'model-section-title' }, '当前完整模型清单') : null,
       liveGroups.length > 0

@@ -921,7 +921,9 @@ test('v1.6.3 localizes Memory tab plan/events/channels, exposes behavior folder 
     assert.ok(bundle.includes('今日已完成'))
     assert.ok(bundle.includes('待唤醒'))
     assert.ok(bundle.includes('本次按概率跳过'))
-    assert.ok(bundle.includes('行为规范目录（behavior）'))
+    assert.ok(bundle.includes('行为规范目录'))
+    assert.equal(bundle.includes('行为规范目录（behavior）'), false)
+    assert.doesNotMatch(bundle, /[\u00b7\u300c\u300d]/u)
 
     const memSrc = fs.readFileSync(path.resolve('web/views/memory.mjs'), 'utf8')
     assert.equal(memSrc.includes('${st.plan.action}'), false)

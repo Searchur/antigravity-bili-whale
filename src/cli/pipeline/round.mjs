@@ -38,7 +38,7 @@ export async function runRound(argv=process.argv.slice(2)){
 }
 function roundFallback(r){
  const picked=r.selection?.items??[],read=r.batch?.ok??[]
- const lines=[`本轮 ${picked.length} 条 · 深读 ${read.length} 条 · 用时 ${(r.elapsedMs/1000).toFixed(1)}s`]
+ const lines=[`本轮 ${picked.length} 条，深读 ${read.length} 条，用时 ${(r.elapsedMs/1000).toFixed(1)}s`]
  for(const it of picked)lines.push(`  ${it.bv}  ${it.t}`)
  if(r.batch?.failed?.length)lines.push(`  深读失败: ${r.batch.failed.map(x=>x.bv??x).join(', ')}`)
  if(r.file)lines.push(`存档 ${r.file}`)

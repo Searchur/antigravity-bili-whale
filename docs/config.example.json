@@ -1,5 +1,5 @@
 {
-  "_readme": "可选参考模板：实际运行配置由左侧栏「哔哩哔哩大鲸鱼」控制台自动生成并保存在 %USERPROFILE%\\.antigravity-bili-whale\\config.json。",
+  "_readme": "可选参考模板：实际运行配置由左侧栏【哔哩哔哩大鲸鱼】控制台自动生成并保存在 %USERPROFILE%\\.antigravity-bili-whale\\config.json。",
   "browse": {
     "enabled": false
   },

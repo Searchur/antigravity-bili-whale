@@ -17,7 +17,7 @@ node src/cli/bili.mjs config show
 
 ## 数据与配置位置
 
-- 流水线生效参数由独立配置文件 `%USERPROFILE%\.antigravity-bili-whale\config.json`（可通过 `BILI_WHALE_CONFIG` 覆写）派生；其中控制台「视频观看设置」的 `watch.auto` 与「人设与作息」的 `night.deepWatchMax` 优先覆盖历史 `pipeline` 里的时长与深读上限。
+- 流水线生效参数由独立配置文件 `%USERPROFILE%\.antigravity-bili-whale\config.json`（可通过 `BILI_WHALE_CONFIG` 覆写）派生；其中控制台【视频观看设置】的 `watch.auto` 与【人设与作息】的 `night.deepWatchMax` 优先覆盖历史 `pipeline` 里的时长与深读上限。
 - 完整 `round` 结果保存在 `%USERPROFILE%\.antigravity-bili-whale\runtime\workspace\rounds\`。
 - 自定义渲染器（可选）可放在 `%USERPROFILE%\.antigravity-bili-whale\runtime\workspace\profiles\<name>.mjs`，配合 `BW_DEBRIEF_PROFILE=<name>` 启用。
 

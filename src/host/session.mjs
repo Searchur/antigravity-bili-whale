@@ -9,9 +9,9 @@ import { randomBytes } from 'node:crypto'
 const MAX_CLI_CONTENT_CHARS = 22_000
 
 const ROLE_TITLES = {
-  'browse-main': 'B站鲸鱼 · 浏览主线',
-  'private-main': 'B站鲸鱼 · 主人私信',
-  'public-task': 'B站鲸鱼 · 评论互动',
+  'browse-main': 'B 站鲸鱼（浏览主线）',
+  'private-main': 'B 站鲸鱼（主人私信）',
+  'public-task': 'B 站鲸鱼（评论互动）',
 }
 
 function extractText(content) {

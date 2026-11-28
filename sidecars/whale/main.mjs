@@ -75,7 +75,7 @@ const ipc = await startSidecarIpc({
   onWakeNow: () => (sched?.wakeNow ? sched.wakeNow() : Promise.reject(new Error('作息调度器未初始化。'))),
 })
 
-log(`[bili-whale] Sidecar IPC 已就绪（127.0.0.1:${ipc.port} · rpcAvailable=${rpc.available()}）`)
+log(`[bili-whale] Sidecar IPC 已就绪（127.0.0.1:${ipc.port}，rpcAvailable=${rpc.available()}）`)
 
 let shuttingDown = false
 async function shutdown(signalName) {

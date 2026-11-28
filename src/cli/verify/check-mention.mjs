@@ -21,7 +21,7 @@ if (!dynId) {
 const TARGET_MID = String(process.argv[3] ?? config().owner?.mid ?? '').trim()
 const TARGET_NAME = String(process.argv[4] ?? config().owner?.name ?? '').trim()
 if (!TARGET_MID && !TARGET_NAME) {
-  console.error('✗ 不知道要查谁：给我 mid 或昵称，或者在设置页填「主人 mid / 昵称」')
+  console.error('✗ 不知道要查谁：给我 mid 或昵称，或者在设置页填【主人 mid / 昵称】')
   process.exit(2)
 }
 
@@ -31,7 +31,7 @@ const r = await fetch(`https://www.bilibili.com/opus/${dynId}`, {
 })
 const html = await r.text()
 console.log(`opus 页 HTTP ${r.status}  ${html.length} 字节`)
-console.log(`目标: ${TARGET_NAME || '(未给昵称)'} · mid ${TARGET_MID || '(未给 mid)'}`)
+console.log(`目标: ${TARGET_NAME || '(未给昵称)'}，mid ${TARGET_MID || '(未给 mid)'}`)
 
 // ① mid 出现次数（真提及一般会把 mid 写进链接或 data 属性）
 if (TARGET_MID) {
@@ -48,7 +48,7 @@ if (TARGET_MID) {
 if (TARGET_NAME) {
   const i = html.indexOf(TARGET_NAME)
   const cnt = html.split(TARGET_NAME).length - 1
-  console.log(`\n昵称「${TARGET_NAME}」出现 ${cnt} 次`)
+  console.log(`\n昵称【${TARGET_NAME}】出现 ${cnt} 次`)
   if (i >= 0) {
     console.log('  上下文（前后各 300 字符）：')
     console.log(html.slice(Math.max(0, i - 300), i + 200).replace(/></g, '>\n<'))

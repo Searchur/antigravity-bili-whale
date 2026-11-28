@@ -9,7 +9,7 @@ try {
   cred = loadCred()
   const miss = missingForWrite(cred)
   if (miss.length) {
-    console.error(`凭据文件缺少字段：${miss.join(', ')}（请在控制台「大鲸鱼与主人」重新扫码登录）`)
+    console.error(`凭据文件缺少字段：${miss.join(', ')}（请在控制台【大鲸鱼与主人】重新扫码登录）`)
     process.exit(3)
   }
 } catch (e) {
@@ -26,7 +26,7 @@ const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
   },
 })).json()
 if (nav.code !== 0) {
-  console.error(`登录态无效: code=${nav.code} ${nav.message}（请在控制台「大鲸鱼与主人」重新扫码登录）`)
+  console.error(`登录态无效: code=${nav.code} ${nav.message}（请在控制台【大鲸鱼与主人】重新扫码登录）`)
   process.exit(4)
 }
 console.log('凭据有效')

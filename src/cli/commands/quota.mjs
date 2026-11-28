@@ -55,8 +55,8 @@ if (cmd === 'status') {
   const usedAutoComment = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'comment' && x.auto && !x.share).length
   const usedShare = q.log.filter((x) => dayOf(x.at) === today() && x.share).length
   const usedDynamic = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'dynamic').length
-  console.log(`今日对外发言: 共 ${used} 条（主动分享 ${usedShare}/${q.shareDaily ?? 3} · 自主评论 ${usedAutoComment}/${chat.autoCommentDailyMax} · 公开动态 ${usedDynamic}/${chat.dynamicDailyMax}）   日期 ${today()}`)
-  console.log(`当前规则：主动分享 ≤${q.shareDaily ?? 3}/天（同一视频 7 天一次） · 自主评论 ≤${chat.autoCommentDailyMax}/天（同一视频 7 天一次） · 公开动态 ≤${chat.dynamicDailyMax}/天`)
+  console.log(`今日对外发言: 共 ${used} 条（主动分享 ${usedShare}/${q.shareDaily ?? 3}，自主评论 ${usedAutoComment}/${chat.autoCommentDailyMax}，公开动态 ${usedDynamic}/${chat.dynamicDailyMax}）   日期 ${today()}`)
+  console.log(`当前规则：主动分享 ≤${q.shareDaily ?? 3}/天（同一视频 7 天一次），自主评论 ≤${chat.autoCommentDailyMax}/天（同一视频 7 天一次），公开动态 ≤${chat.dynamicDailyMax}/天`)
   if (!opt['summary-only']) {
     const recent = q.log.slice(-5)
     console.log(recent.length ? '最近记录:' : '最近记录: (无)')
@@ -140,7 +140,7 @@ if (cmd === 'check') {
     console.log('（回复互动：不受主动分享/自主评论限额拦截，仍需走安全审核与 --dry/--go）')
     process.exit(0)
   }
-  console.log(`通过${target ? ` · target=${target}` : ''}`)
+  console.log(`通过${target ? `，target=${target}` : ''}`)
   process.exit(0)
 }
 
@@ -152,7 +152,7 @@ if (cmd === 'record') {
   const usedShare = q.log.filter((x) => dayOf(x.at) === today() && x.share).length
   const usedDynamic = q.log.filter((x) => dayOf(x.at) === today() && x.type === 'dynamic').length
   const chat = chatConfig(config().chat)
-  console.log(`已记账：${type}${opt.share ? '（主动分享）' : opt.auto ? '（自主）' : '（回复）'}${opt.target ? ' → ' + opt.target : ''}   今日分享 ${usedShare}/${q.shareDaily ?? 3} · 自主评论 ${usedAutoComment}/${chat.autoCommentDailyMax} · 公开动态 ${usedDynamic}/${chat.dynamicDailyMax}`)
+  console.log(`已记账：${type}${opt.share ? '（主动分享）' : opt.auto ? '（自主）' : '（回复）'}${opt.target ? ' → ' + opt.target : ''}   今日分享 ${usedShare}/${q.shareDaily ?? 3}，自主评论 ${usedAutoComment}/${chat.autoCommentDailyMax}，公开动态 ${usedDynamic}/${chat.dynamicDailyMax}`)
   process.exit(0)
 }
 

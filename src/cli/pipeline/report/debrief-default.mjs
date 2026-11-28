@@ -5,7 +5,7 @@
  *   · 每行一个字符串，**不带换行符**（调用方 debrief.mjs 逐行 console.log；那里有主人昵称/mid 打码的
  *     console.log 包装，所以文本必须经过 console.log，不能直接 process.stdout.write）；
  *   · 这里只做排版：不请求、不读文件、不打印；
- *   · 文案、顺序、缩进、空格个数都必须与重构前 debrief.mjs 里逐字一致（验收标准是逐字 diff）。
+ *   - 顺序和缩进沿用现有报告格式，展示文案遵循项目统一的标点用法。
  *
  * 覆盖的六段（+ 结尾提示）：
  *   ① 元信息  ② 封面  ③ 官方字幕  ④ 弹幕热区  ⑤ 热评  ⑥ 画面 / ⑥b 字幕条
@@ -102,7 +102,7 @@ export function render(report) {
         push('（没有可用的 mp4，跳过字幕条）')
       } else {
         push(`STRIP: ${st.outPng}`)
-        push(`取帧方式: 每 ${st.everySeconds} 秒一帧 × ${st.rows} 行 · 裁下画面下方 32% 的字幕带`)
+        push(`取帧方式: 每 ${st.everySeconds} 秒一帧 × ${st.rows} 行，裁下画面下方 32% 的字幕带`)
         push('（可结合 bili_read read-shot 查看 —— 整片台词基本都在这一张图里）')
       }
     }

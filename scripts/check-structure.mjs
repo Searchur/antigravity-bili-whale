@@ -76,6 +76,19 @@ const LEGACY_DATA_NAMES_RE = /[\x27\x22](?:whale-night\.json|whale-listen\.json|
 const STALE_COMMENT_PATH_RE = /(?:lib\/msgfeed\.mjs|lib\/qr\.js|ui-src\/|tools\/lib\/)/
 const CJK_RE = /[\u4e00-\u9fff]/
 const WEB_ASCII_ARROW_RE = /[\u4e00-\u9fff][^\n\x27\x22\x60]*->/
+const WEB_LEGACY_PUNCTUATION_RE = /[\u00b7\u300c\u300d]/u
+const WEB_LEGACY_JS_ESCAPE_RE = /\\(?:xb7|u(?:00b7|300[cd]|\{0*(?:b7|300[cd])\}))/i
+const WEB_LEGACY_HTML_ENTITY_RE = /&(?:(?:middot|centerdot)\b|#(?:0*(?:183|1230[01])(?!\d)|x0*(?:b7|300[cd])(?![\da-f])))/i
+const LEGACY_WEB_CODE_POINTS = new Set([0x00b7, 0x300c, 0x300d])
+
+function checkWebPunctuation(source, rel, errors) {
+  const legacyCss = rel.endsWith('.css') && [...source.matchAll(/\\([\da-f]{1,6})/gi)]
+    .some(([, digits]) => LEGACY_WEB_CODE_POINTS.has(Number.parseInt(digits, 16)))
+  if (WEB_LEGACY_PUNCTUATION_RE.test(source) || WEB_LEGACY_JS_ESCAPE_RE.test(source)
+    || WEB_LEGACY_HTML_ENTITY_RE.test(source) || legacyCss) {
+    errors.push(`前端文案使用了旧标点，请改用【】或合适的全角分隔标点：${rel}`)
+  }
+}
 
 function walkFiles(dir, rootDir, out = []) {
   if (!fs.existsSync(dir)) return out
@@ -314,6 +327,7 @@ export function checkStructure({
   // 3. 命名与扩展名规范检查
   const codeRoots = ['src', 'web', 'scripts', 'sidecars', 'test']
   const allMjsFiles = []
+  const webAssets = []
   for (const dirName of codeRoots) {
     const files = walkFiles(path.join(rootDir, dirName), rootDir)
     for (const rel of files) {
@@ -323,6 +337,7 @@ export function checkStructure({
         continue
       }
       if (base.endsWith('.mjs')) allMjsFiles.push(rel)
+      if (dirName === 'web' && /\.(?:html|css)$/.test(base)) webAssets.push(rel)
       if (rel === 'src/vendor/qrcode/LICENSE') continue
       if (!KEBAB_FILE_RE.test(base)) {
         errors.push(`文件名不符合 kebab-case 规范：${rel}`)
@@ -408,12 +423,18 @@ export function checkStructure({
         errors.push(`前端目录 web/ 禁止设置原生 title 悬浮提示：${rel}`)
       }
       if (noComments.includes('B站')) {
-        errors.push(`前端文案中请使用规范盘古空格「B 站」而非「B站」：${rel}`)
+        errors.push(`前端文案中请使用规范盘古空格【B 站】：${rel}`)
       }
       if (WEB_ASCII_ARROW_RE.test(noComments)) {
-        errors.push(`前端中文路径指引请使用「→」而非 ASCII「->」：${rel}`)
+        errors.push(`前端中文路径指引请使用【→】：${rel}`)
       }
+      checkWebPunctuation(noComments, rel, errors)
     }
+  }
+  for (const rel of webAssets) {
+    const source = fs.readFileSync(path.join(rootDir, rel), 'utf8')
+    const comments = rel.endsWith('.html') ? /<!--[\s\S]*?-->/g : /\/\*[\s\S]*?\*\//g
+    checkWebPunctuation(source.replace(comments, ''), rel, errors)
   }
 
   // 5. 依赖边界与零循环依赖检查
@@ -575,5 +596,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     for (const err of res.errors) console.error('  -', err)
     process.exit(1)
   }
-  console.log(`目录与架构规范校验通过（${res.stats.mjsFiles} 个 .mjs 模块 · ${res.stats.srcDomains} 个无环领域层 · ES2026 & Markdown 合规）`)
+  console.log(`目录与架构规范校验通过（${res.stats.mjsFiles} 个 .mjs 模块、${res.stats.srcDomains} 个无环领域层，符合 ES2026 与 Markdown 规范）`)
 }

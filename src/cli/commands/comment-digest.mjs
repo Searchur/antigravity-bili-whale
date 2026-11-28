@@ -55,8 +55,8 @@ all.sort((a, b) => a.t - b.t)
 const replies = all.filter((x) => x.kind === 'reply')
 const ats = all.filter((x) => x.kind === 'at')
 const say = (...a) => { if (!JSON_OUT) console.log(...a) }
-say(`【B 站 · 谁找过人家】最近 ${HOURS} 小时`)
-say(`共 ${all.length} 条 —— 回复 ${replies.length} · @ ${ats.length}${ONLY_UNREAD ? '（只看未读）' : ''}${RAW ? '（未核实正文）' : ''}`)
+say(`【B 站】谁找过人家（最近 ${HOURS} 小时）`)
+say(`共 ${all.length} 条 —— 回复 ${replies.length}，@ ${ats.length}${ONLY_UNREAD ? '（只看未读）' : ''}${RAW ? '（未核实正文）' : ''}`)
 if (!all.length) {
   if (JSON_OUT) {
     const ownerMid0 = String(config().owner?.mid ?? '')
@@ -93,8 +93,8 @@ for (const x of all) {
     text, rpid: String(real?.rpid || x.parent || ''),
     oid: x.oid, root: x.root, business: x.business, uri: x.uri,
   })
-  say(`· ${hhmm(real.ctime || x.t)} [${tag}] ${x.who}`)
-  say(`    「${text}」`)
+  say(`- ${hhmm(real.ctime || x.t)} [${tag}] ${x.who}`)
+  say(`    【${text}】`)
   if (x.uri) say(`    位置：${x.uri}`)
   if (x.kind === 'reply') say(`    坐标：type=${x.business} oid=${x.oid} root=${x.root} parent=${real?.rpid || x.parent}`)
 }
@@ -117,5 +117,5 @@ if (JSON_OUT) {
 const byWho = new Map()
 for (const x of all) byWho.set(x.who, (byWho.get(x.who) ?? 0) + 1)
 const multi = [...byWho.entries()].filter(([, n]) => n > 1)
-if (multi.length) console.log(`\n话最多的：` + multi.map(([w, n]) => `${w}（${n} 条）`).join(' · '))
+if (multi.length) console.log(`\n话最多的：` + multi.map(([w, n]) => `${w}（${n} 条）`).join('、'))
 console.log('\n以上为只读收件箱汇总；回复主人或已关注粉丝请走 bili_write comment（先 --dry 再 --go）。')

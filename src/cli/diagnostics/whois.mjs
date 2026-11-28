@@ -22,5 +22,5 @@ for (const mid of process.argv.slice(2)) {
   const q = Object.keys({ mid, wts }).sort().map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(clean(k === 'wts' ? wts : mid))}`).join('&')
   const d = await (await fetch(`https://api.bilibili.com/x/space/wbi/acc/info?${q}&w_rid=${crypto.createHash('md5').update(q + mixin).digest('hex')}`, { headers: H })).json()
   if (d.code !== 0) { console.log(`mid ${mid}: code=${d.code} ${d.message}`); continue }
-  console.log(`mid ${mid}  →  昵称「${d.data.name}」  签名: ${String(d.data.sign ?? '').slice(0, 60)}`)
+  console.log(`mid ${mid}  →  昵称【${d.data.name}】  签名: ${String(d.data.sign ?? '').slice(0, 60)}`)
 }

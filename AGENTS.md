@@ -23,7 +23,7 @@ Antigravity 宿主按固定路径发现插件组件，以下顶层位置不可�
 - **ES2026 / Node 24+ 规范**：最低运行环境为 Node 24+，`web/` 打包目标为 `esnext`；禁止 `var`、CommonJS 与无 `node:` 前缀的内置导入；禁止调用 Node 24（V8 13.6）尚未实现的 ES2026 API（`Math.sumPrecise`、`Uint8Array` Base64/Hex、`Map.prototype.getOrInsert*`、`Iterator.concat`）。
 - **用户数据目录单一真理源**：所有 `%USERPROFILE%\.antigravity-bili-whale\` 路径统一通过 `src/core/data-paths.mjs`（`dataPathsFor` / `DATA_PATHS`）访问，规范见 [`docs/user-data.md`](docs/user-data.md)，禁止硬编码旧版平铺文件名。
 - **代码注释规范**：除 `src/vendor/` 外，所有 `.mjs` 文件顶部必须有具体描述本模块职责的中文 `/** ... */` 注释，禁止机械模板占位头（如 `（xxx.mjs）。`）与废弃旧路径注释，行内注释统一使用简体中文。
-- **控制台 UI 与文案规范**：`web/` 静态样式与间距统一收敛至 `web/styles.css` 语义类并通过 `statusPill` / `metaPill` / `banner` 复用；界面文案统一使用盘古空格（如 `B 站`、`Windows 用户`）、全角标点、`→` 箭头、`「」` 引号与统一术语（`大鲸鱼`、`UID`、`配额`、`后台守护（Sidecar）`），严禁出现 `✓` 或原生 `title:` 属性。
+- **控制台 UI 与文案规范**：`web/` 静态样式与间距统一收敛至 `web/styles.css` 语义类，并复用 `statusPill`、`metaPill`、`banner`。控制台、命令行、可读日志、工具说明与用户文档的自有文案使用盘古空格（如 `B 站`、`Windows 用户`）、全角标点、`→` 箭头、`【】` 引号和统一术语（`大鲸鱼`、`UID`、`配额`、`后台守护（Sidecar）`），禁用间隔号和旧式直角引号。外部原文、真实路径和历史内容按原值展示。控制台禁用 `✓` 和原生 `title:` 属性。
 - **Markdown 规范**：除根目录惯例文件与 `SKILL.md` 外均用小写 `kebab-case`，统一 LF、唯一 H1、不跳级标题、零断链。
 - **测试分层**：新增测试按领域放入 `test/{host,plugin,runtime,structure}/*.test.mjs`，公共夹具放入 `test/fixtures/*.mjs`。
 

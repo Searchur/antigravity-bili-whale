@@ -210,7 +210,7 @@ for(const days of pipeline.windows){
   if(selected().filter(x=>isInterest(x)&&interestGroup(x)===kw).length>=PER)continue
   let j
   try{j=await searchCached(kw,'pubdate',days);if(j?.code!==0)throw Error(j?.message??('code='+j?.code))}
-  catch(error){trace.push({keyword:kw,days,error:String(error.message)});warnings.push('搜索「'+kw+'」失败，未按空结果处理');continue}
+  catch(error){trace.push({keyword:kw,days,error:String(error.message)});warnings.push('搜索【'+kw+'】失败，未按空结果处理');continue}
   const raw=j?.data?.result??[],rows=[]
   for(const it of raw.slice(0,Math.min(POOL,50))){
    const x=annotate({bv:it.bvid,t:String(it.title??'').replace(/<[^>]+>/g,''),description:String(it.description??it.desc??''),tags:it.tag??it.tags??'',d:videoDuration(it.duration),dm:Number(it.danmaku??0),play:Number(it.play??0),up:it.author,mid:String(it.mid??''),kw,source:'search',pubdate:Number(it.pubdate),parts:Number(it.videos??1)})
@@ -240,7 +240,7 @@ const diversified=selected(),interestSelected=diversified.filter(isInterest).len
 const diagnostics={browsing,interestSelected,explorationSelected:diversified.length-interestSelected,explorationMax:pipeline.explorationMax,metadataUsed:metadataSeen.size,metadataLimit:pipeline.maxMetadata,metadataByInterest:Object.fromEntries(metadataGroups),keywords:searchKeywords.map(keyword=>({keyword,selected:diversified.filter(x=>isInterest(x)&&interestGroup(x)===keyword).length,searches:trace.filter(x=>x.keyword===keyword)})),warnings}
 if(opt.json){console.log(JSON.stringify({schema:'whale.discovery/1',items:diversified,n:N,shortfall:Math.max(0,N-diversified.length),keywords:searchKeywords,windows:pipeline.windows,diagnostics}));process.exit(0)}
 console.error('[来源] 兴趣优先；探索合计最多 '+pipeline.explorationMax+' 条')
-console.log(`偏好（来自配置）: ${prefs.join(' · ')}`)
+console.log(`偏好（来自配置）: ${prefs.join('、')}`)
 console.log(`品味回流: 收藏 ${favItems.length} 条 → 提取 ${learnedTokens.length} 个主题词`)
 console.log(`已看过/已评论过（已排除）: ${seen.size} 个 BV`)
 console.log(`候选池: ${pool.length} 条 → 去重去已看后 ${verified.length} 条\n`)

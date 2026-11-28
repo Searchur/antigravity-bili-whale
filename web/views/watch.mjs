@@ -154,9 +154,9 @@ export function renderWatchTab(state, actions) {
 
   const ownerCard = el('div', { className: 'card' },
     el('h2', {}, '二、主人评论区 @ 观看与总结'),
-    el('p', { className: 'card-sub' }, '主人在 B 站视频评论区 @ 大鲸鱼且判定需先观看视频再回复时生效（仅识别「账号与主人」中配置的主人 UID，每条观看视频均读取文字并抽帧）。'),
+    el('p', { className: 'card-sub' }, '主人在 B 站视频评论区 @ 大鲸鱼且判定需先观看视频再回复时生效（仅识别【账号与主人】中配置的主人 UID，每条观看视频均读取文字并抽帧）。'),
     !ownerMentionReady
-      ? banner('warn', '尚未开启主人评论区监听或「允许主人 @ 时自主判断是否观看视频」开关，可前往「互动与安全 → 四、评论区被动回复」开启。', {
+      ? banner('warn', '尚未开启主人评论区监听或【允许主人 @ 时自主判断是否观看视频】开关，可前往【互动与安全 → 四、评论区被动回复】开启。', {
           action: el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'),
         })
       : null,
@@ -207,7 +207,7 @@ export function renderWatchTab(state, actions) {
       metaPill('仅限已关注粉丝', 'info')),
     el('p', { className: 'card-sub' }, '通过 B 站关注关系接口实时校验对方是否已关注大鲸鱼，未关注用户的 @ 请求一律忽略；粉丝不设询问确认档，超限直接礼貌拒绝。'),
     !fanMentionReady
-      ? banner('warn', '尚未开启粉丝评论区 @ 总结监听，可前往「互动与安全 → 四、评论区被动回复」按需开启。', {
+      ? banner('warn', '尚未开启粉丝评论区 @ 总结监听，可前往【互动与安全 → 四、评论区被动回复】按需开启。', {
           action: el('button', { type: 'button', className: 'btn sm', onClick: () => actions.switchTab('interact') }, '前往开启'),
         })
       : null,

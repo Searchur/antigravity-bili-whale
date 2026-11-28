@@ -128,13 +128,20 @@ test('model picker shows only the current selection’s quota and refreshes prot
   const sonnet = 'claude-sonnet-5-5-medium'
   const carbon = 'gemini-4-carbon-medium'
   const config = { models: { main: sonnet, worker: sonnet, minQuotaPercent: 20 } }
-  const catalog = normalizeModelCatalog({ clientModelConfigs: [
-    { modelId: sonnet, label: 'Claude Sonnet 5.5 · Medium', quotaInfo: { remainingFraction: 1 } },
-    { modelId: carbon, label: 'Gemini 4 Carbon · Medium', quotaInfo: { remainingFraction: 0 } },
-  ] })
+  const medium = [{ thinkingSuffix: 'medium', thinkingDisplayName: 'Medium' }]
+  const catalog = normalizeModelCatalog({
+    groupedModels: {
+      'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', supportedThinkingLevels: medium },
+      'gemini-4-carbon': { displayName: 'Gemini 4 Carbon', supportedThinkingLevels: medium },
+    },
+    clientModelConfigs: [
+      { modelId: sonnet, quotaInfo: { remainingFraction: 1 } },
+      { modelId: carbon, quotaInfo: { remainingFraction: 0 } },
+    ],
+  })
   const carbonPause = {
     selection: { main: sonnet, worker: carbon }, paused: true, modelId: carbon, threshold: 20,
-    reason: '模型「Gemini 4 Carbon · Medium」剩余配额 0% 低于保护阈值 20%，已暂停全部后台活动。',
+    reason: '模型【Gemini 4 Carbon（Medium）】剩余配额 0% 低于保护阈值 20%，已暂停全部后台活动。',
   }
   const earlierStatus = Promise.withResolvers()
   let statusRequests = 0
@@ -152,23 +159,56 @@ test('model picker shows only the current selection’s quota and refreshes prot
   ui.click('模型与配额')
   assert.doesNotMatch(ui.root.textContent, /已暂停全部后台活动|配额保护已暂停|个实时模型档位/)
   assert.equal(ui.root.querySelector('.model-section-title').textContent, '当前完整模型清单')
+  assert.match(ui.root.textContent, /Claude Sonnet 5\.5（Medium）/)
 
   ui.click('后台辅助模型')
-  const carbonRow = ui.root.nodes().find(n => n.querySelector('.model-name')?.textContent === 'Gemini 4 Carbon · Medium'
+  const carbonRow = ui.root.nodes().find(n => n.querySelector('.model-name')?.textContent === 'Gemini 4 Carbon'
     && n.className?.startsWith('model-group'))
   carbonRow.nodes().find(n => n.className?.startsWith('effort-btn')).events.click()
-  assert.match(ui.root.textContent, /保存后将暂停全部后台活动/)
+  assert.match(ui.root.textContent, /模型【Gemini 4 Carbon（Medium）】剩余配额 0%.*保存后将暂停全部后台活动/)
   assert.doesNotMatch(ui.root.textContent, /已暂停全部后台活动/)
 
   await ui.click('保存配置')
   await new Promise(setImmediate)
   assert.deepEqual(saved.models, { main: sonnet, worker: carbon, minQuotaPercent: 20 })
   assert.equal(statusRequests, 2)
-  assert.match(ui.root.textContent, /Gemini 4 Carbon · Medium」剩余配额 0%.*已暂停全部后台活动/)
+  assert.match(ui.root.textContent, /Gemini 4 Carbon（Medium）】剩余配额 0%.*已暂停全部后台活动/)
 
   earlierStatus.resolve({ modelQuota: { selection: { main: sonnet, worker: sonnet }, paused: false, modelId: sonnet, threshold: 20 } })
   await new Promise(setImmediate)
-  assert.match(ui.root.textContent, /Gemini 4 Carbon · Medium」剩余配额 0%.*已暂停全部后台活动/)
+  assert.match(ui.root.textContent, /Gemini 4 Carbon（Medium）】剩余配额 0%.*已暂停全部后台活动/)
+})
+
+test('About path labels are Chinese and the original paths and operations are preserved', async t => {
+  const entries = [
+    ['行为规范目录', 'behaviorDir', 'behavior_dir', '打开目录', 'D:\\插件「旧」·文字\\behavior'],
+    ['主配置文件', 'configFile', 'config_file', '定位文件', 'D:\\数据\\config.json'],
+    ['人设正文', 'personaFile', 'persona_file', '定位文件', 'D:\\数据\\persona.md'],
+    ['长期记忆目录', 'memoryDir', 'memory_dir', '打开目录', 'D:\\数据\\memory'],
+    ['安全审核拦截日志', 'safetyLog', 'safety_log', '定位文件', 'D:\\数据\\logs\\safety-blocked.jsonl'],
+    ['外发内容安全审核规则', 'safetyRules', 'safety_rules', '定位文件', 'D:\\插件\\src\\social\\content-safety.mjs'],
+    ['导出文件目录', 'exportsDir', 'exports_dir', '打开目录', 'D:\\数据\\exports'],
+  ]
+  const paths = Object.fromEntries(entries.map(([, field, , , value]) => [field, value]))
+  const opened = []
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_ops' && args.action === 'about') return { paths }
+    if (name === 'whale_app_ops' && args.action === 'open_path') {
+      opened.push(args.key)
+      return { ok: true }
+    }
+  })
+  ui.click('关于与更新')
+  await new Promise(setImmediate)
+  for (const [label, , , action, value] of entries) {
+    const row = ui.root.nodes().find(n => n.className === 'row' && n.querySelector('.row-label')?.textContent === label)
+    assert.ok(row, label)
+    assert.equal(row.nodes().find(n => n.className === 'path-chip mono')?.textContent, value)
+    const button = row.nodes().find(n => n.tag === 'button')
+    assert.equal(button?.textContent, action)
+    await button.events.click()
+  }
+  assert.deepEqual(opened, entries.map(([, , key]) => key))
 })
 
 test('D07 late bootstrap cannot reinstate the old account after QR login succeeds', async t => {
@@ -359,7 +399,7 @@ test('deriveActivityStatus enforces strict single-badge priority without conflic
     life: { paused: false },
   })
   assert.equal(standby.code, 'standby')
-  assert.equal(standby.badge.text, '已就绪 · 待命中')
+  assert.equal(standby.badge.text, '已就绪，待命中')
   assert.equal(standby.primaryAction.label, '暂停主动活动')
 
   // 7. 一切就绪且开启自动开关：进入正常运行态
@@ -395,6 +435,7 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
   await new Promise(setImmediate)
   assert.match(uiUnbound.root.textContent, /尚未配置主人 UID/)
   assert.doesNotMatch(uiUnbound.root.textContent, /正常运行中/)
+  assert.doesNotMatch(uiUnbound.root.textContent, /未绑定账号与主人/)
   assert.doesNotMatch(uiUnbound.root.textContent, /长期状态写入需要明确账号和主人/)
   assert.equal(uiUnbound.button('暂停主动活动'), undefined)
   assert.ok(uiUnbound.button('前往配置账号与主人'))
@@ -416,6 +457,7 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
   assert.doesNotMatch(uiQuota.root.textContent, /正常运行中/)
   assert.equal(uiQuota.button('暂停主动活动'), undefined)
   assert.ok(uiQuota.button('调整配额保护'))
+  assert.match(uiQuota.root.textContent, /活跃记忆 0 条，近期经历 0 条/)
 
   // 场景 C：手动暂停与配额保护叠加：解除手动暂停后平滑回落为配额保护态
   let pausedFlag = true
@@ -464,5 +506,75 @@ test('Memory tab never shows conflicting running/quota-paused/pause-button/stora
   assert.equal(cards.length, 2)
   assert.match(cards[0].textContent, /模拟暂停失败/)
   assert.doesNotMatch(cards[1].textContent, /模拟暂停失败/)
+})
+
+test('Memory tab puts missing identity guidance in the activity body only', async t => {
+  for (const [ownerMid, expected] of [
+    ['', /扫码登录并填写主人 UID/],
+    ['200', /尚未登录大鲸鱼 B 站账号/],
+  ]) {
+    const ui = await openConsole(t, name => {
+      if (name === 'whale_app_bootstrap') return {
+        settings: { config: { self: { mid: '' }, owner: { mid: ownerMid }, preferences: {}, night: {} } },
+        status: {},
+      }
+    })
+    ui.click('动态与记忆')
+    await new Promise(setImmediate)
+    const headers = ui.root.nodes().filter(n => n.className === 'card-head')
+    assert.doesNotMatch(headers[0].textContent, /未绑定账号与主人|尚未登录大鲸鱼账号/)
+    assert.doesNotMatch(headers[1].textContent, /未绑定账号与主人|活跃记忆/)
+    assert.match(ui.root.textContent, expected)
+    ui.click('前往配置账号与主人')
+    assert.equal(ui.button('账号与主人')?.className, 'tab-btn active')
+  }
+})
+
+test('Memory activity shows matching metric lists and preserves calendar and refresh actions', async t => {
+  const today = '2026-06-02'
+  const previous = '2026-06-01'
+  const config = { self: { mid: '100' }, owner: { mid: '200' }, browse: { enabled: true }, preferences: {}, night: {} }
+  const originalEvent = '用户标题「示例」·保留'
+  const status = {
+    sidecarRunning: true,
+    sharesMax: 3,
+    calendar: {
+      today,
+      activeDays: 2,
+      totals: { watched: 3, shares: 0, ownerInteract: 3, ownerDm: 2, ownerComment: 1, total: 6 },
+      days: {
+        [today]: { watched: 2, total: 2, items: [{ time: '09:15', label: '观看视频', text: originalEvent }] },
+        [previous]: { watched: 1, total: 1 },
+      },
+    },
+  }
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_bootstrap') return { settings: { config }, status: structuredClone(status) }
+    if (name === 'whale_app_ops' && args.action === 'status') return structuredClone(status)
+  })
+  ui.click('动态与记忆')
+  await new Promise(setImmediate)
+  const metrics = () => ui.root.nodes().filter(n => n.className === 'activity-metrics')
+  assert.deepEqual(metrics().map(n => [n.tag, n.children.length]), [['dl', 8], ['dl', 8]])
+  assert.match(metrics()[0].textContent, /观看视频3 条.*主人互动3 次私信 2，评论 1/)
+  assert.match(metrics()[1].textContent, /主动分享0 条（上限 3 条）/)
+  assert.match(ui.root.textContent, /活跃 2 天，共 6 项活动/)
+  assert.ok(ui.root.textContent.includes(originalEvent))
+
+  ui.click('上月')
+  assert.equal(ui.root.querySelector('.cal-month-title')?.textContent, '2026 年 5 月')
+  ui.click('下月')
+  assert.equal(ui.root.querySelector('.cal-month-title')?.textContent, '2026 年 6 月')
+  const previousButton = ui.root.nodes().find(n => n.tag === 'button' && n.attrs['aria-label']?.startsWith(previous))
+  previousButton.events.click()
+  assert.match(ui.root.textContent, /2026-06-01 统计/)
+  assert.match(metrics()[1].textContent, /观看视频1 条/)
+  assert.doesNotMatch(metrics()[1].textContent, /上限/)
+  ui.click('回到今天')
+  assert.match(ui.root.textContent, /今日统计（2026-06-02）/)
+
+  status.calendar.totals.watched = 8
+  await ui.click('刷新概览')
+  assert.match(metrics()[0].textContent, /观看视频8 条/)
 })
 

@@ -1,4 +1,4 @@
-# NOTICE · 第三方组件与免责声明
+# NOTICE（第三方组件与免责声明）
 
 本项目（`antigravity-bili-whale`）移植并重构自 [dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale)（MIT License），专为 Windows 版 Antigravity App 适配。自身代码以 **MIT** 许可发布（见 [LICENSE](LICENSE)）。
 

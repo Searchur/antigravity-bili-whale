@@ -109,3 +109,22 @@ test('dataPathsFor organizes user data cleanly into 6 canonical categories', () 
   assert.ok(dp.shotsDir.endsWith(path.join('cache', 'shots')))
   assert.ok(dp.safetyLog.endsWith(path.join('logs', 'safety-blocked.jsonl')))
 })
+
+test('structure guard rejects legacy punctuation in console source and static titles', t => {
+  const dir = makeFixtureRepo(t)
+  const examples = [
+    ['web/main.mjs', "/**\n * 控制台文案测试夹具。\n */\nconst label = '\\u300c示例\\u300d'\n"],
+    ['web/index.html', '<title>大鲸鱼&middot;控制台</title>\n'],
+    ['web/index.html', '<title>大鲸鱼&CenterDot;控制台</title>\n'],
+    ['web/index.html', '<title>大鲸鱼&#183 控制台</title>\n'],
+    ['web/styles.css', '.hint::after { content: "·"; }\n'],
+    ['web/styles.css', '.hint::after { content: "\\B7"; }\n'],
+  ]
+  const missed = []
+  for (const [file, source] of examples) {
+    fs.writeFileSync(path.join(dir, file), source)
+    const res = checkStructure({ rootDir: dir, checkManifest: false, checkDocs: false, checkVersions: false, checkMarkdown: false })
+    if (!res.errors.some(e => e.includes('旧标点') && e.endsWith(file))) missed.push(source)
+  }
+  assert.deepEqual(missed, [])
+})

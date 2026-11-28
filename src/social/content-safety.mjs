@@ -78,7 +78,7 @@ export function checkLocalSafety(text, rawSafetyCfg) {
         ok: false,
         blocked: true,
         category: '自定义敏感词',
-        reason: `命中自定义屏蔽词「${word}」，已拦截禁止发出`,
+        reason: `命中自定义屏蔽词【${word}】，已拦截禁止发出`,
         matched: word,
         layer: 'local-custom',
       }
@@ -163,7 +163,7 @@ export async function enforceOutboundSafety({
         ok: false,
         blocked: true,
         category: '双重安全审核不可用',
-        reason: `双重安全审核（dual）调用后台守护失败（${String(err?.message ?? err).slice(0, 80)}），已拦截外发。请检查后台守护 Sidecar 是否正常运行，或在控制台「分享与监听」切换为仅本地规则（local_only）。`,
+        reason: `双重安全审核（dual）调用后台守护失败（${String(err?.message ?? err).slice(0, 80)}），已拦截外发。请检查后台守护 Sidecar 是否正常运行，或在控制台【分享与监听】切换为仅本地规则（local_only）。`,
         layer: 'model-unavailable',
       }
       logSafetyBlock({ channel, text, ...out }, whaleHome)
@@ -175,7 +175,7 @@ export async function enforceOutboundSafety({
         ok: false,
         blocked: true,
         category: '双重安全审核不可用',
-        reason: `双重安全审核（dual）未完成复审（${detail}），已拦截外发。请检查后台守护与模型配额，或在控制台「分享与监听」切换为仅本地规则（local_only）。`,
+        reason: `双重安全审核（dual）未完成复审（${detail}），已拦截外发。请检查后台守护与模型配额，或在控制台【分享与监听】切换为仅本地规则（local_only）。`,
         layer: 'model-unavailable',
       }
       logSafetyBlock({ channel, text, ...out }, whaleHome)

@@ -92,8 +92,8 @@ try {
 const miss = missingForWrite(cred)
 if (miss.length) {
   console.error('✗ 凭据不完整，无法发送私信：')
-  for (const m of miss) console.error('   · 缺 ' + m)
-  console.error('  请在控制台「大鲸鱼与主人」重新扫码登录。')
+  for (const m of miss) console.error('   - 缺 ' + m)
+  console.error('  请在控制台【大鲸鱼与主人】重新扫码登录。')
   process.exit(2)
 }
 if (!looksLikeJct(cred.bili_jct)) {
@@ -248,7 +248,7 @@ if (String(meInfo.mid) === ONLY_TO) {
 let fanQuotaRequest = null
 if (IS_FAN_REPLY) {
   if (SHARE) { console.error('✗ 禁止向粉丝主动分享视频，仅允许被动回复来信'); process.exit(4) }
-  if (!cfg.listen?.dmFan) { console.error('✗ 当前未开启「回复粉丝私信」开关'); process.exit(4) }
+  if (!cfg.listen?.dmFan) { console.error('✗ 当前未开启【回复粉丝私信】开关'); process.exit(4) }
   if (!verifyFanReceipt(String(meInfo.mid), ONLY_TO, RECEIPT)) {
     console.error('✗ 缺少有效的粉丝来信回执（--receipt），严禁无来信主动向粉丝发起私信。')
     process.exit(4)
@@ -282,7 +282,7 @@ if (IS_FAN_REPLY) {
   const used = q.date === today() ? Number(q.count ?? 0) : 0
   console.log(`[dm] ${meInfo.uname} → ${OWNER_NAME}（UID ${ONLY_TO}）`)
   console.log(`  正文 ${MSG.length} 字：${MSG.slice(0, 80)}${MSG.length > 80 ? '…' : ''}`)
-  console.log(`  已互关 · 今天第 ${used + 1} 条（主人私信通道）`)
+  console.log(`  已互关，今天第 ${used + 1} 条（主人私信通道）`)
 }
 
 if (GO === DRY) { console.error('✗ 必须且只能给 --dry 或 --go'); process.exit(2) }

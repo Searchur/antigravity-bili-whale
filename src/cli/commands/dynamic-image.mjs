@@ -139,7 +139,7 @@ console.log(`  账号: ${nav.data.uname} (UID ${nav.data.mid})  手机绑定=${n
 console.log('\n=== 计划 ===')
 console.log('  1) POST https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs')
 console.log('  2) POST https://api.bilibili.com/x/dynamic/feed/create/dyn?wts=..&w_rid=..')
-console.log(`     正文: ${text ? `「${text.replace(/\n/g, ' / ')}」(${text.length} 字)` : '（空）'}`)
+console.log(`     正文: ${text ? `【${text.replace(/\n/g, ' / ')}】(${text.length} 字)` : '（空）'}`)
 if (atMid) console.log(`     @节点: raw_text="@${atName ?? ''} "  type=2  biz_id=${atMid}`)
 
 const request = {

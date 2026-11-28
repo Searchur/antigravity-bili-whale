@@ -39,8 +39,8 @@ const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math
   const _log = console.log
   console.log = (...args) => _log(...args.map((a) => {
     let s = String(a)
-    if (name.length >= 2) s = s.split(name).join('「主人昵称·已打码」')
-    if (mid.length >= 4) s = s.split(mid).join('「主人mid·已打码」')
+    if (name.length >= 2) s = s.split(name).join('【主人昵称已打码】')
+    if (mid.length >= 4) s = s.split(mid).join('【主人 UID 已打码】')
     return s
   }))
 }

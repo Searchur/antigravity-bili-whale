@@ -38,7 +38,7 @@ export function createSchedulerHealth(whaleHome,{now=Date.now,log=()=>{}}={}){
       if(!throttle||last===undefined||now()-last>=300_000){
         throttled.set(key,now())
         state.recent.push({at:now(),kind,reason,...details});state.recent=state.recent.slice(-5)
-        output('[bili-whale] '+kind+' reason='+reason+(details.error?' · '+details.error:''))
+        output('[bili-whale] '+kind+' reason='+reason+(details.error?'，'+details.error:''))
       }
       save();return true
     },

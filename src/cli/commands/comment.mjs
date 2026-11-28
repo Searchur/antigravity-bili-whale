@@ -161,7 +161,7 @@ try {
   cred = loadCred()
   const miss = missingForWrite(cred)
   if (miss.length) {
-    console.error('✗ 凭据不完整：缺少 ' + miss.join('、') + '，请在控制台「大鲸鱼与主人」重新扫码登录。')
+    console.error('✗ 凭据不完整：缺少 ' + miss.join('、') + '，请在控制台【大鲸鱼与主人】重新扫码登录。')
     process.exit(3)
   }
 } catch (e) {
@@ -204,7 +204,7 @@ if (parent && root) {
 } else if (!SHARE) {
   const autoCommentEnabled = chatConfig(cfgNow.chat).autoComment === true
   if (!AUTO || !autoCommentEnabled) {
-    console.error('✗ 未开启自主评论或缺少 --auto 参数（请在「分享与监听」开启允许自主发表评论，或带 --share 主动分享给主人）。')
+    console.error('✗ 未开启自主评论或缺少 --auto 参数（请在【分享与监听】开启允许自主发表评论，或带 --share 主动分享给主人）。')
     process.exit(4)
   }
 }
@@ -247,7 +247,7 @@ const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
 console.log('=== 登录态校验（只读） ===')
 if (nav.code !== 0) {
   console.log(`  nav code=${nav.code} message=${nav.message}`)
-  console.log('  → 登录态无效或已过期，请在控制台「大鲸鱼与主人」重新扫码登录')
+  console.log('  → 登录态无效或已过期，请在控制台【大鲸鱼与主人】重新扫码登录')
   process.exit(4)
 }
 console.log(`  账号: ${nav.data.uname}   (UID ${nav.data.mid})`)
@@ -300,7 +300,7 @@ requireWritePreview('comment', { oid, referer, ...lifeRequest }, { dry, credenti
 if (dry) {
   if (PIC) {
     const kb = (fs.statSync(PIC).size / 1024).toFixed(0)
-    console.log(`\n[dry] 将附带图片：${PIC}（${kb} KB）· dry 阶段不上传`)
+    console.log(`\n[dry] 将附带图片：${PIC}（${kb} KB），dry 阶段不上传`)
   }
   console.log('\n[dry] 预检通过，未发送。改为 --go 时将重新检查额度与安全规则。')
   process.exit(0)
