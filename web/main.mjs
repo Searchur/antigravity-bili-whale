@@ -14,6 +14,7 @@ import { renderModelsTab } from './views/models.mjs'
 import { renderWatchTab } from './views/watch.mjs'
 import { renderMemoryTab } from './views/memory.mjs'
 import { renderAboutTab } from './views/about.mjs'
+import { sameModelQuotaConfig } from '../src/shared/model-quota.mjs'
 
 const state = {
   ready: false,
@@ -71,9 +72,15 @@ const qrFlow = { gen: 0, id: null, timer: null }
 const root = document.getElementById('root')
 let savedIdentity = ''
 let identityRevision = 0
+let statusRequestRevision = 0
 let editsDuringSave = null
 
 function rememberSavedConfig(config) {
+  const quotaChanged = !sameModelQuotaConfig(state.savedCfg?.models, config.models)
+  if (quotaChanged) {
+    statusRequestRevision++
+    if (state.status) state.status = { ...state.status, modelQuota: null }
+  }
   const key = JSON.stringify([String(config.self?.mid ?? ''), String(config.owner?.mid ?? '')])
   if (key !== savedIdentity) {
     savedIdentity = key
@@ -87,10 +94,15 @@ function rememberSavedConfig(config) {
   }
   state.savedCfg = structuredClone(config)
   state.savedJson = JSON.stringify(config)
+  return quotaChanged
 }
 
 function mount(...nodes) {
+  const modelControl = document.activeElement?.getAttribute('data-model-control')
   root.replaceChildren(...nodes.filter(Boolean))
+  if (modelControl) {
+    root.querySelector(`[data-model-control="${CSS.escape(modelControl)}"]`)?.focus({ preventScroll: true })
+  }
 }
 
 function setBanner(kind, text) {
@@ -366,6 +378,7 @@ const actions = {
     if (editsDuringSave) return false
     editsDuringSave = []
     const accountRevision = state.accountRevision
+    let refreshModelStatus = false
     state.busy = 'save'
     state.banner = null
     render()
@@ -374,7 +387,7 @@ const actions = {
       if (res.config) {
         if (accountRevision !== state.accountRevision) res.config.self = state.cfg.self
         state.cfg = res.config
-        rememberSavedConfig(res.config)
+        refreshModelStatus = rememberSavedConfig(res.config)
         for (const [field, value] of editsDuringSave) setPath(state.cfg, field, value)
         state.accountRevision++
       }
@@ -388,6 +401,7 @@ const actions = {
       editsDuringSave = null
       state.busy = ''
       render()
+      if (refreshModelStatus) void actions.refreshStatus()
     }
   },
 
@@ -578,9 +592,10 @@ const actions = {
 
   async refreshStatus() {
     const revision = identityRevision
+    const statusRequest = ++statusRequestRevision
     try {
       const status = await bridge.callTool('whale_app_ops', { action: 'status' })
-      if (revision !== identityRevision) return
+      if (revision !== identityRevision || statusRequest !== statusRequestRevision) return
       state.status = status
       render()
     } catch {}
@@ -588,6 +603,7 @@ const actions = {
 
   async refreshMemoryOverview() {
     const revision = identityRevision
+    const statusRequest = ++statusRequestRevision
     state.busy = 'memory'
     state.activityError = ''
     state.lifeError = ''
@@ -598,7 +614,7 @@ const actions = {
         bridge.callTool('whale_app_life', { action: 'status', params: {} }),
       ])
       if (revision !== identityRevision) return
-      state.status = st
+      if (statusRequest === statusRequestRevision) state.status = st
       if (lf.state) state.lifeState = lf.state
       state.lifeLoaded = true
     } catch (e) {

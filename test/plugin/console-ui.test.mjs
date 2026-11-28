@@ -124,6 +124,53 @@ test('model picker only offers host choices and displays a depleted model as zer
   assert.equal(saved.models.worker, 'flash_lite')
 })
 
+test('model picker shows only the current selection’s quota and refreshes protection after saving', async t => {
+  const sonnet = 'claude-sonnet-5-5-medium'
+  const carbon = 'gemini-4-carbon-medium'
+  const config = { models: { main: sonnet, worker: sonnet, minQuotaPercent: 20 } }
+  const catalog = normalizeModelCatalog({ clientModelConfigs: [
+    { modelId: sonnet, label: 'Claude Sonnet 5.5 · Medium', quotaInfo: { remainingFraction: 1 } },
+    { modelId: carbon, label: 'Gemini 4 Carbon · Medium', quotaInfo: { remainingFraction: 0 } },
+  ] })
+  const carbonPause = {
+    selection: { main: sonnet, worker: carbon }, paused: true, modelId: carbon, threshold: 20,
+    reason: '模型「Gemini 4 Carbon · Medium」剩余配额 0% 低于保护阈值 20%，已暂停全部后台活动。',
+  }
+  const earlierStatus = Promise.withResolvers()
+  let statusRequests = 0
+  let saved
+  const ui = await openConsole(t, (name, args) => {
+    if (name === 'whale_app_bootstrap') return { settings: { config }, models: catalog, status: { modelQuota: carbonPause } }
+    if (name === 'whale_app_ops' && args.action === 'status') {
+      return ++statusRequests === 1 ? earlierStatus.promise : { modelQuota: carbonPause }
+    }
+    if (name === 'whale_app_settings' && args.action === 'save') {
+      saved = structuredClone(args.config)
+      return { config: saved }
+    }
+  })
+  ui.click('模型与配额')
+  assert.doesNotMatch(ui.root.textContent, /已暂停全部后台活动|配额保护已暂停|个实时模型档位/)
+  assert.equal(ui.root.querySelector('.model-section-title').textContent, '当前完整模型清单')
+
+  ui.click('后台辅助模型')
+  const carbonRow = ui.root.nodes().find(n => n.querySelector('.model-name')?.textContent === 'Gemini 4 Carbon · Medium'
+    && n.className?.startsWith('model-group'))
+  carbonRow.nodes().find(n => n.className?.startsWith('effort-btn')).events.click()
+  assert.match(ui.root.textContent, /保存后将暂停全部后台活动/)
+  assert.doesNotMatch(ui.root.textContent, /已暂停全部后台活动/)
+
+  await ui.click('保存配置')
+  await new Promise(setImmediate)
+  assert.deepEqual(saved.models, { main: sonnet, worker: carbon, minQuotaPercent: 20 })
+  assert.equal(statusRequests, 2)
+  assert.match(ui.root.textContent, /Gemini 4 Carbon · Medium」剩余配额 0%.*已暂停全部后台活动/)
+
+  earlierStatus.resolve({ modelQuota: { selection: { main: sonnet, worker: sonnet }, paused: false, modelId: sonnet, threshold: 20 } })
+  await new Promise(setImmediate)
+  assert.match(ui.root.textContent, /Gemini 4 Carbon · Medium」剩余配额 0%.*已暂停全部后台活动/)
+})
+
 test('D07 late bootstrap cannot reinstate the old account after QR login succeeds', async t => {
   const previous = {settings:{config:{self:{mid:'100'},owner:{mid:'200'},preferences:{},night:{}}},status:{}}
   const loading = Promise.withResolvers(), loggedIn = Promise.withResolvers()

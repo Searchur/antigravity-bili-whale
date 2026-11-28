@@ -182,6 +182,7 @@
     "src/plugin/module-check.mjs",
     "src/plugin/updater.mjs",
     "src/shared/activity-status.mjs",
+    "src/shared/model-quota.mjs",
     "src/shared/quota-percentage.mjs",
     "src/social/comment-target.mjs",
     "src/social/comment-visibility.mjs",

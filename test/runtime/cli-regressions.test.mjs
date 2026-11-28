@@ -77,7 +77,7 @@ test('the depleted Worker controls protection even when the main model has quota
     { id: 'gemini-flash', label: 'Flash', remainingFraction: 0.9 },
     { id: 'gemini-flash-lite', label: 'Flash Lite', remainingFraction: 0 },
   ] }
-  const status = evaluateModelQuota(catalog, { main: 'flash', worker: 'flash_lite', minQuotaPercent: 20 })
+  const status = evaluateModelQuota(catalog, { main: 'gemini-flash', worker: 'gemini-flash-lite', minQuotaPercent: 20 })
   assert.equal(status.paused, true)
   assert.equal(status.modelId, 'gemini-flash-lite')
 })

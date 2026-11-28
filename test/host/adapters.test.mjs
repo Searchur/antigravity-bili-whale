@@ -10,7 +10,7 @@ import { createAntigravitySessionController } from '../../src/host/session.mjs'
 import { createAntigravityTextComplete, extractJsonText } from '../../src/host/text-complete.mjs'
 import { createSessionDelivery } from '../../src/daemon/session-delivery.mjs'
 import { normalizeModelCatalog, fallbackModelCatalog } from '../../src/host/rpc.mjs'
-import { evaluateModelQuota } from '../../src/host/model-quota-guard.mjs'
+import { createModelQuotaGuard, evaluateModelQuota } from '../../src/host/model-quota-guard.mjs'
 
 function mkTmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -265,4 +265,47 @@ test('quota messages with an omitted zero remain available for display and quota
   assert.equal(status.paused, true)
   assert.equal(status.remainingPercent, 0)
   assert.equal(status.resetTime, resetTime)
+})
+
+test('quota protection uses the exact selected variant and leaves unmatched legacy presets unknown', () => {
+  const models = [
+    { id: 'gemini-4-carbon-low', label: 'Gemini 4 Carbon (Low)', remainingFraction: 0 },
+    { id: 'gemini-4-carbon-medium', label: 'Gemini 4 Carbon (Medium)', remainingFraction: 0.2 },
+    { id: 'unreported-model', remainingFraction: null },
+  ]
+  const catalog = { source: 'live', models }
+  const medium = evaluateModelQuota(catalog, {
+    main: 'gemini-4-carbon-medium', worker: 'gemini-4-carbon-medium', minQuotaPercent: 20,
+  })
+  assert.equal(medium.remainingPercent, 20)
+  assert.equal(medium.paused, false)
+  const unknown = evaluateModelQuota(catalog, {
+    main: 'flash', worker: 'unreported-model', minQuotaPercent: 20,
+  })
+  assert.equal(unknown.remainingPercent, null)
+  assert.equal(unknown.paused, false)
+})
+
+test('an in-flight quota check uses the newly saved models when the old catalog response arrives last', async () => {
+  const previous = Promise.withResolvers()
+  const catalog = { source: 'live', models: [
+    { id: 'gemini-4-carbon-medium', remainingFraction: 0 },
+    { id: 'claude-sonnet-5-5-medium', remainingFraction: 1 },
+  ] }
+  let models = { main: 'gemini-4-carbon-medium', worker: 'claude-sonnet-5-5-medium', minQuotaPercent: 20 }
+  let reads = 0
+  const guard = createModelQuotaGuard({
+    rpc: { available: () => true, getModelCatalog: async () => ++reads === 1 ? previous.promise : catalog },
+    config: () => ({ models }),
+  })
+  const oldCheck = guard.check()
+  models = { ...models, main: 'claude-sonnet-5-5-medium' }
+  guard.invalidate()
+  assert.equal((await guard.check()).paused, false)
+  previous.resolve(catalog)
+
+  const result = await oldCheck
+  assert.equal(result.paused, false)
+  assert.deepEqual(result.selection, { main: models.main, worker: models.worker })
+  assert.equal(guard.status().remainingPercent, 100)
 })

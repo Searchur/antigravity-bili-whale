@@ -2,94 +2,13 @@
  * 模型剩余配额守卫：评估所选模型配额是否低于保护阈值，提供带缓存的自动暂停/恢复判定。
  */
 import { normalizeModels } from '../config/index.mjs'
-import { belowQuotaThreshold, remainingQuotaPercent } from '../shared/quota-percentage.mjs'
-
-const LIGHT_MODEL = /(?:^|[^a-z0-9])(?:lite|mini)(?:$|[^a-z0-9])|flashlite/i
-
-function pickLiveModel(catalog, modelId) {
-  const live = (catalog?.models ?? []).filter(
-    m => m && m.groupKey !== 'auto-tier' && Number.isFinite(m.remainingFraction),
-  )
-  if (!live.length) return null
-  const exact = live.find(m => m.id === modelId)
-  if (exact) return exact
-
-  // 兼容还未切换到实际模型 ID 的旧配置，按名称匹配相应的实时模型配额。
-  const id = String(modelId || '').toLowerCase()
-  if (id === 'flash_lite') {
-    return live.find(m => LIGHT_MODEL.test(`${m.id} ${m.label}`)) ?? null
-  }
-  if (id === 'flash') {
-    return live.find(m => /flash|hydrogen|carbon/i.test(`${m.id} ${m.label}`) && !LIGHT_MODEL.test(`${m.id} ${m.label}`)) ?? null
-  }
-  if (id === 'pro') {
-    return live.find(m => /pro|neon|opus|sonnet/i.test(`${m.id} ${m.label}`)) ?? null
-  }
-  return null
-}
+import { evaluateSelectedModelQuota, sameModelQuotaConfig } from '../shared/model-quota.mjs'
 
 /**
  * 评估当前所选模型剩余配额是否低于用户设置的保护阈值。
  */
 export function evaluateModelQuota(catalog, rawModelCfg) {
-  const cfg = normalizeModels(rawModelCfg)
-  const threshold = cfg.minQuotaPercent
-  if (threshold <= 0) {
-    return {
-      enabled: false,
-      paused: false,
-      threshold: 0,
-      remainingPercent: null,
-      modelId: cfg.main,
-      modelLabel: '',
-      resetTime: null,
-      reason: '',
-    }
-  }
-  if (!catalog || catalog.source !== 'live') {
-    return {
-      enabled: true,
-      paused: false,
-      threshold,
-      remainingPercent: null,
-      modelId: cfg.main,
-      modelLabel: '',
-      resetTime: null,
-      reason: '',
-    }
-  }
-  const main = pickLiveModel(catalog, cfg.main)
-  const worker = pickLiveModel(catalog, cfg.worker)
-  const hit = worker && (!main || worker.remainingFraction < main.remainingFraction) ? worker : main
-  if (!hit) {
-    return {
-      enabled: true,
-      paused: false,
-      threshold,
-      remainingPercent: null,
-      modelId: cfg.main,
-      modelLabel: '',
-      resetTime: null,
-      reason: '',
-    }
-  }
-  const remainingPercent = remainingQuotaPercent(hit.remainingFraction)
-  const modelLabel = hit.groupName
-    ? (hit.thinkingLabel && hit.thinkingLabel !== '默认' ? `${hit.groupName} · ${hit.thinkingLabel}` : hit.groupName)
-    : (hit.label || hit.id)
-  const paused = belowQuotaThreshold(hit.remainingFraction, threshold)
-  return {
-    enabled: true,
-    paused,
-    threshold,
-    remainingPercent,
-    modelId: hit.id,
-    modelLabel,
-    resetTime: hit.resetTime || null,
-    reason: paused
-      ? `模型「${modelLabel}」剩余配额 ${remainingPercent}% 低于保护阈值 ${threshold}%，已暂停全部后台活动。`
-      : '',
-  }
+  return evaluateSelectedModelQuota(catalog, normalizeModels(rawModelCfg))
 }
 
 /**
@@ -103,54 +22,54 @@ export function createModelQuotaGuard({
   cacheMs = 120_000,
   now = Date.now,
 } = {}) {
-  let cachedAt = 0
-  let lastState = null
-  let cachedConfig = ''
+  const readModelConfig = () => normalizeModels(config()?.models)
+  let cached = null
+  let revision = 0
+
+  function remember(catalog, models) {
+    const status = evaluateSelectedModelQuota(catalog, models)
+    cached = { models, status, checkedAt: now() }
+    return status
+  }
 
   async function check({ fresh = false } = {}) {
-    const cfg = config() ?? {}
-    const modelsCfg = normalizeModels(cfg.models)
-    const key = JSON.stringify(modelsCfg)
-    if (modelsCfg.minQuotaPercent <= 0) {
-      lastState = evaluateModelQuota(null, modelsCfg)
-      cachedConfig = key
-      cachedAt = now()
-      return lastState
-    }
-    const t = now()
-    if (!fresh && lastState && t - cachedAt < cacheMs && cachedConfig === key) {
-      return lastState
-    }
-    if (!rpc?.available?.() || typeof rpc.getModelCatalog !== 'function') {
-      lastState = evaluateModelQuota(null, modelsCfg)
-      cachedConfig = key
-      cachedAt = t
-      return lastState
-    }
-    try {
-      const catalog = await rpc.getModelCatalog()
-      lastState = evaluateModelQuota(catalog, modelsCfg)
-      cachedConfig = key
-      cachedAt = now()
-      return lastState
-    } catch {
-      return (cachedConfig === key ? lastState : null) ?? evaluateModelQuota(null, modelsCfg)
+    for (;;) {
+      const models = readModelConfig()
+      if (models.minQuotaPercent <= 0) return remember(null, models)
+      if (!fresh && cached && sameModelQuotaConfig(cached.models, models) && now() - cached.checkedAt < cacheMs) {
+        return cached.status
+      }
+      if (!rpc?.available?.() || typeof rpc.getModelCatalog !== 'function') return remember(null, models)
+
+      const requestRevision = revision
+      let catalog
+      let failed = false
+      try { catalog = await rpc.getModelCatalog() } catch { failed = true }
+      // 读配额期间保存了配置时，重新按当前档位判断，丢弃旧结果。
+      if (requestRevision !== revision || !sameModelQuotaConfig(models, readModelConfig())) {
+        fresh = false
+        continue
+      }
+      if (failed) {
+        return cached && sameModelQuotaConfig(cached.models, models)
+          ? cached.status
+          : evaluateSelectedModelQuota(null, models)
+      }
+      return remember(catalog, models)
     }
   }
 
   return {
     check,
     invalidate() {
-      cachedAt = 0
-      lastState = null
-      cachedConfig = ''
+      revision++
+      cached = null
     },
     status() {
-      const cfg = config() ?? {}
-      const modelsCfg = normalizeModels(cfg.models)
-      if (modelsCfg.minQuotaPercent <= 0) return evaluateModelQuota(null, modelsCfg)
-      if (lastState && cachedConfig === JSON.stringify(modelsCfg)) return lastState
-      return evaluateModelQuota(null, modelsCfg)
+      const models = readModelConfig()
+      return cached && sameModelQuotaConfig(cached.models, models)
+        ? cached.status
+        : evaluateSelectedModelQuota(null, models)
     },
   }
 }
