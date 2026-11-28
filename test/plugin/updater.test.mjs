@@ -62,6 +62,29 @@ test('same-version changes compare against the installed tag commit and download
   assert.equal(fs.readFileSync(path.join(whaleHome, 'persona.md'), 'utf8'), 'keep data')
 })
 
+test('a release ahead of the main manifest installs from its tag and stays up to date', async t => {
+  const { pluginRoot, whaleHome } = fixture(t)
+  const fetchImpl = async url => {
+    if (url.endsWith('/releases/latest')) {
+      return new Response(null, { status: 302, headers: { location: '/release/repo/releases/tag/v1.5.1' } })
+    }
+    if (url.endsWith('/zip/refs/tags/v1.5.1')) return new Response(Buffer.alloc(2048))
+    return mockFetch(url)
+  }
+  const options = { pluginRoot, whaleHome, fetchImpl }
+  const check = await checkForUpdate(options)
+  assert.equal(check.status, 'update_available')
+  assert.equal(check.remote.mainVersion, '1.5.0')
+  assert.equal(check.remote.targetRef, 'v1.5.1')
+  const result = await applyPluginUpdate({
+    ...options, ref: check.remote.targetRef,
+    extractZip: async (_zip, dir) => copyRuntimeFixture(dir, '1.5.1'),
+  })
+  assert.equal(result.newVersion, '1.5.1')
+  assert.equal((await checkForUpdate(options)).status, 'up_to_date')
+  assert.equal(fs.readFileSync(path.join(whaleHome, 'persona.md'), 'utf8'), 'keep data')
+})
+
 test('incomplete packages and failed final switches leave the old installation intact', async t => {
   const { pluginRoot, whaleHome } = fixture(t)
   const input = { pluginRoot, whaleHome, fetchImpl: mockFetch }

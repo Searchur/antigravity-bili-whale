@@ -20,6 +20,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -40,16 +41,22 @@ jobs:
           import fs from 'node:fs'
           import { execFileSync } from 'node:child_process'
 
-          const tagExists = tag => Boolean(execFileSync('git', ['tag', '-l', tag], { encoding: 'utf8' }).trim())
           const manifest = JSON.parse(fs.readFileSync('plugin.json', 'utf8'))
           const current = manifest.version
           if (!/^\d+\.\d+\.\d+$/.test(current)) throw new Error('plugin.json must contain a stable version')
-          let target = current
-          if (tagExists(`v${target}`)) {
-            const [major, minor, patch] = current.split('.').map(Number)
-            let nextPatch = patch
-            do { target = `${major}.${minor}.${++nextPatch}` } while (tagExists(`v${target}`))
+          const [major, minor, patch] = current.split('.').map(Number)
+          const tags = execFileSync('git', ['tag', '--list', `v${major}.${minor}.*`,
+            '--format=%(refname:strip=2) %(contents:trailers:key=Source-Commit,valueonly)'], { encoding: 'utf8' })
+          let nextPatch = patch
+          let existingTag
+          for (const line of tags.split(/\r?\n/)) {
+            const [tag, source] = line.split(' ')
+            const match = /^v\d+\.\d+\.(\d+)$/.exec(tag)
+            if (!match) continue
+            nextPatch = Math.max(nextPatch, Number(match[1]) + 1)
+            if (source === process.env.GITHUB_SHA) existingTag = tag
           }
+          const target = existingTag ? existingTag.slice(1) : `${major}.${minor}.${nextPatch}`
 
           const syncJsonVersion = (file, getRoot) => {
             const value = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -69,7 +76,7 @@ jobs:
             if (updated !== src) fs.writeFileSync(file, updated, 'utf8')
           }
 
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${target}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${target}\nreuse=${Boolean(existingTag)}\n`)
           console.log(`Resolved release version: v${target}`)
           EOF
 
@@ -90,27 +97,36 @@ jobs:
           npm test
           node --input-type=module -e 'import { validatePluginPayload } from "./src/plugin/install.mjs"; validatePluginPayload(process.cwd())'
 
-      - name: Sync verified release files to main
-        env:
-          TAG: ${{ steps.ver.outputs.tag }}
-        run: |
-          git add plugin.json package.json package-lock.json src/mcp/server.mjs web/bridge.mjs dist/app.html
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): $TAG [skip ci]"
-            git push origin HEAD:main
-          else
-            test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$(git rev-parse HEAD)"
-          fi
-
-      - name: Build clean release archive and publish GitHub Release
+      - name: Publish verified files as a release tag and ZIP
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.ver.outputs.tag }}
+          REUSE_TAG: ${{ steps.ver.outputs.reuse }}
         run: |
-          COMMIT_SHA="$(git rev-parse HEAD)"
+          REMOTE_MAIN=$(git ls-remote --exit-code origin refs/heads/main)
+          if [[ "${REMOTE_MAIN%%$'\t'*}" != "$GITHUB_SHA" ]]; then
+            echo "Skipping publication because main has moved past $GITHUB_SHA."
+            exit 0
+          fi
+
+          git add plugin.json package.json package-lock.json src/mcp/server.mjs web/bridge.mjs dist/app.html
+          if [[ "$REUSE_TAG" == "true" ]]; then
+            git diff --cached --exit-code --stat "refs/tags/$TAG"
+            COMMIT_SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
+          else
+            if ! git diff --cached --quiet; then git commit -m "chore(release): $TAG"; fi
+            COMMIT_SHA=$(git rev-parse HEAD)
+          fi
           ZIP_PATH="$(node scripts/package-release.mjs --out-dir "${{ runner.temp }}/release-assets" --tag "$TAG" --commit "$COMMIT_SHA" --print-path)"
           test -f "$ZIP_PATH"
-          echo "Packaged release asset: $ZIP_PATH"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
-          gh release create "$TAG" "$ZIP_PATH" --title "$TAG" --generate-notes
+          if [[ "$REUSE_TAG" != "true" ]]; then
+            git tag -a "$TAG" "$COMMIT_SHA" -m "Release $TAG" -m "Source-Commit: $GITHUB_SHA"
+            git push origin "refs/tags/$TAG"
+          elif DRAFT=$(gh release view "$TAG" --json isDraft --jq '.isDraft'); then
+            if [[ "$DRAFT" == "true" ]]; then
+              gh release upload "$TAG" "$ZIP_PATH" --clobber
+              gh release edit "$TAG" --draft=false
+            fi
+            exit 0
+          fi
+          gh release create "$TAG" "$ZIP_PATH" --verify-tag --title "$TAG" --generate-notes
