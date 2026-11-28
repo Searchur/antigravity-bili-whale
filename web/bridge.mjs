@@ -9,7 +9,7 @@ import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextp
  * - 内置上限为 3 的并发队列，低于宿主 4 并发限制。
  */
 export function createMcpBridge({ onInitialResult } = {}) {
-  const app = new App({ name: 'antigravity-bili-whale', version: '2.0.3' }, {})
+  const app = new App({ name: 'antigravity-bili-whale', version: '2.0.7' }, {})
 
   const applyContext = (ctx) => {
     if (!ctx) return
