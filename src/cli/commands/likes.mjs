@@ -1,9 +1,8 @@
 /**
  * CLI 命令 `likes`：只读拉取近期「收到的赞」通知并支持按主人筛选。
  */
-import { dataPath } from '../../core/paths.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { exactJson } from '../../core/json-exact.mjs'
+import { requestBili } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
 // 「收到的赞」—— 谁赞了什么（2026-10-18 加，主人指出 B站客户端能看到点赞的人）
 //
 // 端点（实测 2026-10-18 可用）：GET x/msgfeed/like?build=0&mobi_app=web
@@ -15,7 +14,6 @@ import { exactJson } from '../../core/json-exact.mjs'
 //   node likes.mjs --hours 72     时间窗
 //   node likes.mjs --owner        只看主人有没有赞（用于反馈识别）
 //   node likes.mjs --json         total 为时间窗内通知总数，count 为筛选后的返回条数
-import fs from 'node:fs'
 import { config } from '../../config/index.mjs'
 
 const argv = process.argv.slice(2)
@@ -27,12 +25,7 @@ const HOURS = Number(typeof opt.hours === 'string' ? opt.hours : 24)
 const ONLY_OWNER = process.argv.includes('--owner')
 const JSONOUT = process.argv.includes('--json')
 
-const cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8'))
-const H = {
-  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  referer: 'https://www.bilibili.com/',
-  cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`,
-}
+const headers = biliHeaders(loadCred())
 
 const since = Math.floor(Date.now() / 1000) - HOURS * 3600
 const ownerMid = String(config().owner?.mid ?? '')
@@ -40,8 +33,9 @@ const ownerName = String(config().owner?.name ?? '')
 
 let items = []
 try {
-  const j = await exactJson(await fetch('https://api.bilibili.com/x/msgfeed/like?build=0&mobi_app=web', { headers: H }))
-  if (j.code !== 0) { console.error(`x/msgfeed/like code=${j.code} ${j.message ?? ''}`); process.exit(3) }
+  const j = await requestBili('notifyLikes', { headers, query: { build: 0, mobi_app: 'web' } })
+  if (!j.payload) throw Error(j.message)
+  if (!j.ok) { console.error(`x/msgfeed/like code=${j.code} ${j.message ?? ''}`); process.exit(3) }
   // 结构实测是 { latest:{items}, total:{cursor,items} } —— 不是 data.items ✗
   const merged = [...(j.data?.latest?.items ?? []), ...(j.data?.total?.items ?? []), ...(j.data?.items ?? [])]
   const uniq = [...new Map(merged.map((x) => [String(x.id), x])).values()]

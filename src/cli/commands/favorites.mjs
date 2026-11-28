@@ -7,9 +7,9 @@ import { localDay } from '../../core/local-date.mjs'
 import { favoriteItems, legacyFavoriteItems, claimLegacyFavorites, readFavorites, verifiedFavoriteAccount, selectFavoriteFolder } from '../../bili/favorites.mjs'
 import { atomicWriteJson } from '../../core/atomic-json.mjs'
 import { acquireProcessLock } from '../../core/process-lock.mjs'
-import { credentialsPath, DATA_PATHS } from '../../core/paths.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { apiGet } from '../../bili/api.mjs'
+import { DATA_PATHS } from '../../core/paths.mjs'
+import { biliJson, requestBili } from '../../bili/api.mjs'
+import { biliHeaders, loadCred, missingForWrite, redactBiliMessage } from '../../bili/cookie.mjs'
 // 收藏（2026-10-20 加，主人定：收藏 ≠ 低配的分享，是"我想留着"）
 //
 // 用法:
@@ -23,22 +23,18 @@ import { apiGet } from '../../bili/api.mjs'
 //   ③ 同一视频 30 天只收一次
 //   ④ 同类（按理由首词）已有 ≥2 条 → 除非 --better 否则拒
 //   ⑤ 先 --dry 再 --go（和其它写操作一致）
-import fs from 'node:fs'
-import path from 'node:path'
 import { requireWritePreview } from '../../social/write-preview.mjs'
 
 const FAV_LOG = DATA_PATHS.favorites
 // 2026-10-21 修（外部审计 #10）：新用户跑 `fav --list` 会因为缺文件直接一脸 ENOENT ✗
 //   改成友好提示：--list 不需要凭据（只读本地账本），其它子命令才要 ✓
-let cred = { sessdata: '', bili_jct: '', buvid3: '' }
+let cred = {}
 const cfg = config()
 try {
-  cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
+  cred = loadCred()
 } catch {}
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const cookie = `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`
-const H = { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie }
+const H = biliHeaders(cred)
 
 const argv = process.argv.slice(2)
 const opt = {}
@@ -60,7 +56,6 @@ const selfMid = String(cfg.self?.mid ?? '')
 
 // 2026-10-20：收藏分四类（对应"我收藏它是为了什么"那四个答案）
 //   用固定类别而不是"理由前两个字"—— 后者太脆（"想看"和"想留"会被当成两类 ✗ 实测踩过）
-const KINDS = ['想学', '想再看', '和我有关', '以后要提', '其他']
 function inferKind(reason) {
   const r = String(reason)
   if (/学|教程|怎么|原理|工具|插件|做法/.test(r)) return '想学'
@@ -113,7 +108,7 @@ if (opt['migrate-preview'] || opt['claim-legacy']) {
     if (!item) throw Error('指定的序号不是未认领收藏')
     return item
   })
-  const nav = await apiGet('https://api.bilibili.com/x/web-interface/nav', H, { noCache: true })
+  const nav = await biliJson('nav', { headers: H, noCache: true })
   const release = await acquireProcessLock(FAV_LOG, { retries: 40 })
   try {
     const account = verifiedFavoriteAccount(nav, config({ fresh: true }).self?.mid)
@@ -138,14 +133,14 @@ if (opt['migrate-preview'] || opt['claim-legacy']) {
 
 // 查询默认收藏夹 ID
 async function defaultFavId(account) {
-  const j = await apiGet(`https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=${account}`, H)
+  const j = await biliJson('favorites', { query: { up_mid: account }, headers: H })
   if (j.code !== 0) throw new Error(`取收藏夹失败：${j.message ?? j.code}`)
   return selectFavoriteFolder(j.data?.list ?? [], account)
 }
 
 // 查询目标视频 aid 与标题
-async function videoInfo(bv) {
-  const j = await apiGet(`https://api.bilibili.com/x/web-interface/view?bvid=${bv}`, H)
+async function videoInfo(bv, keys) {
+  const j = await biliJson('view', { query: { bvid: bv }, headers: H, keys })
   if (j.code !== 0) throw new Error(`取视频信息失败：code=${j.code} ${j.message ?? ''}`)
   return { aid: j.data.aid, title: String(j.data.title ?? ''), up: String(j.data.owner?.name ?? '') }
 }
@@ -190,19 +185,21 @@ const bad = checkRules({ bv, reason, better: !!opt.better, kind })
 if (bad) { console.error(`✗ 不能收：${bad}`); process.exit(3) }
 
 // 写操作才需要凭据（--list / --check 不需要）
-if (!cred.sessdata || !cred.bili_jct) {
+if (missingForWrite(cred).length) {
   console.error('✗ 还没配置 B站 凭据，没法收藏')
   console.error('  请先在控制台扫码登录。')
   process.exit(2)
 }
 let info, fav, account
 try {
-  account = verifiedFavoriteAccount(await apiGet('https://api.bilibili.com/x/web-interface/nav', H, {noCache:true}), selfMid)
-  info = await videoInfo(bv); fav = await defaultFavId(account)
+  const nav = await biliJson('nav', { headers: H, noCache: true })
+  account = verifiedFavoriteAccount(nav, selfMid)
+  info = await videoInfo(bv, nav.data?.wbi_img)
+  fav = await defaultFavId(account)
 }
 catch (error) { console.error(error.message); process.exit(3) }
 console.log(`[fav] ${bv}  【${info.title.slice(0, 44)}】  @${info.up}`)
-console.log(`  理由：${reason}`)
+console.log(`  理由：${redactBiliMessage(reason, H)}`)
 console.log(`  类别：${String(opt.kind ?? '') || inferKind(reason)}（可选 --kind 想学|想再看|和我有关|以后要提 覆盖）`)
 console.log(`  收藏夹：【${fav.title}】（media_id=${fav.id}），今天第 ${favoriteItems(load(), selfMid).filter((x) => new Date(x.at).toLocaleDateString('sv-SE') === today()).length + 1}/3 条`)
 
@@ -217,48 +214,47 @@ if (config().life?.paused || lifeStore().read().settings.paused) {
 let release
 try { release=await acquireProcessLock(FAV_LOG) } catch { console.error('收藏账本正在使用或锁不可用，请稍后再试。'); process.exit(3) }
 try {
-const badNow=checkRules({bv, reason, better:!!opt.better, kind})
-if(badNow) throw Error(badNow)
-if (verifiedFavoriteAccount(await apiGet('https://api.bilibili.com/x/web-interface/nav', H, {noCache:true}), config({fresh:true}).self?.mid) !== account) throw Error('收藏账号已变化，请重新确认。')
-const body = new URLSearchParams({
-  rid: String(info.aid),
-  type: '2',
-  add_media_ids: String(fav.id),
-  del_media_ids: '',
-  csrf: String(cred.bili_jct ?? ''),
-})
-const r = await fetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
-  method: 'POST',
-  headers: { ...H, 'content-type': 'application/x-www-form-urlencoded' },
-  body: body.toString(),
-  dispatch: invoke => {
-    const currentCred=JSON.parse(fs.readFileSync(credentialsPath,'utf8'))
-    if(String(config({fresh:true}).self?.mid ?? '')!==account || currentCred.sessdata!==cred.sessdata || currentCred.bili_jct!==cred.bili_jct) throw Error('登录账号已变化，已停止收藏；请重新确认。')
-    return invoke()
-  },
-})
-const j = await r.json()
-if (j.code !== 0) {
-  // 2026-10-21：把常见返回码翻译成人话 —— 裸的 -111 用户完全看不懂 ✗
-  const HINT = {
-    '-101': '账号未登录：登录态已失效，请在控制台重新扫码登录',
-    '-111': 'CSRF 校验失败：请在控制台【大鲸鱼与主人】重新扫码登录',
-    '-352': '风控拦截：等几分钟再来',
-    11010: '收藏夹不存在或不属于当前账号，请重新登录并检查收藏夹',
-    10031: '操作太快：退避一会儿',
-    12015: '需要验证码：停下，去浏览器手动过一次',
+  const badNow = checkRules({ bv, reason, better: !!opt.better, kind })
+  if (badNow) throw Error(badNow)
+  const currentNav = await biliJson('nav', { headers: H, noCache: true })
+  if (verifiedFavoriteAccount(currentNav, config({ fresh: true }).self?.mid) !== account) throw Error('收藏账号已变化，请重新确认。')
+  const body = new URLSearchParams({
+    rid: String(info.aid),
+    type: '2',
+    add_media_ids: String(fav.id),
+    del_media_ids: '',
+    csrf: String(cred.bili_jct ?? ''),
+  })
+  const result = await requestBili('favoriteChange', {
+    headers: { ...H, 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+    dispatch: invoke => {
+      const currentCred = loadCred()
+      if (String(config({ fresh: true }).self?.mid ?? '') !== account || currentCred.sessdata !== cred.sessdata || currentCred.bili_jct !== cred.bili_jct) {
+        throw Error('登录账号已变化，已停止收藏；请重新确认。')
+      }
+      return invoke()
+    },
+  })
+  if (!result.ok) {
+    if (!result.rejected) throw Error(`  收藏结果未确认（HTTP ${result.status}），请先在 B 站检查收藏状态。`)
+    const hints = {
+      '-101': '账号未登录：登录态已失效，请在控制台重新扫码登录',
+      '-111': 'CSRF 校验失败：请在控制台【大鲸鱼与主人】重新扫码登录',
+      '-352': '风控拦截：等几分钟再来',
+      11010: '收藏夹不存在或不属于当前账号，请重新登录并检查收藏夹',
+      10031: '操作太快：退避一会儿',
+      12015: '需要验证码：停下，去浏览器手动过一次',
+    }
+    throw Error(`  ✗ 收藏失败：code=${result.code} ${hints[String(result.code)] ?? (result.message || '未知错误')}`)
   }
-  console.error(`  ✗ 收藏失败：code=${j.code} ${HINT[String(j.code)] ?? (j.message ?? '未知错误')}`)
-  process.exit(4)
-}
 
-// 记本地账（feed 会读）
-const d = load()
-d.items = [...(d.items ?? []), {
-  account, bv, aid: info.aid, title: info.title, up: info.up,
-  at: new Date().toISOString(), reason, kind: String(opt.kind ?? '') || inferKind(reason), favId: fav.id,
-}]
-save(d)
-console.log(`  ✓ 已收藏（HTTP ${r.status}），本地账 +1（共 ${d.items.length} 条）`)
-
+  // 记本地账（feed 会读）
+  const d = load()
+  d.items = [...(d.items ?? []), {
+    account, bv, aid: info.aid, title: info.title, up: info.up,
+    at: new Date().toISOString(), reason, kind, favId: fav.id,
+  }]
+  save(d)
+  console.log(`  ✓ 已收藏（HTTP ${result.status}），本地账 +1（共 ${d.items.length} 条）`)
 } catch(error) { console.error(error.message); process.exitCode=4 } finally { await release() }

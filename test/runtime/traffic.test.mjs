@@ -33,12 +33,15 @@ test('10031 persists a cooldown and blocks other requests until Retry-After expi
   })
 
   const guard = open()
-  await assert.rejects(guard.fetch(loginUrl, { headers }), { code: 'BILI_TRAFFIC_PAUSED' })
+  await assert.rejects(guard.fetch(loginUrl, { headers }), {
+    code: 'BILI_TRAFFIC_PAUSED', message: /【收藏视频】触发请求限流/,
+  })
   const { cooldown, manual } = guard.pauseStatus(headers)
   assert.equal(cooldown.until, start + 900_000)
   assert.equal(cooldown.endpoint, '/x/v3/fav/resource/deal')
   assert.equal(cooldown.method, 'POST')
   assert.equal(cooldown.code, 10031)
+  assert.equal(cooldown.summary, '触发请求限流')
   assert.equal(manual, null)
   advance(899_999)
   await assert.rejects(guard.fetch(loginUrl, { headers }), { code: 'BILI_TRAFFIC_PAUSED' })
@@ -55,7 +58,9 @@ test('12051 pauses the affected session until it is reviewed and manually resume
 
   advance(7_200_000)
   const guard = open()
-  await assert.rejects(guard.fetch(loginUrl, { headers }), { code: 'BILI_TRAFFIC_PAUSED' })
+  await assert.rejects(guard.fetch(loginUrl, { headers }), {
+    code: 'BILI_TRAFFIC_PAUSED', message: /【发表评论或回复】触发重复评论限制/,
+  })
   const otherHeaders = { cookie: 'SESSDATA=fixture-other' }
   assert.equal((await (await guard.fetch(loginUrl, { headers: otherHeaders })).json()).code, 0)
   assert.equal(guard.pauseStatus(otherHeaders).manual, null)
@@ -63,6 +68,7 @@ test('12051 pauses the affected session until it is reviewed and manually resume
   assert.equal(manual.endpoint, '/x/v2/reply/add')
   assert.equal(manual.method, 'POST')
   assert.equal(manual.code, 12051)
+  assert.equal(manual.summary, '触发重复评论限制')
   assert.equal(cooldown, null)
 
   await guard.resume(headers)

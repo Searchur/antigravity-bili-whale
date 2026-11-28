@@ -2,22 +2,20 @@
  * CLI 命令 `feed`：按口味偏好与观看时长规则检索并筛选本轮候选 B 站视频。
  */
 import {pipelineConfig,chooseVideos,eligibleVideo,videoDuration,interestEvidence,isInterest,interestGroup,fairOrder,ageDays,browsingRank} from '../pipeline/config.mjs'
-import {apiGet} from '../../bili/api.mjs'
+import { biliJson, requestBili, searchFeedVideos } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
 import { favoriteItems } from '../../bili/favorites.mjs'
-import { credentialsPath, DATA_PATHS } from '../../core/paths.mjs'
+import { DATA_PATHS } from '../../core/paths.mjs'
 import { preferenceMatches, preferenceSearch } from '../../config/feed-preferences.mjs'
 import { lifeStore } from '../../life/runtime.mjs'
 const life = lifeStore()
 import {affectBrowsing,affectInterestOrder} from '../../affect/engine.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
 // 选题器：照"她自己的偏好"挑今天该看什么。**只读**，不产生任何对外动作。
 //
 // 用法: node feed.mjs [--n 6] [--per 2] [--pool 30]
 // 口味偏好来自控制台配置。既有观看和评论记录用于排除重复选题。
 import fs from 'node:fs'
-import path from 'node:path'
 import { config } from '../../config/index.mjs'
-import crypto from 'node:crypto'
 
 
 const argv = process.argv.slice(2)
@@ -46,47 +44,12 @@ try {
   for(const row of ledger.log??[])if(row.type==='comment'&&/^BV:BV[0-9A-Za-z]{10}$/.test(row.target??''))seen.add(row.target.slice(3))
 } catch(e) {if(e.code!=='ENOENT')throw Error('评论账本无法读取，停止选题以免重复分享')}
 
-const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const H = { 'user-agent': UA, referer: 'https://search.bilibili.com/', cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}` }
-const MIXIN_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
-const keyOf = (u) => u.slice(u.lastIndexOf('/') + 1, u.lastIndexOf('.'))
-const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', { headers: H })).json()
-const mixin = MIXIN_TAB.map((i) => (keyOf(nav.data?.wbi_img?.img_url ?? '') + keyOf(nav.data?.wbi_img?.sub_url ?? ''))[i]).join('').slice(0, 32)
-const wbi = (p) => {
-  const wts = Math.round(Date.now() / 1000)
-  const q = Object.keys({ ...p, wts }).sort().map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(String(k === 'wts' ? wts : p[k]).replace(/[!'()*]/g, ''))}`).join('&')
-  return `${q}&w_rid=${crypto.createHash('md5').update(q + mixin).digest('hex')}`
-}
+const cred = loadCred()
+const headers = biliHeaders(cred, { referer: 'https://search.bilibili.com/' })
 
 const explicitKeywords=argv.flatMap((v,i)=>v==='--kw'&&argv[i+1]&&!argv[i+1].startsWith('--')?[argv[i+1]]:[])
 const searchKeywords = [...new Set((explicitKeywords.length?explicitKeywords:prefs.map(preferenceSearch)).filter(Boolean))].slice(0,6)
 
-// 2026-10-23 改（主人：feed 27 秒太久 ✗）：
-//   以前 6 个词 × 2 种排序 = 12 次搜索 ✗ 加上请求保护层的 1500ms → 18 秒 ✗
-//   现在每个词只搜一种排序，按词交替 click / pubdate ✓ → 6 次 ✓
-//   （两种排序都还覆盖着 ✓ 只是每个词只取一种 ✓ 池子小一点但候选够了 ✓）
-// 2026-10-23：搜索结果按「关键词+排序」缓存 10 分钟 ✓
-//   动机：一晚她可能跑两次 feed ✗ 第二次完全一样 ✓ 没必要再打 6 次请求 ✓
-//   10 分钟够短，不会让她一直看同一批东西 ✓
-const SEARCH_CACHE = DATA_PATHS.feedSearchCache
-const SEARCH_TTL_MS = 10 * 60 * 1000
-async function searchCached(kw, order, days) {
-  const key = JSON.stringify([config().self?.mid,crypto.createHash('sha256').update(cred.sessdata??'').digest('hex'),kw,order,days])
-  let store = {}
-  try { store = JSON.parse(fs.readFileSync(SEARCH_CACHE, 'utf8')) } catch {}
-  const hit = store[key]
-  if (hit && Date.now() - Number(hit.at ?? 0) < SEARCH_TTL_MS) return hit.data
-  const j = await (await fetch(`https://api.bilibili.com/x/web-interface/wbi/search/type?${wbi({ search_type: 'video', keyword: kw, order, page: 1, pubtime_begin_s:Math.floor(Date.now()/1000)-days*86400, pubtime_end_s:Math.floor(Date.now()/1000) })}`, { headers: H })).json()
-  if (j && j.code === 0) {
-    store[key] = { at: Date.now(), data: j }
-    // 只留最近 40 条，别无限长 ✓
-    const keys = Object.keys(store)
-    if (keys.length > 40) { keys.sort((a,b) => (store[a].at??0) - (store[b].at??0)); for (const k of keys.slice(0, keys.length - 40)) delete store[k] }
-    try { fs.writeFileSync(SEARCH_CACHE, JSON.stringify(store)) } catch {}
-  }
-  return j
-}
 const earlyExcluded=new Set(seen)
 try{for(const x of favoriteItems(JSON.parse(fs.readFileSync(DATA_PATHS.favorites,'utf8')),config().self?.mid))if(x.bv)earlyExcluded.add(x.bv)}catch(e){if(e.code!=='ENOENT')throw Error('收藏账本无法读取')}
 const pool = []
@@ -95,14 +58,16 @@ const pool = []
 const SOURCE_HOT = String((process.argv.find((a) => a.startsWith('--source=')) ?? '').split('=')[1] ?? '')
   || (process.argv.includes('--source') ? String(process.argv[process.argv.indexOf('--source') + 1] ?? 'all') : 'all')
 async function fetchPopular() {
-  const j = await (await fetch('https://api.bilibili.com/x/web-interface/popular?pn=1&ps=20', { headers: H })).json()
+  const j = await requestBili('popular', { headers, query: { pn: 1, ps: 20 } })
+  if (!j.ok) throw Error(j.message)
   for (const it of (j?.data?.list ?? [])) {
     pool.push({ bv: it.bvid, t: String(it.title ?? '').replace(/<[^>]+>/g, ''), d: Number(it.duration ?? 0),
       dm: Number(it.stat?.danmaku ?? 0), play: Number(it.stat?.view ?? 0), up: it.owner?.name ?? '', mid:String(it.owner?.mid??''), source:'popular',description:String(it.desc??''),tags:it.tag??'',kw: '热门',pubdate:Number(it.pubdate),parts:Number(it.videos??1) })
   }
 }
 async function fetchRank() {
-  const j = await (await fetch('https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all', { headers: H })).json()
+  const j = await requestBili('ranking', { headers, query: { rid: 0, type: 'all' } })
+  if (!j.ok) throw Error(j.message)
   for (const it of (j?.data?.list ?? []).slice(0, 20)) {
     pool.push({ bv: it.bvid, t: String(it.title ?? '').replace(/<[^>]+>/g, ''), d: Number(it.duration ?? 0),
       dm: Number(it.stat?.danmaku ?? 0), play: Number(it.stat?.view ?? 0), up: it.owner?.name ?? '', mid:String(it.owner?.mid??''), source:'rank',description:String(it.desc??''),tags:it.tag??'',kw: '排行',pubdate:Number(it.pubdate),parts:Number(it.videos??1) })
@@ -110,7 +75,7 @@ async function fetchRank() {
 }
 // 关注的人发了什么（2026-10-18 加）：真人才会"刷关注"——只搜关键词等于只刷"搜索"，不像人
 async function fetchFollowing() {
-  const j = await (await fetch('https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all?type=video&page=1', { headers: H })).json()
+  const j = await biliJson('dynamicFeed', { headers, query: { type: 'video', page: 1 } })
   if (j?.code !== 0) throw new Error(`code=${j?.code} ${j?.message ?? ''}`)
   for (const it of (j?.data?.items ?? [])) {
     const a = it?.modules?.module_author
@@ -195,7 +160,7 @@ async function verifyCandidate(x){
   metadataGroups.set(group,used+1)
  }
  metadataSeen.add(x.bv)
- const response=await apiGet('https://api.bilibili.com/x/web-interface/view?bvid='+x.bv,H)
+ const response=await biliJson('view', { headers, query: { bvid: x.bv } })
  if(response.code!==0){warnings.push(x.bv+' 元信息核验失败：'+String(response.message??response.code));return}
  const v=response.data
  const row=annotate({...x,t:String(v.title??x.t),description:String(v.desc??x.description??''),mid:String(v.owner?.mid??x.mid),up:v.owner?.name??x.up,parts:Number(v.videos??v.pages?.length??1),d:Number(v.duration??v.pages?.[0]?.duration??x.d),pubdate:Number(v.pubdate??x.pubdate),region:String(v.tname??''),tid:v.tid??null,sources:[x.source??'search']})
@@ -209,7 +174,10 @@ for(const days of pipeline.windows){
  for(const kw of searchKeywords){
   if(selected().filter(x=>isInterest(x)&&interestGroup(x)===kw).length>=PER)continue
   let j
-  try{j=await searchCached(kw,'pubdate',days);if(j?.code!==0)throw Error(j?.message??('code='+j?.code))}
+  try {
+    j = await searchFeedVideos({ keyword: kw, order: 'pubdate', days, account: config().self?.mid }, { headers })
+    if (j?.code !== 0) throw Error(j?.message ?? ('code=' + j?.code))
+  }
   catch(error){trace.push({keyword:kw,days,error:String(error.message)});warnings.push('搜索【'+kw+'】失败，未按空结果处理');continue}
   const raw=j?.data?.result??[],rows=[]
   for(const it of raw.slice(0,Math.min(POOL,50))){

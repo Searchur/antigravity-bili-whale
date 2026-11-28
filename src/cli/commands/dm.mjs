@@ -8,10 +8,9 @@ import { bundledStickerRoot, userStickerRoot, DATA_PATHS, shotsPath, workDirPath
 import { lifeStore } from '../../life/runtime.mjs'
 import { guardSend } from '../../social/send-guard.mjs'
 import { uploadPic, dmContent } from '../../bili/upload-pic.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
+import { requestBili } from '../../bili/api.mjs'
 import { config } from '../../config/index.mjs'
 import { gate, lockQuotaForSend, flushQuotaReceipts } from '../../social/quota-gate.mjs'
-import { exactJson } from '../../core/json-exact.mjs'
 import { enforceOutboundSafety } from '../../social/content-safety.mjs'
 import { isFollowerOfWhale } from '../../bili/relation.mjs'
 import { checkFanQuota, lockFanReplyQuota, recordFanReply } from '../../social/fan-quota.mjs'
@@ -19,7 +18,7 @@ import { requireWritePreview } from '../../social/write-preview.mjs'
 import { dmListenerScope } from '../../social/dm-listener-scope.mjs'
 import { atomicWriteJson } from '../../core/atomic-json.mjs'
 import { localDay } from '../../core/local-date.mjs'
-import { loadCred, missingForWrite, explainCode, looksLikeJct } from '../../bili/cookie.mjs'
+import { biliHeaders, explainCode, loadCred, looksLikeJct, missingForWrite, redactBiliMessage } from '../../bili/cookie.mjs'
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
 function assertSafeAttachmentPath(filePath) {
@@ -104,13 +103,7 @@ const cfg = config()
 const OWNER = String(cfg.owner?.mid ?? '').trim()
 const OWNER_NAME = String(cfg.owner?.name ?? '主人')
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const H = {
-  'user-agent': UA,
-  referer: 'https://www.bilibili.com/',
-  cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`,
-}
-const jget = async (u) => (await fetch(u, { headers: H })).json()
+const H = biliHeaders(cred)
 const loadQ = () => { try { return JSON.parse(fs.readFileSync(QUOTA, 'utf8')) } catch { return {} } }
 const saveQ = (o) => { atomicWriteJson(QUOTA, o) }
 const today = () => localDay()
@@ -158,15 +151,15 @@ function consumeFanReceipt(account, receipt) {
 }
 
 async function me() {
-  const nav = await jget('https://api.bilibili.com/x/web-interface/nav')
-  if (!nav.data?.isLogin) { console.error('✗ 未登录（登录态已失效，请在控制台重新扫码登录）'); process.exit(3) }
+  const nav = await requestBili('nav', { headers: H, noCache: true })
+  if (!nav.ok || !nav.data?.isLogin || !nav.data?.mid) { console.error('✗ 未登录（登录态已失效，请在控制台重新扫码登录）'); process.exit(3) }
   return { mid: String(nav.data.mid), uname: nav.data.uname }
 }
 
 async function relation(toMid) {
   if (!toMid) return { ok: false, attribute: -1, why: '尚未配置收信人 UID' }
-  const j = await jget(`https://api.bilibili.com/x/relation?fid=${toMid}`)
-  if (j.code !== 0) return { ok: false, attribute: -1, why: `关系接口 code=${j.code}` }
+  const j = await requestBili('relation', { query: { fid: toMid }, headers: H, noCache: true })
+  if (!j.ok) return { ok: false, attribute: -1, why: `关系接口 code=${j.code}` }
   return { ok: true, attribute: Number(j.data?.attribute ?? -1), beAttribute: j.data?.be_relation?.attribute == null ? null : Number(j.data.be_relation.attribute) }
 }
 
@@ -195,15 +188,12 @@ async function send(toMid, text, dispatch, pic) {
   body.set('msg[dev_id]', stableDevId())
   body.set('msg[content]', pic ? dmContent(pic) : JSON.stringify({ content: text }))
   body.set('csrf', String(cred.bili_jct))
-  const r = await fetch('https://api.vc.bilibili.com/web_im/v1/web_im/send_msg', {
-    method: 'POST',
+  return requestBili('sendDm', {
     waitWriteMs: 180000,
     dispatch,
     headers: { ...H, 'content-type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   })
-  const j = await exactJson(r).catch(() => ({}))
-  return { http: r.status, code: j.code, message: j.message, data: j.data }
 }
 
 if (STATUS) {
@@ -281,7 +271,7 @@ if (IS_FAN_REPLY) {
   const q = loadQ()
   const used = q.date === today() ? Number(q.count ?? 0) : 0
   console.log(`[dm] ${meInfo.uname} → ${OWNER_NAME}（UID ${ONLY_TO}）`)
-  console.log(`  正文 ${MSG.length} 字：${MSG.slice(0, 80)}${MSG.length > 80 ? '…' : ''}`)
+  console.log(`  正文 ${MSG.length} 字：${redactBiliMessage(MSG, H).slice(0, 80)}${MSG.length > 80 ? '…' : ''}`)
   console.log(`  已互关，今天第 ${used + 1} 条（主人私信通道）`)
 }
 
@@ -333,7 +323,7 @@ async function releasePrepared() {
 }
 async function deliver(guard, text, pic) {
   const result = await send(ONLY_TO, text, invoke => guard.store.dispatch(guard.token, invoke), pic)
-  if (result.http >= 200 && result.http < 300 && result.code === 0) {
+  if (result.ok) {
     const receipt = result.data?.msg_key ?? result.data?.msg_seqno
     if (receipt == null || !String(receipt)) throw Error('平台接受但未返回消息回执，保留未知发送占位')
     await guard.store.settle(guard.token, { status: 'sent', receipt: String(receipt) })
@@ -346,8 +336,11 @@ async function deliver(guard, text, pic) {
     }
     return String(receipt)
   }
-  if (Number.isFinite(result.code) && result.code !== 0) await guard.store.settle(guard.token, { status: 'rejected' })
-  throw Error('发送失败：HTTP ' + result.http + ' ' + explainCode(result.code))
+  if (result.rejected) {
+    await guard.store.settle(guard.token, { status: 'rejected' })
+    throw Error('发送失败：HTTP ' + result.status + ' ' + explainCode(result.code))
+  }
+  throw Error(`发送结果未知，请先核查回执：HTTP ${result.status} code=${result.code ?? '未知'}`)
 }
 
 let releaseQuota

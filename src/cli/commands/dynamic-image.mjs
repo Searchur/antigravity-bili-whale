@@ -5,15 +5,15 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { bundledStickerRoot, userStickerRoot, shotsPath, workDirPath } from '../../core/paths.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
+import { requestBili } from '../../bili/api.mjs'
+import { biliEndpoint } from '../../bili/endpoints.mjs'
 import { gate, lockQuotaForSend, flushQuotaReceipts } from '../../social/quota-gate.mjs'
 import { uploadPic } from '../../bili/upload-pic.mjs'
 import { guardSend } from '../../social/send-guard.mjs'
 import { config } from '../../config/index.mjs'
 import { enforceOutboundSafety } from '../../social/content-safety.mjs'
 import { requireWritePreview } from '../../social/write-preview.mjs'
-import { exactJson } from '../../core/json-exact.mjs'
-import { loadCred, missingForWrite } from '../../bili/cookie.mjs'
+import { biliHeaders, loadCred, missingForWrite, redactBiliMessage } from '../../bili/cookie.mjs'
 
 function assertSafeImagePath(filePath) {
   const realTarget = fs.realpathSync(filePath)
@@ -109,38 +109,24 @@ try {
   if (miss.length) { console.error(`凭据不完整，缺少：${miss.join('、')}`); process.exit(3) }
 } catch (e) { console.error(e.message); process.exit(3) }
 
-const cookieHeader = `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const REF = 'https://t.bilibili.com/'
-
-const MIXIN_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
-const keyOf = (u) => u.slice(u.lastIndexOf('/') + 1, u.lastIndexOf('.'))
-async function wbi(params) {
-  const d = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
-    headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader },
-  })).json()
-  const img = d?.data?.wbi_img?.img_url, sub = d?.data?.wbi_img?.sub_url
-  if (!img || !sub) return ''
-  const mixin = MIXIN_TAB.map((i) => (keyOf(img) + keyOf(sub))[i]).join('').slice(0, 32)
-  const wts = Math.round(Date.now() / 1000)
-  const clean = (v) => String(v).replace(/[!'()*]/g, '')
-  const q = Object.keys({ ...params, wts }).sort()
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(clean(k === 'wts' ? wts : params[k]))}`).join('&')
-  return `${q}&w_rid=${crypto.createHash('md5').update(q + mixin).digest('hex')}`
-}
+const headers = biliHeaders(cred, { referer: REF })
 
 console.log('\n=== 登录态 ===')
-const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
-  headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader },
-})).json()
-if (nav.code !== 0) { console.error(`  登录态无效 code=${nav.code} ${nav.message}`); process.exit(4) }
+const nav = await requestBili('nav', { headers: biliHeaders(cred), noCache: true })
+if (!nav.ok || !nav.data?.mid || nav.data.isLogin === false) {
+  console.error(`  登录态无效 code=${nav.code} ${nav.message}`)
+  process.exit(4)
+}
 console.log(`  账号: ${nav.data.uname} (UID ${nav.data.mid})  手机绑定=${nav.data.mobile_verified ? '是' : '否'}`)
 
+const uploadEndpoint = biliEndpoint('uploadPicture')
+const createEndpoint = biliEndpoint('dynamicCreate')
 console.log('\n=== 计划 ===')
-console.log('  1) POST https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs')
-console.log('  2) POST https://api.bilibili.com/x/dynamic/feed/create/dyn?wts=..&w_rid=..')
-console.log(`     正文: ${text ? `【${text.replace(/\n/g, ' / ')}】(${text.length} 字)` : '（空）'}`)
-if (atMid) console.log(`     @节点: raw_text="@${atName ?? ''} "  type=2  biz_id=${atMid}`)
+console.log(`  1) ${uploadEndpoint.method} ${uploadEndpoint.origin}${uploadEndpoint.path}`)
+console.log(`  2) ${createEndpoint.method} ${createEndpoint.origin}${createEndpoint.path}?wts=..&w_rid=..`)
+console.log(`     正文: ${text ? `【${redactBiliMessage(text.replace(/\n/g, ' / '), headers)}】(${text.length} 字)` : '（空）'}`)
+if (atMid) console.log(`     @节点: raw_text="@${redactBiliMessage(atName, headers)} "  type=2  biz_id=${atMid}`)
 
 const request = {
   channel: 'dynamic',
@@ -161,7 +147,7 @@ try {
   guard = await guardSend(request)
   console.log('\n[1/2] 上传图片…')
   const { image_url: imgSrc, image_width: w, image_height: h, img_size: kb } = await uploadPic(
-    imagePath, cred.bili_jct, { 'user-agent': UA, referer: REF, cookie: cookieHeader },
+    imagePath, cred.bili_jct, headers,
     { expectedHash: crypto.createHash('sha256').update(buf).digest('hex') },
   )
   console.log(`     image_url=${imgSrc}  ${w}x${h}  ${kb}KB`)
@@ -177,30 +163,28 @@ try {
   }
   if (contents.length) dynReq.content = { contents }
   const body = JSON.stringify({ dyn_req: dynReq })
-  const qs = await wbi({ csrf: String(cred.bili_jct) }) || new URLSearchParams({ csrf: String(cred.bili_jct) }).toString()
-  const r = await fetch(`https://api.bilibili.com/x/dynamic/feed/create/dyn?${qs}`, {
-    method: 'POST',
+  const out = await requestBili('dynamicCreate', {
+    query: { csrf: String(cred.bili_jct) },
+    keys: nav.data?.wbi_img ?? null,
     waitWriteMs: 180000,
-    ...(guard ? { dispatch: invoke => guard.store.dispatch(guard.token, invoke) } : {}),
-    headers: { 'user-agent': UA, referer: REF, origin: 'https://t.bilibili.com', 'content-type': 'application/json', cookie: cookieHeader },
+    dispatch: invoke => guard.store.dispatch(guard.token, invoke),
+    headers: { ...headers, origin: 'https://t.bilibili.com', 'content-type': 'application/json' },
     body,
   })
-  const out = await exactJson(r).catch(() => null)
-  if (!out || typeof out.code !== 'number') throw Error('发布结果未知，请先回读核查')
-  console.log(`     HTTP ${r.status}  code=${out.code}`)
-  if (r.ok && out.code === 0) {
+  if (out.code === null) throw Error('发布结果未知，请先回读核查')
+  console.log(`     HTTP ${out.status}  code=${out.code}`)
+  if (out.ok) {
     const id = out.data?.dyn_id_str ?? out.data?.dyn_id
     if (!id) throw Error('接口返回成功码但没有 dyn_id，结果未确认；请先回读核查')
-    if (guard) await guard.store.settle(guard.token, { status: 'sent', receipt: String(id) })
+    await guard.store.settle(guard.token, { status: 'sent', receipt: String(id) })
     await flushQuotaReceipts(guard.store)
     console.log(`\n已发布  dyn_id=${id}`)
     console.log(`   https://t.bilibili.com/${id}`)
-    process.exit(0)
-  } else {
-    if (guard && Number.isFinite(out.code)) await guard.store.settle(guard.token, { status: 'rejected' })
+  } else if (out.rejected) {
+    await guard.store.settle(guard.token, { status: 'rejected' })
     console.log('  发布失败，请检查接口状态')
-    process.exit(1)
-  }
+    process.exitCode = 1
+  } else throw Error('发布结果未知，请先回读核查')
 } catch (e) {
   if (guard) {
     try {
@@ -209,5 +193,5 @@ try {
     } catch {}
   }
   console.error('✗ ' + String(e?.message ?? e))
-  process.exit(1)
+  process.exitCode = 1
 } finally { await releaseQuota() }

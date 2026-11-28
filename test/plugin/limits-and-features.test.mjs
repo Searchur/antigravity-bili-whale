@@ -110,10 +110,11 @@ test('follower relation check, fan daily quotas, and dual-layer outbound safety 
       if (url.includes('mid=103')) return new Response(JSON.stringify({ code: 0, data: { relation: { attribute: 128 }, be_relation: { attribute: 2 } } }))
       return new Response(JSON.stringify({ code: -400 }))
     }
-    assert.equal(await isFollowerOfWhale('101', {}, { fetchImpl: relFetch, fresh: true }), true)
-    assert.equal(await isFollowerOfWhale('102', {}, { fetchImpl: relFetch, fresh: true }), false)
-    assert.equal(await isFollowerOfWhale('103', {}, { fetchImpl: relFetch, fresh: true }), false)
-    const rel = await checkRelation('101', {}, { fetchImpl: relFetch })
+    const relationOptions = { fetchImpl: relFetch, directory: dir, fresh: true }
+    assert.equal(await isFollowerOfWhale('101', {}, relationOptions), true)
+    assert.equal(await isFollowerOfWhale('102', {}, relationOptions), false)
+    assert.equal(await isFollowerOfWhale('103', {}, relationOptions), false)
+    const rel = await checkRelation('101', {}, { ...relationOptions, fresh: false })
     assert.equal(rel.isFollower, true)
 
     // 2. 粉丝每日互动配额限制

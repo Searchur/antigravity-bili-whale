@@ -2,8 +2,7 @@
  * B 站关注关系校验与缓存：实时查询对方是否已关注大鲸鱼，按账号隔离缓存结果。
  */
 import crypto from 'node:crypto'
-import { guardedFetch as fetch } from './traffic.mjs'
-import { exactJson } from '../core/json-exact.mjs'
+import { biliReadCacheEnabled, requestBili } from './api.mjs'
 
 const CACHE_TTL_MS = 10 * 60_000
 const MAX_CACHE_ENTRIES = 500
@@ -30,14 +29,15 @@ function setCached(key, entry) {
  * - beAttribute === 2 或 6，或 attribute === 6 表示对方已关注大鲸鱼（是粉丝）。
  * - attribute === 128 或 beAttribute === 128 表示存在拉黑关系。
  */
-export async function checkRelation(targetMid, headers, { fetchImpl = fetch, now = Date.now, fresh = false } = {}) {
+export async function checkRelation(targetMid, headers, { fetchImpl, directory, now = Date.now, fresh = false } = {}) {
   const mid = String(targetMid ?? '').trim()
   if (!/^[1-9]\d{0,19}$/.test(mid)) {
     return { ok: false, isFollower: false, isMutual: false, isBlocked: false, attribute: -1, beAttribute: -1, why: 'UID 无效' }
   }
   const key = cacheKeyFor(headers, mid)
   const hit = relationCache.get(key)
-  if (!fresh && hit && now() - hit.at < CACHE_TTL_MS) return hit.value
+  const useCache = biliReadCacheEnabled()
+  if (useCache && !fresh && hit && now() - hit.at < CACHE_TTL_MS) return hit.value
 
   const parseResult = (attr, beAttr) => {
     const a = Number(attr ?? -1)
@@ -51,18 +51,25 @@ export async function checkRelation(targetMid, headers, { fetchImpl = fetch, now
   }
 
   try {
-    const r1 = await exactJson(await fetchImpl(`https://api.bilibili.com/x/space/acc/relation?mid=${encodeURIComponent(mid)}`, { headers }))
-    if (r1?.code === 0 && r1.data) {
+    const r1 = await requestBili('relationDetail', { query: { mid }, headers, transport: fetchImpl, directory })
+    if (r1.ok && r1.data) {
       const value = parseResult(r1.data.relation?.attribute, r1.data.be_relation?.attribute)
-      if (value.ok) { setCached(key, { at: now(), value }); return value }
+      if (value.ok) {
+        if (useCache) setCached(key, { at: now(), value })
+        return value
+      }
     }
-  } catch {}
+  } catch (error) {
+    if (error.code === 'BILI_TRAFFIC_PAUSED') {
+      return { ok: false, isFollower: false, isMutual: false, isBlocked: false, attribute: -1, beAttribute: -1, why: error.message }
+    }
+  }
 
   try {
-    const r2 = await exactJson(await fetchImpl(`https://api.bilibili.com/x/relation?fid=${encodeURIComponent(mid)}`, { headers }))
-    if (r2?.code === 0 && r2.data) {
+    const r2 = await requestBili('relation', { query: { fid: mid }, headers, transport: fetchImpl, directory })
+    if (r2.ok && r2.data) {
       const value = parseResult(r2.data.attribute, r2.data.be_relation?.attribute)
-      if (value.ok) setCached(key, { at: now(), value })
+      if (useCache && value.ok) setCached(key, { at: now(), value })
       return value
     }
     return { ok: false, isFollower: false, isMutual: false, isBlocked: false, attribute: -1, beAttribute: -1, why: `关系接口 code=${r2?.code ?? 'err'}` }

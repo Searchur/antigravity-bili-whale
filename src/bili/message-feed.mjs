@@ -1,8 +1,8 @@
 /**
  * B 站消息收件箱读取器：统一拉取「回复我的」「@ 我的」列表并回读楼层核实最新正文。
  */
-import { exactJson } from '../core/json-exact.mjs'
-import { guardedFetch as fetch } from './traffic.mjs'
+import { requestBili } from './api.mjs'
+import { biliHeaders } from './cookie.mjs'
 // B 站「回复我的」与「@ 我的」两个消息收件箱的共用读取逻辑
 //
 // 注意：`/x/msgfeed/reply` 的 `item.title` 不总是该条新回复的完整正文
@@ -17,29 +17,25 @@ import { config } from '../config/index.mjs'
 export const ME = String(process.env.BILI_ME_MID ?? config().self?.mid ?? '')
 export const OWNER = String(process.env.BILI_OWNER_MID ?? config().owner?.mid ?? '')
 
-export function makeHeaders(cred) {
-  return {
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    referer: 'https://www.bilibili.com/',
-    cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`,
-  }
-}
+export const makeHeaders = biliHeaders
 
 // 拉收件箱：kind = 'reply' | 'at'
 export async function pullFeed(kind, { headers, pages = 1, cursor = '', since = 0 }) {
   const out = []
   const visited = new Set()
   let lastView = 0
+  const operation = kind === 'reply' ? 'notifyReplies' : kind === 'at' ? 'notifyMentions' : null
+  if (!operation) throw Error('未知 B 站收件箱类型')
   for (let p = 0; p < pages; p += 1) {
-    const url = new URL(`https://api.bilibili.com/x/msgfeed/${kind}?platform=web&build=0&mobi_app=web`)
+    const query = { platform: 'web', build: 0, mobi_app: 'web' }
     if (cursor && typeof cursor === 'object') {
       if (cursor.id == null || cursor.time == null) throw Error(kind + ' 收件箱分页坐标无效')
-      url.searchParams.set('id', String(cursor.id))
-      url.searchParams.set(kind === 'at' ? 'at_time' : 'reply_time', String(cursor.time))
-    } else if (cursor) url.searchParams.set('cursor', String(cursor))
+      query.id = String(cursor.id)
+      query[kind === 'at' ? 'at_time' : 'reply_time'] = String(cursor.time)
+    } else if (cursor) query.cursor = String(cursor)
     visited.add(JSON.stringify(cursor))
-    const j = await exactJson(await fetch(url.href, { headers }))
-    if (j.code !== 0) throw new Error(`${kind} code=${j.code} ${j.message}`)
+    const j = await requestBili(operation, { query, headers })
+    if (!j.ok) throw new Error(`${kind} code=${j.code ?? j.status} ${j.message}`)
     if (p === 0) lastView = Number(j.data?.last_view_at ?? 0)
     const items = j.data?.items ?? []
     for (const it of items) {
@@ -81,9 +77,8 @@ export async function resolveLatestReply({ business, oid, root, mid, parentRpid,
   const thread = root && String(root) !== '0' ? root : parentRpid
   const reps = []
   for (let pn = 1; pn <= 6; pn += 1) {
-    const u = `https://api.bilibili.com/x/v2/reply/reply?type=${type}&oid=${oid}&root=${thread}&ps=20&pn=${pn}`
-    const j = await exactJson(await fetch(u, { headers })).catch(() => null)
-    if (!j || j.code !== 0) return null
+    const j = await requestBili('commentThread', { query: { type, oid, root: thread, ps: 20, pn }, headers }).catch(() => null)
+    if (!j?.ok) return null
     const page = j.data?.replies ?? []
     if(pn===1 && j.data?.root) reps.push(j.data.root)
     reps.push(...page)

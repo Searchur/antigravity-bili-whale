@@ -25,6 +25,7 @@ import { createWakeRunner } from './wake-run.mjs'
 import { createSchedulerHealth } from './scheduler-health.mjs'
 import { fanCommentQuota, mentionSummaryLines } from '../social/mention-summary.mjs'
 import { createTrafficGuard } from '../bili/traffic.mjs'
+import { dmReadIssue } from '../bili/private-messages.mjs'
 import { pollDelay } from '../core/poll-policy.mjs'
 import { pullFeed, makeHeaders } from '../bili/message-feed.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../core/node-runtime.mjs'
@@ -455,6 +456,16 @@ function initializeScheduler(host, opts, health) {
     onSession: id => { if (activeSessionId !== id) activeSessionId = id },
   })
 
+  function noteDmFailure(code, stage) {
+    const reason = stage ? 'private-message-' + stage : 'private-message'
+    if (!health.note('listener-error', reason, { error: code }, true)) return
+    try {
+      fs.mkdirSync(path.dirname(dp.dmListenerErrorsLog), { recursive: true })
+      const detail = stage ? `${stage} ${code}` : String(code)
+      fs.appendFileSync(dp.dmListenerErrorsLog, new Date().toISOString() + ' private-message ' + detail + '\n')
+    } catch { /* 日志写入失败时保留调度器内的健康快照。 */ }
+  }
+
   async function dmTick() {
     if (dmBusy) {
       if (!dmBusyWarned && Date.now() - dmBusyAt > 5 * 60_000) {
@@ -478,6 +489,7 @@ function initializeScheduler(host, opts, health) {
     dmBusyAt = Date.now()
     dmBusyWarned = false
     let hit = null
+    let readFailed = false
     try {
       checkIdentity()
       const r = await runBili(['dm-await', '--once', '--json', '--peek'])
@@ -486,9 +498,18 @@ function initializeScheduler(host, opts, health) {
       let j = null
       try { j = JSON.parse(line) } catch { j = null }
       hit = j
+      if (typeof j?.hit === 'boolean' && Array.isArray(j.readErrors)) {
+        for (const issue of j.readErrors) {
+          if (!['identity', 'owner-history', 'sessions', 'fan-history'].includes(issue?.stage)) continue
+          noteDmFailure(dmReadIssue(issue.stage, issue).code, issue.stage)
+          readFailed = true
+        }
+        if (readFailed) dmFailures++
+      }
+      if (readFailed && r.code === 3 && j.hit === false) return
       if (r.code !== 0 && r.code !== 1) throw Object.assign(new Error('私信监听子进程失败'), { code: 'DM_CLI_' + r.code })
       if (!j || typeof j.hit !== 'boolean') throw new Error('私信监听返回无效结果')
-      if (!j.hit) { dmFailures = 0; return }
+      if (!j.hit) { if (!readFailed) dmFailures = 0; return }
       if (!j.receipt) throw new Error('私信命中但没有回执，无法确认交付')
       if (!j.isFan && String(j.mid) !== identity.owner) throw Error('私信发件人与当前主人不匹配')
       if (stopped) return
@@ -565,10 +586,10 @@ function initializeScheduler(host, opts, health) {
       const ack = await runBili(['dm-await', '--ack', j.receipt])
       if (!ack.ok) throw new Error('私信已交付但确认失败：' + ack.err)
       await delivery.confirm(j.isFan ? `bili-whale-fandm-${j.receipt}` : `bili-whale-dm-${j.receipt}`)
-      dmFailures = 0
+      if (!readFailed) dmFailures = 0
     } catch (e) {
       if (e.code === 'DELIVERY_IDENTITY_CHANGED' || e.code === 'LISTENER_DISABLED') return
-      dmFailures++
+      if (!readFailed) dmFailures++
       if (e.code === 'WAKE_UNCONFIRMED' || e.code === 'DM_UNCONFIRMED' || /结果未确认|unconfirmed/i.test(String(e.message ?? ''))) {
         if (!hit?.receipt) diagnose('dm-unconfirmed-mark', Object.assign(Error('没有回执可用于待核查结案'), { code: 'DM_RECEIPT_MISSING' }))
         else try {
@@ -577,9 +598,7 @@ function initializeScheduler(host, opts, health) {
           health.note('listener-error', 'private-message-unconfirmed', { receipt: hit.receipt, marked: !!mark.ok }, true)
         } catch (markError) { diagnose('dm-unconfirmed-mark', markError) }
       }
-      if (health.note('listener-error', 'private-message', { error: e.code ?? e.name }, true)) {
-        try { fs.mkdirSync(path.dirname(dp.dmListenerErrorsLog), { recursive: true }); fs.appendFileSync(dp.dmListenerErrorsLog, new Date().toISOString() + ' private-message ' + String(e.code ?? e.name) + '\n') } catch {}
-      }
+      noteDmFailure(e.code ?? e.name)
     } finally { dmBusy = false }
   }
 

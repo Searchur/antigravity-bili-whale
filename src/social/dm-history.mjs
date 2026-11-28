@@ -1,10 +1,10 @@
 /**
  * B 站私信历史拉取、视频分享卡片解析与消息结构归一化工具。
  */
-import { exactJson, parseJsonExact } from '../core/json-exact.mjs'
+import { parseJsonExact } from '../core/json-exact.mjs'
 import crypto from 'node:crypto'
-import { guardedFetch as fetch } from '../bili/traffic.mjs'
-import { apiGet, signWbi } from '../bili/api.mjs'
+import { biliJson, requestBili } from '../bili/api.mjs'
+import { dmMessageKey, dmPosition, dmReadError, privateHistoryPage } from '../bili/private-messages.mjs'
 
 const BV = /^BV[0-9A-Za-z]{10}$/
 const cardText = value => String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 500)
@@ -39,10 +39,8 @@ export function shareCardText(share) {
 export async function resolveShareBv(share, headers, keys) {
   if (share.bvid) return share.bvid
   if (!share.authorId && !share.author) return null
-  const query = signWbi({search_type:'video', keyword:share.title.slice(0, 100), page:1}, keys)
-  const response = await fetch('https://api.bilibili.com/x/web-interface/wbi/search/type?' + query, {headers})
-  const body = await exactJson(response)
-  if (!response.ok || body.code !== 0 || !Array.isArray(body.data?.result)) return null
+  const body = await requestBili('search', { query: { search_type: 'video', keyword: share.title.slice(0, 100), page: 1 }, headers, keys })
+  if (!body.ok || !Array.isArray(body.data?.result)) return null
   const matches = body.data.result.filter(row => BV.test(String(row.bvid)) &&
     titleKey(row.title) === titleKey(share.title) &&
     (share.authorId ? String(row.mid) === share.authorId : cardText(row.author) === share.author))
@@ -71,44 +69,147 @@ export function normalizeMessage(row) {
     if(type===2&&j?.url)image={url:String(j.url),width:Number(j.width)||0,height:Number(j.height)||0}
     text=image?'[图片]':String(j.content??j.text??text)
   } catch {}
-  const seq=String(row.msg_seqno??'')
-  const key=String(row.msg_key??(seq||crypto.createHash('sha256').update(JSON.stringify([ts,sender,row.content])).digest('hex')))
+  const rawSeq = dmPosition(row.msg_seqno)
+  const seq = rawSeq === '0' ? null : rawSeq
+  const key = dmMessageKey(row.msg_key) ?? seq ?? crypto.createHash('sha256').update(JSON.stringify([ts,sender,row.content])).digest('hex')
   if(type===7)text=shareCardText(share)
-  return {ts,sender,text,key,type,withdrawn,image,share,seq:/^\d+$/.test(seq)?seq:null}
+  return {ts,sender,text,key,type,withdrawn,image,share,seq}
 }
 
-export async function readHistory(owner,headers,state,{baseline=false,nav=null}={}) {
-  nav??=await apiGet('https://api.bilibili.com/x/web-interface/nav',headers)
-  if(nav.code!==0||!nav.data?.wbi_img)throw Error('私信历史签名密钥不可用，保留游标')
-  const seen=new Set(),all=[]
-  let cursor='0'
-  const boundary=Number(state.lastSeen??0),known=new Set(state.lastKeys??(state.lastKey?[state.lastKey]:[]))
-  for(let page=0;page<10;page++) {
-    const query=signWbi({talker_id:owner,session_type:1,size:30,begin_seqno:cursor},nav.data.wbi_img)
-    const response=await fetch('https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs?'+query,{headers})
-    const body=await exactJson(response)
-    if(!response.ok||body.code!==0||!Array.isArray(body.data?.messages))throw Error('私信历史读取失败，保留游标（code='+body.code+'）')
-    const rows=body.data.messages.map(normalizeMessage)
-    for(const row of rows)if(!seen.has(row.key)){seen.add(row.key);all.push(row)}
-    // 首次运行仅读取最新一页，避免无界回放历史私信。
-    const more=body.data.has_more
-    if(baseline||state.lastSeen===undefined||rows.some(r=>r.ts<boundary)||more===0||more==='0'||more===false||(!rows.length&&more===undefined)|| (more===undefined&&rows.length<30))break
-    const seqs=rows.filter(r=>r.seq).map(r=>BigInt(r.seq))
-    if(!seqs.length)throw Error('私信历史分页缺少序号，保留游标')
-    const next=seqs.reduce((a,b)=>a<b?a:b).toString()
-    if(next===cursor||(cursor!=='0'&&BigInt(next)>=BigInt(cursor)))throw Error('私信历史分页未前进，保留游标')
-    if(page===9)throw Error('私信积压超过单次 10 页，未推进游标；请人工检查')
-    cursor=next
+const cursorKeys = cursor => Array.isArray(cursor.lastKeys) ? cursor.lastKeys : (cursor.lastKey ? [cursor.lastKey] : [])
+
+export function hasDmCursor(cursor) {
+  return dmPosition(cursor.lastSeq) !== null
+    || (cursor.lastSeen != null && Number.isFinite(Number(cursor.lastSeen)) && Number(cursor.lastSeen) >= 0)
+}
+
+export function isNewDmMessage(message, cursor) {
+  const lastSeq = dmPosition(cursor.lastSeq)
+  const keys = cursorKeys(cursor)
+  if (keys.includes(message.key)) return false
+  if (message.seq != null && lastSeq != null) return BigInt(message.seq) > BigInt(lastSeq)
+  return message.ts > Number(cursor.baselineSecond ?? -1) && message.ts >= Number(cursor.lastSeen ?? 0)
+    && !keys.includes(message.seq)
+}
+
+export function advanceDmCursor(cursor, message) {
+  const next = { ...cursor }
+  const seq = dmPosition(message.seq)
+  const lastSeq = dmPosition(next.lastSeq)
+  if (seq !== null && (lastSeq === null || BigInt(seq) > BigInt(lastSeq))) next.lastSeq = seq
+  const lastSeen = Number(next.lastSeen ?? 0)
+  if (!hasDmCursor(cursor) || message.ts >= lastSeen) {
+    next.lastSeen = message.ts
+    next.lastKey = message.key
+    next.lastKeys = [...new Set([
+      ...(message.ts === lastSeen ? cursorKeys(cursor) : []), ...(message.keys ?? [message.key]),
+    ].filter(Boolean))]
   }
-  all.sort((a,b)=>a.ts-b.ts||(a.seq&&b.seq?(BigInt(a.seq)<BigInt(b.seq)?-1:BigInt(a.seq)>BigInt(b.seq)?1:0):a.key.localeCompare(b.key)))
-  const withdrawn=new Set(all.filter(r=>r.type===5).map(r=>r.withdrawn))
-  const messages=all.filter(r=>(r.type===1||r.type===7||(r.type===2&&r.image))&&!withdrawn.has(r.key)&&r.sender===owner&&(r.ts>boundary||(r.ts===boundary&&!known.has(r.key))))
-  let remaining=3
-  for(const message of messages) {
-    if(!message.share || message.share.bvid || remaining===0)continue
+  return next
+}
+
+export function anchorDmCursor(cursor, head) {
+  return { ...advanceDmCursor(cursor, head), baselineSecond: Math.max(cursor.baselineSecond ?? 0, head.ts) }
+}
+
+function pageHead(rows, maxSeq) {
+  const newest = rows.reduce((head, row) => !head || row.ts > head.ts ? row : head, null)
+  const seq = rows.reduce((maximum, row) =>
+    row.seq != null && (maximum == null || BigInt(row.seq) > BigInt(maximum)) ? row.seq : maximum, maxSeq)
+  return {
+    ts: newest?.ts ?? 0,
+    key: newest?.key,
+    keys: rows.filter(row => row.ts === newest?.ts).map(row => row.key),
+    seq,
+  }
+}
+
+function nextHistoryPosition(page, rows, endSeq, cursor, baseline) {
+  if (baseline || !page.hasMore) return null
+  const oldest = page.minSeq || rows.reduce((minimum, row) =>
+    row.seq != null && (minimum == null || BigInt(row.seq) < BigInt(minimum)) ? row.seq : minimum, null)
+  if (oldest === '0') throw dmReadError('CURSOR_STALLED')
+  const lastSeq = dmPosition(cursor.lastSeq)
+  if (lastSeq !== null && oldest !== null) {
+    if (BigInt(oldest) <= BigInt(lastSeq)) return null
+  } else if (rows.some(row => row.ts < Number(cursor.lastSeen ?? 0))) {
+    return null
+  }
+  if (!oldest || (endSeq && BigInt(oldest) >= BigInt(endSeq))) throw dmReadError('CURSOR_STALLED')
+  return oldest
+}
+
+function uniqueHistory(rows) {
+  const sequences = new Map(rows.filter(row => row.seq != null).map(row => [row.key, row.seq]))
+  const unique = new Map()
+  for (const row of rows) {
+    const seq = row.seq ?? sequences.get(row.key)
+    const id = seq != null ? 'seq:' + seq : 'key:' + row.key
+    const previous = unique.get(id)
+    if (!previous || (row.seq != null && (previous.seq == null || (previous.key === seq && row.key !== seq)))) {
+      unique.set(id, row)
+    }
+  }
+  return [...unique.values()]
+}
+
+const HISTORY_PAGE_BUDGET = 10
+
+export async function readHistory(talker, headers, cursor, { baseline = false, nav = null, scan = null, pageLimit = HISTORY_PAGE_BUDGET } = {}) {
+  nav ??= await biliJson('nav', { headers })
+  if (nav?.code !== 0 || !nav.data?.wbi_img) throw dmReadError('WBI_UNAVAILABLE')
+  const keys = nav.data.wbi_img
+  let endSeq = baseline ? null : dmPosition(scan?.endSeq)
+  let recheckAfter = baseline ? null : (scan?.recheckAfter ?? null)
+  const resumed = Boolean(endSeq || recheckAfter)
+  let head = resumed ? scan.head : null
+  const collected = resumed && Array.isArray(scan.rows) ? [...scan.rows] : []
+  // 先完成旧页范围再入队，避免确认较新消息后跳过尚未读取的旧页。
+  const checkpoint = () => endSeq || recheckAfter ? { endSeq, head, recheckAfter, rows: uniqueHistory(collected) } : null
+
+  for (let pages = 1; pages <= pageLimit; pages++) {
+    let rows, next
+    try {
+      const page = await privateHistoryPage(talker, endSeq, headers, keys)
+      rows = page.rows.map(normalizeMessage)
+      next = nextHistoryPosition(page, rows, endSeq, recheckAfter ?? cursor, baseline)
+      head ??= pageHead(rows, page.maxSeq)
+    } catch (error) {
+      return { messages: [], scan: checkpoint(), pages, error }
+    }
+    if (baseline) return { messages: [], scan: null, pages, head }
+    for (const row of rows) {
+      if (row.type === 5 || (row.sender === talker && isNewDmMessage(row, cursor)
+          && (row.type === 1 || row.type === 7 || (row.type === 2 && row.image)))) collected.push(row)
+    }
+    if (next) {
+      endSeq = next
+      continue
+    }
+    if (resumed && !recheckAfter) {
+      // 跨轮恢复后补查旧快照之后的记录，让等待中的来信能反映期间的撤回。
+      recheckAfter = advanceDmCursor({}, head)
+      endSeq = head = null
+      continue
+    }
+    return { messages: await historyMessages(collected, headers, keys), scan: null, pages, head }
+  }
+  return { messages: [], scan: checkpoint(), pages: pageLimit }
+}
+
+async function historyMessages(rows, headers, keys) {
+  const all = uniqueHistory(rows)
+  const withdrawn = new Set(all.filter(row => row.type === 5).map(row => row.withdrawn))
+  const messages = all.filter(row => row.type !== 5 && !withdrawn.has(row.key))
+  messages.sort((a, b) => a.ts - b.ts || (a.seq != null && b.seq != null
+    ? (BigInt(a.seq) < BigInt(b.seq) ? -1 : BigInt(a.seq) > BigInt(b.seq) ? 1 : 0)
+    : a.key.localeCompare(b.key)))
+  let remaining = 3
+  for (const message of messages) {
+    if (!message.share || message.share.bvid || remaining === 0) continue
     remaining--
-    try { message.share.bvid=await resolveShareBv(message.share,headers,nav.data.wbi_img) } catch { /* 即使反查接口暂不可用，也继续保留本条消息投递。 */ }
-    message.text=shareCardText(message.share)
+    try { message.share.bvid = await resolveShareBv(message.share, headers, keys) } catch { /* 即使反查接口暂不可用，也继续保留本条消息投递。 */ }
+    message.text = shareCardText(message.share)
   }
-  return {all,messages}
+  return messages
 }

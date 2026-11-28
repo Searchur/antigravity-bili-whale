@@ -1,8 +1,8 @@
 /**
  * CLI 核验命令 `thread`：只读拉取指定评论楼层上下文与子回复列表。
  */
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { exactJson } from '../../core/json-exact.mjs'
+import { biliJson } from '../../bili/api.mjs'
+import { biliHeaders } from '../../bili/cookie.mjs'
 
 const argv = process.argv.slice(2)
 let TYPE = '1'
@@ -16,17 +16,17 @@ if (!AID || !ROOT) {
   console.error('用法: node thread.mjs <oid> <BV或-> <rootRpid> [--type 1|11|17]')
   process.exit(2)
 }
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const referer = BVID && /^BV[0-9A-Za-z]{10}$/.test(BVID) ? `https://www.bilibili.com/video/${BVID}/` : 'https://www.bilibili.com/'
+const headers = { ...biliHeaders(undefined, { referer }), 'accept-language': 'zh-CN,zh;q=0.9' }
 
 async function fetchAll() {
   const all = []
   let root = null
   for (let pn = 1; pn <= 10; pn += 1) {
-    const r = await fetch(`https://api.bilibili.com/x/v2/reply/reply?type=${encodeURIComponent(TYPE)}&oid=${encodeURIComponent(AID)}&root=${encodeURIComponent(ROOT)}&pn=${pn}&ps=20`, {
-      headers: { 'user-agent': UA, referer, 'accept-language': 'zh-CN,zh;q=0.9' },
+    const j = await biliJson('commentThread', {
+      headers,
+      query: { type: TYPE, oid: AID, root: ROOT, pn, ps: 20 },
     })
-    const j = await exactJson(r)
     if (j.code !== 0) return { code: j.code, message: j.message, data: { root, replies: all } }
     const rs = j.data?.replies ?? []
     root = root ?? j.data?.root

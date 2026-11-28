@@ -3,12 +3,13 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { credentialsPath, shotsPath } from '../../core/paths.mjs'
+import { shotsPath } from '../../core/paths.mjs'
 import { config } from '../../config/index.mjs'
 import { downloadVideo } from '../../media/video-download.mjs'
-import { segmentFrames } from '../../media/video-frames.mjs'
+import { segmentFrames, VIDEO_DEMUXERS } from '../../media/video-frames.mjs'
 import { watchOptions, resolveWatchProfile, checkWatchDuration, planIntervalFrames } from '../../media/watch-options.mjs'
-import { apiGet } from '../../bili/api.mjs'
+import { biliJson } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
 import { execFileSync } from '../../core/capture.mjs'
 import { requireFfmpeg } from '../../media/ffmpeg.mjs'
 
@@ -33,11 +34,8 @@ const everySec = parsed.everySec ?? Number(watchResolved.settings.frameEverySec 
 const maxFrames = parsed.maxFrames ?? Number(watchResolved.settings.maxFrames ?? 36)
 const grid = parsed.grid ?? String(watchResolved.settings.frameGrid ?? '3x3')
 
-const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const H = { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}` }
-
-const view = await apiGet(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, H)
+const headers = biliHeaders(loadCred())
+const view = await biliJson('view', { headers, query: { bvid } })
 if (view.code !== 0) { console.error(`view 失败 code=${view.code} ${view.message}`); process.exit(3) }
 const { title, owner } = { ...view.data, owner: view.data.owner?.name }
 const cid = view.data.pages?.[0]?.cid ?? view.data.cid
@@ -68,8 +66,11 @@ const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math
 console.log(`标题: ${title}`)
 console.log(`UP: ${owner}   时长: ${duration}s   cid=${cid}   按每 ${everySec}s 抽帧（共 ${N} 帧${plan.capped ? `，受上限 ${maxFrames} 帧封顶` : ''}，固定拼图 ${cols}x${rows}，共 ${sheetCount} 张图）`)
 
-const p = await apiGet(`https://api.bilibili.com/x/player/playurl?bvid=${bvid}&cid=${cid}&qn=80&fnval=1&platform=pc&high_quality=1`, H)
-const url = p.data?.durl?.[0]?.url
+const p = await biliJson('playUrl', { headers, query: {
+  bvid, cid, qn: 80, fnval: 1, platform: 'pc', high_quality: 1,
+} })
+const source = p.code === 0 ? p.data?.durl?.[0] : null
+const url = source?.url
 if (!url) { console.error(`没拿到直链（code=${p.code} ${p.message ?? ''}）——有些视频要登录或只有 dash 流`); process.exit(4) }
 const QN = { 16: '360P', 32: '480P', 64: '720P', 80: '1080P' }
 console.log(`实际画质: ${QN[p.data.quality] ?? p.data.quality}`)
@@ -92,12 +93,13 @@ try {
     }
   }
   if (!segmented) {
-    const result = await downloadVideo(p.data.durl[0], mp4, { headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/' } })
+    const result = await downloadVideo(source, mp4, { headers: biliHeaders() })
     console.log('已下载临时视频: ' + (result.size / 1024 / 1024).toFixed(2) + ' MB（抽帧后自动清理）')
     console.log(`取帧方式: 固定间隔抽帧（首帧 ${fmt(times[0])}，步长 ${plan.effectiveStep.toFixed(1)}s，共 ${N} 帧，${cols}x${rows} 共 ${sheetCount} 张）`)
     console.log(`时间点  : ${times.map((t, i) => `${i + 1}=${fmt(t)}`).join('  ')}`)
     times.forEach((t, i) => {
-      execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-ss', t.toFixed(2), '-i', mp4,
+      execFileSync(FFMPEG, ['-y', '-loglevel', 'error', '-ss', t.toFixed(2),
+        '-protocol_whitelist', 'file', '-format_whitelist', VIDEO_DEMUXERS, '-i', mp4,
         '-frames:v', '1', '-pix_fmt', 'yuvj420p', '-q:v', '2', path.join(tmp, `f${String(i).padStart(2, '0')}.jpg`)], { stdio: 'inherit' })
     })
   }

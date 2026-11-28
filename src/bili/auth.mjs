@@ -1,7 +1,10 @@
 /**
- * B 站扫码登录与账号校验：管理单实例二维码登录挑战、轮询换取凭据与导航接口校验。
+ * B 站扫码登录、凭据核验与注销：管理单实例二维码挑战及限于登录流程的请求。
  */
 import { randomUUID } from 'node:crypto'
+import { parseJsonExact } from '../core/json-exact.mjs'
+import { biliHeaders } from './cookie.mjs'
+import { biliEndpoint } from './endpoints.mjs'
 import { qrDataUrl } from './qr.mjs'
 import { AuthError, parseManualCookie } from './credential-store.mjs'
 
@@ -14,49 +17,102 @@ export async function renderQr(url, {encoder, signal}={}) {
   } catch { throw new AuthError('二维码绘制失败。') }
 }
 
-const PASSPORT = 'https://passport.bilibili.com'
+const PASSPORT = biliEndpoint('qrStart').origin
+const SITE = 'https://www.bilibili.com/'
+const AUTH_BODY_LIMIT = 128 * 1024
 const INTERVAL = 2000
 const TTL = 180000
 const terminal = new Set(['success', 'expired', 'cancelled', 'error'])
-async function request(fetcher, url, { signal, credentials } = {}) {
+
+async function readAuthJson(response, signal) {
+  if (Number(response.headers.get('content-length')) > AUTH_BODY_LIMIT) throw Error()
+  const reader = response.body.getReader()
+  const stop = () => { void reader.cancel().catch(() => {}) }
+  signal.addEventListener('abort', stop, { once: true })
   try {
-    const response = await fetcher(url, {
-      redirect: 'error',
-      signal: AbortSignal.any([AbortSignal.timeout(15000), ...(signal ? [signal] : [])]),
-      headers: {
-        'user-agent': 'Mozilla/5.0', referer: PASSPORT + '/login',
-        ...(credentials ? { cookie: `SESSDATA=${credentials.sessdata}; bili_jct=${credentials.bili_jct}${credentials.buvid3 ? '; buvid3=' + credentials.buvid3 : ''}` } : {}),
-      },
-    })
-    if (!response.ok) throw Error()
-    const reader = response.body.getReader()
-    const chunks = []; let size = 0
-    try {
-      for (;;) {
-        const { value, done } = await reader.read()
-        if (done) break
-        size += value.length
-        if (size > 128 * 1024) throw Error()
-        chunks.push(Buffer.from(value))
-      }
-    } finally { await reader.cancel().catch(() => {}) }
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-    if (body.code !== 0) throw Error()
-    return { data: body.data, response }
-  } catch {
-    throw new AuthError(signal?.aborted ? '登录已取消。' : 'B 站登录请求失败，请稍后重试。')
+    const chunks = []
+    let size = 0
+    for (;;) {
+      signal.throwIfAborted()
+      const { value, done } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > AUTH_BODY_LIMIT) throw Error()
+      chunks.push(value)
+    }
+    signal.throwIfAborted()
+    return parseJsonExact(Buffer.concat(chunks, size).toString('utf8'))
+  } finally {
+    signal.removeEventListener('abort', stop)
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
 }
 
-export async function verifyAccount(input, { fetch: fetcher = globalThis.fetch, signal } = {}) {
+async function authRequest(id, {
+  fetch: transport = globalThis.fetch, signal, credentials, query, body, timeoutMs = 15_000,
+  referer = PASSPORT + '/login',
+} = {}) {
+  const endpoint = biliEndpoint(id)
+  if (endpoint.lane !== 'auth') throw Error()
+  const url = new URL(endpoint.path, endpoint.origin)
+  if (query) url.search = new URLSearchParams(query).toString()
+  const timeout = AbortSignal.timeout(timeoutMs)
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
+  requestSignal.throwIfAborted()
+  const logout = id === 'logout'
+  const response = await transport(url.href, {
+    method: endpoint.method, redirect: logout ? 'manual' : 'error', signal: requestSignal, body,
+    headers: biliHeaders(credentials, { referer, userAgent: 'Mozilla/5.0' }),
+  })
+  try {
+    requestSignal.throwIfAborted()
+    if (response.redirected) throw Error()
+    if (logout && [301, 302].includes(response.status)) return { acceptedRedirect: true }
+    if (!response.ok || !response.body) throw Error()
+    return { result: await readAuthJson(response, requestSignal), headers: response.headers }
+  } finally {
+    if (response.body && !response.bodyUsed) await response.body.cancel().catch(() => {})
+  }
+}
+
+async function loginRequest(id, options) {
+  try {
+    const { result, headers } = await authRequest(id, options)
+    if (result?.code !== 0) throw Error()
+    return { data: result.data, headers }
+  } catch {
+    throw new AuthError(options.signal?.aborted ? '登录已取消。' : 'B 站登录请求失败，请稍后重试。')
+  }
+}
+
+export async function verifyAccount(input, { fetch, signal } = {}) {
   const credentials = parseManualCookie(input)
-  const { data } = await request(fetcher, 'https://api.bilibili.com/x/web-interface/nav', { credentials, signal })
-  if (data?.isLogin !== true || !/^[1-9]\d{0,19}$/.test(String(data?.mid ?? ''))
-    || (typeof data.mid === 'number' && !Number.isSafeInteger(data.mid)))
+  const { data } = await loginRequest('authNav', { fetch, credentials, signal })
+  const mid = data?.mid
+  if (data?.isLogin !== true || (typeof mid !== 'string' && !Number.isSafeInteger(mid)) || !/^[1-9]\d{0,19}$/.test(String(mid)))
     throw new AuthError('登录验证失败，原登录状态未替换。')
   let name = typeof data.uname === 'string' ? data.uname.slice(0, 200) : ''
   for (const secret of Object.values(credentials)) if (secret) name = name.split(secret).join('[redacted]')
-  return { mid: String(data.mid), name }
+  return { mid: String(mid), name }
+}
+
+export async function revokeRemoteSession(input, { fetch } = {}) {
+  let credentials
+  try { credentials = parseManualCookie(input) } catch { return 'local_only' }
+  const options = { fetch, credentials, referer: SITE, timeoutMs: 8_000 }
+  const body = new URLSearchParams({ biliCSRF: credentials.bili_jct, gourl: SITE })
+  let exitAccepted = false
+  try {
+    const { acceptedRedirect, result } = await authRequest('logout', { ...options, body })
+    exitAccepted = acceptedRedirect === true || result?.code === 0
+  } catch { /* 独立复核注销后的远程登录状态。 */ }
+  try {
+    const { result } = await authRequest('authNav', options)
+    if (result?.code === -101 || (result?.code === 0 && result.data?.isLogin === false)) return 'verified_revoked'
+    if (result?.code === 0 && result.data?.isLogin === true) return 'still_active'
+  } catch { /* 无法完成复核时按注销响应报告。 */ }
+  return exitAccepted ? 'exit_accepted' : 'local_only'
 }
 
 /** 每个插件实例仅维护一个短时扫码挑战；Cookie、密钥与刷新令牌绝不透传至前端 UI。 */
@@ -84,7 +140,7 @@ export class QrAuth {
     const session = { id: randomUUID(), status: 'waiting', controller: new AbortController(), expiresAt: this.now() + TTL, nextPoll: this.now() + INTERVAL }
     this.current = session
     try {
-      const { data } = await request(this.fetch, PASSPORT + '/x/passport-login/web/qrcode/generate', { signal: session.controller.signal })
+      const { data } = await loginRequest('qrStart', { fetch: this.fetch, signal: session.controller.signal })
       this.check(session)
       let url
       try { url = new URL(data?.url) } catch { throw new AuthError('二维码响应无效，请稍后重试。') }
@@ -117,23 +173,27 @@ export class QrAuth {
   }
   async pollOnce(session) {
     try {
-      const url = new URL('/x/passport-login/web/qrcode/poll', PASSPORT)
-      url.searchParams.set('qrcode_key', session.key)
-      const { data, response } = await request(this.fetch, url, { signal: session.controller.signal })
+      const { data, headers } = await loginRequest('qrPoll', {
+        fetch: this.fetch, signal: session.controller.signal, query: { qrcode_key: session.key },
+      })
       this.check(session)
       if (data?.code === 86101) session.status = 'waiting'
       else if (data?.code === 86090) session.status = 'scanned'
       else if (data?.code === 86038) session.status = 'expired'
       else if (data?.code === 0) {
         const values = {}
-        for (const cookie of response.headers.getSetCookie()) {
+        for (const cookie of headers.getSetCookie()) {
           const pair = cookie.split(';', 1)[0], split = pair.indexOf('=')
+          if (split < 1) continue
           const name = pair.slice(0, split).trim()
           if (['SESSDATA', 'bili_jct', 'buvid3'].includes(name)) values[name] = pair.slice(split + 1).trim()
         }
         const credentials = parseManualCookie({ sessdata: values.SESSDATA, bili_jct: values.bili_jct, buvid3: values.buvid3 })
-        session.account = await this.save(credentials, { signal: session.controller.signal, check: () => this.check(session) })
-        session.status = 'success'
+        const account = await this.save(credentials, { signal: session.controller.signal, check: () => this.check(session) })
+        if (this.current === session && !session.controller.signal.aborted) {
+          session.account = account
+          session.status = 'success'
+        }
       } else throw new AuthError('无法识别登录状态，请重新扫码。')
     } catch (error) {
       if (!terminal.has(session.status)) {

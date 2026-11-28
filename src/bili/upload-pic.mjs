@@ -3,10 +3,7 @@
  */
 // 上传图片至 B 站图床，返回评论与私信通用的素材元数据。
 //
-// 接口来自实测（2026-10-24）：
-//   POST https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs
-//   参数：csrf / file_up / category=daily / biz=new_dyn
-//   返回：{ image_url, image_width, image_height, img_size }
+// 上传结果包含图链、宽高与素材大小。
 //
 // ⚠️ 两个出口要的字段形状不一样，所以这里只返回原始四元组，由调用方自己拼：
 //   评论 reply/add  : pictures = [{ img_src, img_width, img_height, img_size }]
@@ -14,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { guardedFetch as fetch } from './traffic.mjs'
+import { requestBili } from './api.mjs'
 import { DATA_PATHS } from '../core/paths.mjs'
 import {acquireProcessLock} from '../core/process-lock.mjs'
 import {atomicWriteJson} from '../core/atomic-json.mjs'
@@ -71,16 +68,11 @@ async function uploadBytes(file, buf, csrf, headers, hash) {
   fd.append('file_up', new Blob([buf]), path.basename(file))
   fd.append('category', 'daily')
   fd.append('biz', 'new_dyn')
-  const r = await fetch('https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs', {
-    method: 'POST',
-    headers,
-    body: fd,
-  })
-  const j = await r.json().catch(() => ({}))
-  if (r.ok && j.code === 0) {
+  const j = await requestBili('uploadPicture', { headers, body: fd })
+  if (j.ok) {
     return normalizePicture({ ...j.data, _bytes: buf.length, _sha256:hash, _imageType: IMAGE_TYPES[path.extname(file).toLowerCase()] ?? 'png' })
   }
-  throw new Error('upload_bfs code=' + j.code + ' ' + (j.message ?? ''))
+  throw new Error('upload_bfs code=' + (j.code ?? undefined) + ' ' + (j.message ?? ''))
 }
 
 // 评论 reply/add 用的 pictures 字段

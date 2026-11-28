@@ -4,23 +4,25 @@
 import fs from 'node:fs'
 import { saveCoverImage } from '../../media/cover-image.mjs'
 import path from 'node:path'
-import { credentialsPath, shotsPath } from '../../core/paths.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
+import { shotsPath } from '../../core/paths.mjs'
+import { requestBili } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
+import { fetchBiliMedia } from '../../bili/media.mjs'
 
-const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const H = { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}` }
+const headers = biliHeaders(loadCred())
+const mediaHeaders = biliHeaders()
 const outDir = path.join(shotsPath, 'covers')
 fs.mkdirSync(outDir, { recursive: true })
 
 for (const bv of process.argv.slice(2)) {
   if (!/^BV[0-9A-Za-z]{10}$/.test(bv)) { console.log(`${bv}: 无效 BV 号`); continue }
   try {
-    const d = await (await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bv}`, { headers: H })).json()
-    if (d.code !== 0) { console.log(`${bv}: code=${d.code} ${d.message}`); continue }
+    const d = await requestBili('viewLegacy', { headers, query: { bvid: bv } })
+    if (!d.payload) throw Error(d.message)
+    if (!d.ok) { console.log(`${bv}: code=${d.code} ${d.message}`); continue }
     const v = d.data
     const cover = path.join(outDir, `${bv}.jpg`)
-    const img = await fetch(v.pic, { headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/' } })
+    const img = await fetchBiliMedia(v.pic, { kind: 'image', headers: mediaHeaders })
     await saveCoverImage(img, cover)
     console.log(`\n===== ${bv} =====`)
     console.log(`标题: ${v.title}`)

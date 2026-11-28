@@ -1,8 +1,8 @@
 /**
  * CLI 核验命令 `session`：校验当前本地 B 站登录凭据是否有效。
  */
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { loadCred, missingForWrite, CRED_PATH } from '../../bili/cookie.mjs'
+import { biliJson } from '../../bili/api.mjs'
+import { biliHeaders, loadCred, missingForWrite, CRED_PATH } from '../../bili/cookie.mjs'
 
 let cred
 try {
@@ -17,14 +17,7 @@ try {
   process.exit(3)
 }
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
-  headers: {
-    'user-agent': UA,
-    referer: 'https://www.bilibili.com/',
-    cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`,
-  },
-})).json()
+const nav = await biliJson('nav', { headers: biliHeaders(cred), noCache: true })
 if (nav.code !== 0) {
   console.error(`登录态无效: code=${nav.code} ${nav.message}（请在控制台【大鲸鱼与主人】重新扫码登录）`)
   process.exit(4)

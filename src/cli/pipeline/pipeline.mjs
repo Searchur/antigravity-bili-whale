@@ -6,8 +6,8 @@ import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {config} from '../../config/index.mjs'
 import {lifeStore} from '../../life/runtime.mjs'
-import {credentialsPath} from '../../core/paths.mjs'
-import {apiGet} from '../../bili/api.mjs'
+import {biliJson} from '../../bili/api.mjs'
+import {biliHeaders,loadCred} from '../../bili/cookie.mjs'
 import {atomicWriteJson} from '../../core/atomic-json.mjs'
 import {acquireProcessLock} from '../../core/process-lock.mjs'
 import {preferenceMatches} from '../../config/feed-preferences.mjs'
@@ -30,15 +30,19 @@ export async function batchDebrief(bvs,{concurrency,timeoutMs,run=runNode,sample
  })
  return {schema:'whale.batch/1',ok:results.filter(x=>x.ok).map(x=>x.bv),failed:results.filter(x=>!x.ok).map(x=>x.bv),results}
 }
-function headers(){const c=JSON.parse(fs.readFileSync(credentialsPath,'utf8'));return {'user-agent':'Mozilla/5.0',referer:'https://www.bilibili.com/',cookie:`SESSDATA=${c.sessdata}; bili_jct=${c.bili_jct}; buvid3=${c.buvid3??''}`}}
-async function get(url){const j=await apiGet(url,headers());if(j.code!==0)throw Error(j.message??('API code='+j.code));return j.data}
+async function get(endpoint,bvid){
+ const headers=biliHeaders(loadCred(),{userAgent:'Mozilla/5.0'})
+ const j=await biliJson(endpoint,{headers,query:{bvid}})
+ if(j.code!==0)throw Error(j.message??('API code='+j.code))
+ return j.data
+}
 export async function collectTags(bvs,{kind='read'}={}){
  const life=lifeStore(),p=pipelineConfig(),rows=[];const state=life.read()
  for(const bv of [...new Set(bvs)].slice(0,20)){
   if(!/^BV[0-9A-Za-z]{10}$/.test(bv))throw Error('无效 BV')
   const evidence=state.events.findLast(e=>e.kind==='video-read'&&e.target===bv)
   if(kind==='read'&&!evidence)throw Error('没有已读取来源事件：'+bv)
-  const tags=await get('https://api.bilibili.com/x/tag/archive/tags?bvid='+bv)
+  const tags=await get('videoTags',bv)
   rows.push({bv,kind,region:String(evidence?.data?.tname??''),evidenceId:evidence?.id??null,tags:[...new Set((Array.isArray(tags)?tags:[]).map(t=>String(t.tag_name??'').trim()).filter(Boolean))].slice(0,30),at:new Date().toISOString()})
  }
  const file=path.join(life.dir,'video-tags.json');fs.mkdirSync(life.dir,{recursive:true});const release=await acquireProcessLock(file,{retries:40,delayMs:50})
@@ -56,7 +60,7 @@ export async function relatedCollect(bvs){
  const p=pipelineConfig(),cfg=config(),life=lifeStore(),snapshot=life.read(),seen=new Set(snapshot.events.filter(e=>e.kind==='video-read').map(e=>e.target)),items=[],have=new Set(bvs)
  for(const bv of [...new Set(bvs)].slice(0,p.relatedSources)){
   if(!/^BV[0-9A-Za-z]{10}$/.test(bv))throw Error('无效 BV');if(!p.relatedTakeMax)break
-  const rows=await get('https://api.bilibili.com/x/web-interface/archive/related?bvid='+bv);let count=0
+  const rows=await get('related',bv);let count=0
   for(const v of (Array.isArray(rows)?rows:[]).slice(0,20)){
    const x={bv:v.bvid,t:String(v.title??''),mid:String(v.owner?.mid??''),up:v.owner?.name??'',d:Number(v.duration??0),play:Number(v.stat?.view??0),dm:Number(v.stat?.danmaku??0),pubdate:Number(v.pubdate),parts:Number(v.videos??1),source:bv,region:String(v.tname??'')}
    if(have.has(x.bv)||seen.has(x.bv)||x.mid===String(cfg.self?.mid??'')||!eligibleVideo(x,p)||x.play<p.relatedMinPlay||(cfg.preferences?.dislike??[]).some(word=>preferenceMatches(x.t,word))||life.preferences({title:x.t,author:x.mid,bvid:x.bv},'watch',snapshot).excluded)continue

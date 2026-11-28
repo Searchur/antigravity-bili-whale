@@ -1,7 +1,8 @@
 /**
  * CLI 核验命令 `check-mention`：检查动态正文中的 `@` 是否解析为真实提及节点。
  */
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
+import { requestBili } from '../../bili/api.mjs'
+import { biliHeaders } from '../../bili/cookie.mjs'
 // 检查动态页面中的 @ 是否解析为指向目标 UID 的真实提及节点
 //
 // 用法: node mention-check.mjs <dynId> [mid] [昵称]
@@ -25,12 +26,17 @@ if (!TARGET_MID && !TARGET_NAME) {
   process.exit(2)
 }
 
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const r = await fetch(`https://www.bilibili.com/opus/${dynId}`, {
-  headers: { 'user-agent': UA, 'accept-language': 'zh-CN,zh;q=0.9' },
+const result = await requestBili('opus', {
+  query: { id: dynId },
+  headers: { ...biliHeaders(undefined, { referer: '' }), 'accept-language': 'zh-CN,zh;q=0.9' },
 })
-const html = await r.text()
-console.log(`opus 页 HTTP ${r.status}  ${html.length} 字节`)
+if (!result.ok) {
+  await result.response?.body?.cancel().catch(() => {})
+  console.log(`opus 页 HTTP ${result.status}  ${result.message || '响应无效'}`)
+  process.exit(0)
+}
+const html = await result.response.text()
+console.log(`opus 页 HTTP ${result.status}  ${html.length} 字节`)
 console.log(`目标: ${TARGET_NAME || '(未给昵称)'}，mid ${TARGET_MID || '(未给 mid)'}`)
 
 // ① mid 出现次数（真提及一般会把 mid 写进链接或 data 属性）

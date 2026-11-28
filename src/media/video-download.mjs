@@ -4,38 +4,47 @@
 import fs from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
-import { guardedFetch as fetch } from '../bili/traffic.mjs'
+import { fetchBiliMedia, limitMediaBytes, parseBiliMediaContentRange } from '../bili/media.mjs'
 
-export async function downloadVideo(source, file, {headers, fetch:transport=fetch, timeoutMs=60000}={}) {
+export async function downloadVideo(source, file, { headers, fetch: transport, timeoutMs = 60_000 } = {}) {
   const candidates = [...new Set([source.url, ...(source.backup_url ?? [])].filter(Boolean))]
   const expected = Number(source.size) || 0
+  const requestHeaders = new Headers(headers)
   let attempts = 0
   for (const url of candidates) {
     fs.rmSync(file, {force:true})
+    let total = expected
     for (let retry=0; retry<3; retry++) {
       attempts++
       const have = fs.existsSync(file) ? fs.statSync(file).size : 0
       let response
       try {
-        response = await transport(url, {
-          headers:{...headers, range:'bytes=' + have + '-'},
-          signal:AbortSignal.timeout(timeoutMs),
+        const signal = AbortSignal.timeout(timeoutMs)
+        requestHeaders.set('range', 'bytes=' + have + '-')
+        response = await fetchBiliMedia(url, {
+          kind: 'video', headers: requestHeaders, signal, transport,
         })
         if (!response.ok || !response.body) throw Error('下载响应无效')
-        let total = expected
+        const encoding = response.headers.get('content-encoding')
+        if (encoding && encoding.toLowerCase() !== 'identity') throw Error('视频响应使用了不支持的内容编码')
+        let chunkLimit
         if (response.status === 206) {
-          const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get('content-range') ?? '')
-          if (!range || Number(range[1]) !== have || Number(range[2]) < have ||
-              Number(range[2]) >= Number(range[3]) || (expected && Number(range[3]) !== expected)) {
-            throw Error('续传范围不一致')
+          const range = parseBiliMediaContentRange(response.headers.get('content-range'))
+          if (!range || range.start !== have) throw Error('续传范围不一致')
+          if (total && range.total !== total) {
+            fs.rmSync(file, { force: true })
+            total = expected
+            throw Error('续传总长度发生变化')
           }
-          total = Number(range[3])
+          total = range.total
+          chunkLimit = range.length
         } else if (response.status !== 200) throw Error('不支持的下载响应')
-        else if (!total) total = Number(response.headers.get('content-length')) || 0
-        await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(file, {flags:response.status===206 && have>0?'a':'w'}))
+        else total = expected || Number(response.headers.get('content-length')) || 0
+        const body = limitMediaBytes(Readable.fromWeb(response.body), chunkLimit ?? (total || Infinity))
+        const flags = response.status === 206 && have > 0 ? 'a' : 'w'
+        await pipeline(body, fs.createWriteStream(file, { flags }), { signal })
         const size = fs.statSync(file).size
         if (size > 0 && (!total || size === total)) return {size, attempts}
-        if (total && size > total) fs.rmSync(file, {force:true})
       } catch {
         // 断点续传仅在后续响应确认 Range 合法后才允许继续。
       } finally {

@@ -3,15 +3,14 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { WHALE_HOME, credentialsPath, configPath, DATA_PATHS } from '../../core/paths.mjs'
-import { guardedFetch as fetch, trafficGuard } from '../../bili/traffic.mjs'
-import { makeHeaders } from '../../bili/message-feed.mjs'
+import { WHALE_HOME, configPath, DATA_PATHS } from '../../core/paths.mjs'
+import { trafficGuard } from '../../bili/traffic.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
 import { deliveryStatus } from '../../daemon/delivery-state.mjs'
 import { readSchedulerHealth } from '../../daemon/scheduler-health.mjs'
 import { ffmpegInfo } from '../../media/ffmpeg.mjs'
-import { apiState } from '../../bili/api.mjs'
+import { apiState, requestBili } from '../../bili/api.mjs'
 
-const cred = credentialsPath
 const asJson = process.argv.includes('--json')
 const items = []
 
@@ -20,13 +19,13 @@ let credOk = false, credNote = ''
 let loginPaused = false
 let probedHeaders
 try {
-  const c = JSON.parse(fs.readFileSync(cred, 'utf8'))
-  const miss = ['sessdata', 'bili_jct'].filter((k) => !c[k] || !String(c[k]).trim())
+  const c = loadCred()
+  const miss = ['sessdata', 'bili_jct'].filter((k) => !c[k])
   if (miss.length) { credNote = `缺字段：${miss.join(', ')}` }
   else {
-    probedHeaders = makeHeaders(c)
-    const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', { headers: probedHeaders })).json()
-    credOk = nav.code === 0 && !!nav.data?.isLogin
+    probedHeaders = biliHeaders(c)
+    const nav = await requestBili('nav', { headers: probedHeaders, noCache: true })
+    credOk = nav.ok && !!nav.data?.isLogin
     credNote = credOk
       ? `已登录：${nav.data.uname}（mid ${nav.data.mid}）`
       : `cookie 无效：code=${nav.code} ${nav.message ?? ''} —— 请在左侧栏【哔哩哔哩大鲸鱼】重新扫码登录`
@@ -166,8 +165,8 @@ try {
   // 在线检查期间可能换号，按当前凭据查人工暂停。
   let currentHeaders
   try {
-    const current = JSON.parse(fs.readFileSync(cred, 'utf8'))
-    if (current?.sessdata) currentHeaders = makeHeaders(current)
+    const current = loadCred()
+    if (current.sessdata) currentHeaders = biliHeaders(current)
   } catch {}
   const pause = guard.pauseStatus(currentHeaders)
   const paused = Boolean(pause.cooldown || pause.manual)
@@ -175,9 +174,10 @@ try {
   const state = guard.status()
   const pending = Object.values(state.operations ?? {}).filter(x => ['pending', 'unknown'].includes(x.status)).length
   const pendingDetail = pending ? `${pending} 条发送结果待核查。` : ''
+  const trigger = item => `【${item.label ?? item.endpoint ?? '未记录的操作'}】${item.summary}`
   const detail = [
-    pause.manual ? '当前会话已暂停，等待人工处理。' : '',
-    pause.cooldown ? `请求冷却至 ${new Date(pause.cooldown.until).toLocaleString('zh-CN')}（本地时间）。${pause.cooldown.reason ?? ''}` : '',
+    pause.manual ? `${trigger(pause.manual)}，当前会话已暂停，等待人工处理。` : '',
+    pause.cooldown ? `${trigger(pause.cooldown)}，冷却至 ${new Date(pause.cooldown.until).toLocaleString('zh-CN')}（本地时间）。${pause.cooldown.reason ?? ''}` : '',
     pendingDetail,
   ].filter(Boolean).join(' ')
   items.push({

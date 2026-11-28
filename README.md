@@ -106,7 +106,7 @@
 
 ## 开发者说明
 
-仅在修改 `web/` 前端源码时需要安装开发依赖并重新构建单文件界面；普通用户使用插件**不需要**执行任何 `npm` 命令。完整的目录结构与分层依赖规范见 [docs/architecture.md](docs/architecture.md)。
+仅在修改 `web/` 前端源码时需要安装开发依赖并重新构建单文件界面。普通用户使用插件**不需要**执行任何 `npm` 命令。见[目录架构](docs/architecture.md)及[B 站接口规范](docs/bilibili-api.md)。
 
 ```powershell
 npm ci                   # 从锁文件安装开发依赖

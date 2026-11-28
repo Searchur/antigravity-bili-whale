@@ -4,14 +4,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { bundledStickerRoot, userStickerRoot, dataPath, shotsPath, workDirPath } from '../../core/paths.mjs'
+import { bundledStickerRoot, userStickerRoot, shotsPath, workDirPath } from '../../core/paths.mjs'
 import { verifyCommentVisibility } from '../../social/comment-visibility.mjs'
 import { lifeConfig } from '../../config/life.mjs'
 import { threadKey, lifeStore } from '../../life/runtime.mjs'
 import { guardSend } from '../../social/send-guard.mjs'
 import { checkCommentTarget } from '../../social/comment-target.mjs'
-import { exactJson } from '../../core/json-exact.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
+import { requestBili } from '../../bili/api.mjs'
+import { biliEndpoint } from '../../bili/endpoints.mjs'
 import { uploadPic, replyPictures } from '../../bili/upload-pic.mjs'
 import { gate, lockQuotaForSend, flushQuotaReceipts } from '../../social/quota-gate.mjs'
 import { config } from '../../config/index.mjs'
@@ -20,7 +20,7 @@ import { enforceOutboundSafety } from '../../social/content-safety.mjs'
 import { isFollowerOfWhale } from '../../bili/relation.mjs'
 import { checkFanQuota, lockFanReplyQuota, recordFanReply } from '../../social/fan-quota.mjs'
 import { requireWritePreview } from '../../social/write-preview.mjs'
-import { loadCred, missingForWrite } from '../../bili/cookie.mjs'
+import { biliHeaders, loadCred, missingForWrite } from '../../bili/cookie.mjs'
 import { fanCommentQuota } from '../../social/mention-summary.mjs'
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
@@ -61,9 +61,11 @@ function formatShareText(text, ownerName) {
 
 async function parentAuthor(aid, rootRpid, parentRpid, replyType) {
   for (let pn = 1; pn <= 4; pn += 1) {
-    const j = await exactJson(await fetch(`https://api.bilibili.com/x/v2/reply/reply?type=${replyType}&oid=${aid}&root=${rootRpid}&pn=${pn}&ps=20`, {
-      headers: { 'user-agent': 'Mozilla/5.0', referer: 'https://www.bilibili.com/' },
-    }))
+    const j = await requestBili('commentThread', {
+      query: { type: replyType, oid: aid, root: rootRpid, pn, ps: 20 },
+      headers: biliHeaders(null, { userAgent: 'Mozilla/5.0' }),
+    })
+    if (!j.ok) return null
     const list = j.data?.replies ?? []
     const hit = list.find((r) => String(r.rpid) === String(parentRpid))
     if (hit) return { mid: String(hit.mid ?? hit.member?.mid ?? ''), name: hit.member?.uname ?? '' }
@@ -169,9 +171,9 @@ try {
   process.exit(3)
 }
 
-const cookieHeader = `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 const referer = refererArg !== '' ? refererArg : `https://www.bilibili.com/video/${bvid}/`
+const headers = biliHeaders(cred)
+const pageHeaders = { ...headers, referer }
 
 // ── 身份核验与粉丝每日限额硬闸门 ──
 let replyTargetAuthor = null
@@ -186,7 +188,7 @@ if (parent && root) {
       console.error('✗ 无法确认被回复者 UID，按安全规则不回复陌生人。')
       process.exit(4)
     }
-    const isFan = await isFollowerOfWhale(replyTargetAuthor.mid, { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader })
+    const isFan = await isFollowerOfWhale(replyTargetAuthor.mid, headers)
     if (!isFan) {
       console.error(`✗ 对方（UID ${replyTargetAuthor.mid}）未关注大鲸鱼，仅回复主人或已关注粉丝的评论。`)
       process.exit(4)
@@ -220,32 +222,9 @@ if (safetyCheck.blocked) {
   process.exit(4)
 }
 
-const MIXIN_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
-const keyOf = (u) => u.slice(u.lastIndexOf('/') + 1, u.lastIndexOf('.'))
-async function wbiSign(params) {
-  const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
-    headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader },
-  })).json()
-  const img = nav?.data?.wbi_img?.img_url
-  const sub = nav?.data?.wbi_img?.sub_url
-  if (!img || !sub) return null
-  const raw = keyOf(img) + keyOf(sub)
-  const mixin = MIXIN_TAB.map((i) => raw[i]).join('').slice(0, 32)
-  const wts = Math.round(Date.now() / 1000)
-  const clean = (v) => String(v).replace(/[!'()*]/g, '')
-  const query = Object.keys({ ...params, wts })
-    .sort()
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(clean(k === 'wts' ? wts : params[k]))}`)
-    .join('&')
-  const w_rid = crypto.createHash('md5').update(query + mixin).digest('hex')
-  return { w_rid, wts, mixin }
-}
-
-const nav = await (await fetch('https://api.bilibili.com/x/web-interface/nav', {
-  headers: { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader },
-})).json()
+const nav = await requestBili('nav', { headers, noCache: true })
 console.log('=== 登录态校验（只读） ===')
-if (nav.code !== 0) {
+if (!nav.ok || !nav.data?.mid || nav.data.isLogin === false) {
   console.log(`  nav code=${nav.code} message=${nav.message}`)
   console.log('  → 登录态无效或已过期，请在控制台【大鲸鱼与主人】重新扫码登录')
   process.exit(4)
@@ -254,26 +233,28 @@ console.log(`  账号: ${nav.data.uname}   (UID ${nav.data.mid})`)
 console.log(`  手机绑定: ${nav.data.mobile_verified ? '是' : '否'}   硬币 ${nav.data.money}`)
 
 if (type === '11' || type === '17') {
-  try { await checkCommentTarget(type, oid, { 'user-agent': UA, referer, cookie: cookieHeader }) }
+  try { await checkCommentTarget(type, oid, pageHeaders) }
   catch (e) { console.error(e.message); process.exit(6) }
 }
 
 const params = { type, oid: String(oid), message, plat: '1', csrf: String(cred.bili_jct) }
 if (root) params.root = String(root)
 if (parent) params.parent = String(parent)
-const signed0 = await wbiSign(params)
-let body = new URLSearchParams(params).toString()
-let url = signed0
-  ? `https://api.bilibili.com/x/v2/reply/add?w_rid=${signed0.w_rid}&wts=${signed0.wts}`
-  : 'https://api.bilibili.com/x/v2/reply/add'
+const keys = nav.data?.wbi_img ?? null
+const endpoint = biliEndpoint('addComment')
+const signature = keys?.img_url && keys?.sub_url ? '?w_rid=***&wts=...' : ''
+const redactPreview = value => [cred.sessdata, cred.bili_jct, cred.buvid3].filter(Boolean)
+  .reduce((text, secret) => text.replaceAll(secret, '***'), String(value))
+const previewBody = new URLSearchParams(Object.entries({ ...params, csrf: '***csrf***' })
+  .map(([key, value]) => [key, redactPreview(value)]))
 
 console.log('\n=== 将要发出的请求 ===')
-console.log(`  POST  ${url}`)
+console.log(`  ${endpoint.method}  ${endpoint.origin}${endpoint.path}${signature}`)
 console.log('  content-type: application/x-www-form-urlencoded')
-console.log('  headers: UA(Chrome 131) + referer=' + referer)
+console.log('  headers: UA(Chrome 131) + referer=' + redactPreview(referer))
 console.log('  cookie : SESSDATA=***; bili_jct=***; buvid3=***   (已脱敏)')
-console.log('  body   : ' + body.replace(encodeURIComponent(String(cred.bili_jct)), '***csrf***'))
-console.log(`  正文长度 ${msgCharLen} 字符（B 站单条上限 1000 字符）；oid=${oid}`)
+console.log('  body   : ' + previewBody.toString())
+console.log(`  正文长度 ${msgCharLen} 字符（B 站单条上限 1000 字符）；oid=${redactPreview(oid)}`)
 
 const quotaOptions = { type: 'comment', target: bvid ? `BV:${bvid}` : `oid:${oid}`, share: SHARE, auto: AUTO }
 if (!gate(quotaOptions)) {
@@ -319,36 +300,29 @@ try {
     const picData = await uploadPic(
       PIC,
       cred.bili_jct,
-      { 'user-agent': UA, referer: 'https://www.bilibili.com/', cookie: cookieHeader },
+      headers,
       { expectedHash: crypto.createHash('sha256').update(attachment).digest('hex') },
     )
     console.log(`\n[图] 已上传：${picData.image_url}（${picData.image_width}x${picData.image_height}）`)
     params.pictures = replyPictures(picData)
-    const signed2 = await wbiSign(params)
-    body = new URLSearchParams(params).toString()
-    url = signed2
-      ? `https://api.bilibili.com/x/v2/reply/add?w_rid=${signed2.w_rid}&wts=${signed2.wts}`
-      : 'https://api.bilibili.com/x/v2/reply/add'
   }
 
   console.log('\n[go] 发送中…')
-  const res = await fetch(url, {
+  const out = await requestBili('addComment', {
+    keys,
     waitWriteMs: PIC ? 180000 : 0,
     dispatch: invoke => lifeGuard.store.dispatch(lifeGuard.token, invoke),
-    method: 'POST',
     headers: {
-      'user-agent': UA,
-      referer,
+      ...pageHeaders,
       origin: 'https://www.bilibili.com',
       'content-type': 'application/x-www-form-urlencoded',
-      cookie: cookieHeader,
     },
-    body,
+    body: new URLSearchParams(params).toString(),
   })
-  const out = await exactJson(res).catch(() => ({ message: '评论响应不是有效 JSON，请回读核查，不要直接重发' }))
-  console.log(`  HTTP ${res.status}`)
-  console.log(`  code=${out.code} message=${out.message ?? ''}`)
-  if (out.code === 0) {
+  console.log(`  HTTP ${out.status}`)
+  const resultMessage = out.payload ? out.message ?? '' : '评论响应不是有效 JSON，请回读核查，不要直接重发'
+  console.log(`  code=${out.code ?? undefined} message=${resultMessage}`)
+  if (out.ok) {
     const rpid = out.data?.rpid_str ?? out.data?.rpid
     if (!rpid) throw Error('API 返回成功但缺少评论 ID；保留未确认发送，先回读核查')
     await lifeGuard.store.settle(lifeGuard.token, { status: 'sent', receipt: String(rpid) })
@@ -357,7 +331,8 @@ try {
     await flushQuotaReceipts(lifeGuard.store)
     sentRpid = String(rpid)
   } else {
-    if (Number.isFinite(out.code)) await lifeGuard.store.settle(lifeGuard.token, { status: 'rejected' })
+    if (out.rejected) await lifeGuard.store.settle(lifeGuard.token, { status: 'rejected' })
+    else console.log('  发送结果未确认，请先回读核查')
     const hints = {
       '-101': '账号未登录：登录态失效，请重新扫码登录',
       '-102': '账号被封停',
@@ -394,7 +369,7 @@ if (sentRpid) {
     root: root || '',
     rpid: sentRpid,
     referer,
-    headers: { 'user-agent': UA, referer, cookie: cookieHeader },
+    headers: pageHeaders,
     seconds: lifeConfig(config().life).commentVerifySeconds,
   })
   console.log('[回读] ' + visibility.message)

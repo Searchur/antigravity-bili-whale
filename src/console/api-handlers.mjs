@@ -39,6 +39,8 @@ import { atomicWriteJson } from '../core/atomic-json.mjs'
 import { windowIssues, normalizeTimeText } from '../config/night-plan.mjs'
 import { lifeStore } from '../life/runtime.mjs'
 import { diagnose } from '../core/diagnostics.mjs'
+import { requestBili } from '../bili/api.mjs'
+import { biliHeaders, loadCred } from '../bili/cookie.mjs'
 import { RISK_DEFAULTS } from '../bili/traffic.mjs'
 import { ffmpegInfo } from '../media/ffmpeg.mjs'
 import { readFanQuotaSummary } from '../social/fan-quota.mjs'
@@ -46,7 +48,7 @@ import { readRecentSafetyBlocks } from '../social/content-safety.mjs'
 import { clearRelationCache } from '../bili/relation.mjs'
 import { buildActivityCalendar } from './activity-stats.mjs'
 import { createCredentialStore } from '../bili/credential-store.mjs'
-import { QrAuth, verifyAccount } from '../bili/auth.mjs'
+import { QrAuth, revokeRemoteSession, verifyAccount } from '../bili/auth.mjs'
 import { deliveryStatus } from '../daemon/delivery-state.mjs'
 import { readSchedulerHealth } from '../daemon/scheduler-health.mjs'
 import { resolveNodeRuntime, nodeEnv } from '../core/node-runtime.mjs'
@@ -112,7 +114,7 @@ export function createApiHandlers({
   ipcClient = callSidecarIpc,
   rpc = createAntigravityRpc(),
   verify = verifyAccount,
-  qrFetch = globalThis.fetch,
+  qrFetch,
   updateFetch = globalThis.fetch,
   updateExtractZip,
   openPathImpl = defaultOpenInExplorer,
@@ -206,7 +208,10 @@ export function createApiHandlers({
     }
   }
 
-  const credentialStore = createCredentialStore({ file: credFile, verify })
+  const credentialStore = createCredentialStore({
+    file: credFile,
+    verify: qrFetch ? (input, options) => verify(input, { ...options, fetch: qrFetch }) : verify,
+  })
 
   const saveLogin = async (credentials, options) => {
     const account = await credentialStore.save(credentials, options)
@@ -229,28 +234,6 @@ export function createApiHandlers({
     return qrAuth.start()
   }
 
-  async function revokeRemoteSession(credentials) {
-    const cookieHeader = `SESSDATA=${credentials.sessdata}; bili_jct=${credentials.bili_jct}${credentials.buvid3 ? `; buvid3=${credentials.buvid3}` : ''}`
-    const headers = { 'user-agent': 'Mozilla/5.0', referer: 'https://www.bilibili.com/', cookie: cookieHeader }
-    const body = new URLSearchParams({ biliCSRF: String(credentials.bili_jct), gourl: 'https://www.bilibili.com/' })
-    let exitAccepted = false
-    try {
-      const res = await qrFetch('https://passport.bilibili.com/login/exit/v2', {
-        method: 'POST', redirect: 'manual', headers, body, signal: AbortSignal.timeout(8_000),
-      })
-      exitAccepted = [301, 302].includes(res.status) || (res.ok && (await res.json())?.code === 0)
-    } catch {}
-    try {
-      const res = await qrFetch('https://api.bilibili.com/x/web-interface/nav', {
-        redirect: 'error', headers, signal: AbortSignal.timeout(8_000),
-      })
-      const result = res.ok ? await res.json() : null
-      if (result?.code === -101 || (result?.code === 0 && result.data?.isLogin === false)) return 'verified_revoked'
-      if (result?.code === 0 && result.data?.isLogin === true) return 'still_active'
-    } catch {}
-    return exitAccepted ? 'exit_accepted' : 'local_only'
-  }
-
   async function closeLoginSession() {
     qrAuth.cancel()
     let credentials
@@ -266,7 +249,7 @@ export function createApiHandlers({
       writeConfig({ ...current, self: { mid: '', name: '' } })
     } catch (error) { diagnose('logout-config-clear', error) }
     const reload = ipcClient('/invalidate', { method: 'POST', body: { resetPlan: false } }).catch(() => {})
-    if (credentials?.sessdata && credentials?.bili_jct) remoteStatus = await revokeRemoteSession(credentials)
+    if (credentials?.sessdata && credentials?.bili_jct) remoteStatus = await revokeRemoteSession(credentials, { fetch: qrFetch })
     else if (credentials) remoteStatus = 'local_only'
     await reload
 
@@ -410,30 +393,18 @@ export function createApiHandlers({
     if (!/^[1-9]\d{0,19}$/.test(mid)) {
       throw Error('主人 UID 格式不正确，请填写纯数字 B 站 UID（如 12345678）。')
     }
-    let cookie = ''
-    try {
-      const c = JSON.parse(fs.readFileSync(credFile, 'utf8'))
-      if (c?.sessdata) {
-        cookie = `SESSDATA=${c.sessdata}${c.bili_jct ? `; bili_jct=${c.bili_jct}` : ''}${c.buvid3 ? `; buvid3=${c.buvid3}` : ''}`
-      }
-    } catch {}
-    const headers = {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      referer: 'https://www.bilibili.com/',
-      ...(cookie ? { cookie } : {}),
-    }
-    const res = await qrFetch(`https://api.bilibili.com/x/web-interface/card?mid=${encodeURIComponent(mid)}`, {
-      headers,
+    let credentials
+    try { credentials = loadCred(credFile) } catch { /* 主人资料也可匿名查询。 */ }
+    const result = await requestBili('ownerCard', {
+      query: { mid }, headers: biliHeaders(credentials), transport: qrFetch,
+      directory: whaleHome === WHALE_HOME ? undefined : whaleHome,
       signal: AbortSignal.timeout(12_000),
     })
-    if (!res.ok) throw Error(`请求 B 站接口失败（HTTP ${res.status}），请稍后重试。`)
-    const json = await res.json()
-    if (json?.code !== 0 || !json?.data?.card?.name) {
-      const msg = json?.message || '未找到该 UID 对应的 B 站账号'
-      throw Error(`核验失败：${msg}（code=${json?.code ?? 'unknown'}）。`)
-    }
-    const actualName = String(json.data.card.name).trim()
-    const sign = String(json.data.card.sign ?? '').trim().slice(0, 80)
+    if (!result.ok) throw Error(result.message || '请求 B 站接口失败，请稍后重试。')
+    const card = result.data?.card
+    if (!card?.name) throw Error('核验失败：未找到该 UID 对应的 B 站账号。')
+    const actualName = String(card.name).trim()
+    const sign = String(card.sign ?? '').trim().slice(0, 80)
     if (!expectedName) {
       return {
         ok: true,

@@ -414,8 +414,8 @@ test('planIntervalFrames strictly increases, relation cache isolates accounts, p
     }
     return new Response(JSON.stringify({ code: 0, data: { relation: { attribute: 0 }, be_relation: { attribute: 0 } } }))
   }
-  assert.equal(await isFollowerOfWhale('888', { cookie: 'SESSDATA=acctA' }, { fetchImpl: fetchByCookie }), true)
-  assert.equal(await isFollowerOfWhale('888', { cookie: 'SESSDATA=acctB' }, { fetchImpl: fetchByCookie }), false)
+  assert.equal(await isFollowerOfWhale('888', { cookie: 'SESSDATA=acctA' }, { fetchImpl: fetchByCookie, directory: dir }), true)
+  assert.equal(await isFollowerOfWhale('888', { cookie: 'SESSDATA=acctB' }, { fetchImpl: fetchByCookie, directory: dir }), false)
   clearRelationCache()
 
   // 3. UI 的 watch.auto 与 night.deepWatchMax 优先覆盖旧管线字段

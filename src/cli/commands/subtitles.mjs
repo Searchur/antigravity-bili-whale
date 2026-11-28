@@ -3,11 +3,12 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import crypto from 'node:crypto'
-import { credentialsPath, shotsPath } from '../../core/paths.mjs'
+import { shotsPath } from '../../core/paths.mjs'
+import { parseJsonExact } from '../../core/json-exact.mjs'
 import { selectSubtitlePages, pickSubtitle } from '../../media/subtitle-pages.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { apiGet } from '../../bili/api.mjs'
+import { biliJson } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
+import { fetchBiliMedia } from '../../bili/media.mjs'
 import { config } from '../../config/index.mjs'
 import { resolveWatchProfile, checkWatchDuration } from '../../media/watch-options.mjs'
 
@@ -45,26 +46,11 @@ const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math
   }))
 }
 
-const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const cookie = `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3}`
-const H = { 'user-agent': UA, referer: `https://www.bilibili.com/video/${bvid}/`, cookie }
-const jget = u => apiGet(u, H)
+const referer = `https://www.bilibili.com/video/${bvid}/`
+const headers = biliHeaders(loadCred(), { referer })
+const mediaHeaders = biliHeaders(undefined, { referer })
 
-const MIXIN_TAB = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,9,42,19,29,28,14,39,12,38,41,13,37,48,7,16,24,55,40,61,26,17,0,1,60,51,30,4,22,25,54,21,56,59,6,63,57,62,11,36,20,34,44,52]
-const keyOf = (u) => u.slice(u.lastIndexOf('/') + 1, u.lastIndexOf('.'))
-const nav = await jget('https://api.bilibili.com/x/web-interface/nav')
-const raw = keyOf(nav.data?.wbi_img?.img_url ?? '') + keyOf(nav.data?.wbi_img?.sub_url ?? '')
-const mixin = MIXIN_TAB.map((i) => raw[i]).join('').slice(0, 32)
-const clean = (v) => String(v).replace(/[!'()*]/g, '')
-function wbi(params) {
-  const wts = Math.round(Date.now() / 1000)
-  const q = Object.keys({ ...params, wts }).sort()
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(clean(k === 'wts' ? wts : params[k]))}`).join('&')
-  return `${q}&w_rid=${crypto.createHash('md5').update(q + mixin).digest('hex')}`
-}
-
-const view = await jget(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`)
+const view = await biliJson('view', { headers, query: { bvid } })
 if (view.code !== 0) { console.error(`view 失败 code=${view.code} ${view.message}`); process.exit(3) }
 const { aid, title, duration } = view.data
 const watchResolved = resolveWatchProfile(config(), opt.profile ?? 'auto')
@@ -89,14 +75,16 @@ fs.mkdirSync(outDir, { recursive: true })
 for (const page of pages) {
   const cid = page.cid
   if (view.data.pages?.length > 1) console.log(`\n分 P ${page.page}: ${page.part ?? ''}（本次采样 ${pages.length}/${view.data.pages.length} 集）`)
-  const p1 = await jget(`https://api.bilibili.com/x/player/wbi/v2?${wbi({ bvid, cid })}`)
+  const p1 = await biliJson('subtitleTracks', { headers, query: { bvid, cid } })
   let subs = p1?.data?.subtitle?.subtitles ?? []
   let src = 'x/player/wbi/v2'
   const aiStatus = p1?.data?.subtitle?.ai_status
 
   if (!subs.length && page.page === 1) {
-    const ext = encodeURIComponent(JSON.stringify({ video_type: 1 }))
-    const p2 = await jget(`https://api.bilibili.com/x/v2/subtitle/web/view?oid=${aid}&pid=${aid}&context_ext=${ext}&type=1&cur_production_type=0&preferred_language=ai-zh&playlist_switch=0`)
+    const p2 = await biliJson('subtitleFallback', { headers, query: {
+      oid: aid, pid: aid, context_ext: JSON.stringify({ video_type: 1 }), type: 1,
+      cur_production_type: 0, preferred_language: 'ai-zh', playlist_switch: 0,
+    } })
     const s2 = p2?.data?.subtitle?.subtitles ?? []
     if (s2.length) { subs = s2; src = 'x/v2/subtitle/web/view' }
     else console.log(`两个端点都没字幕：wbi/v2 code=${p1?.code} ai_status=${aiStatus ?? '-'}；web/view code=${p2?.code}`)
@@ -107,12 +95,11 @@ for (const page of pages) {
   if (!pick) { console.log('\n没有可用字幕轨道——建议结合 debrief / watch-video 抽帧查看画面字幕'); continue }
   console.log(`选定: ${pick.lan} (${pick.lan_doc ?? ''})`)
 
-  const url = String(pick.subtitle_url).startsWith('http') ? pick.subtitle_url : 'https:' + pick.subtitle_url
-  const r = await fetch(url, { headers: { 'user-agent': UA, referer: `https://www.bilibili.com/video/${bvid}/` } })
+  const r = await fetchBiliMedia(pick.subtitle_url, { kind: 'subtitle', headers: mediaHeaders })
   if (!r.ok) { console.error(`下载字幕失败 HTTP ${r.status}——auth_key 分钟级过期，重跑一次即可`); process.exit(4) }
   const rawText = await r.text()
   let body = []
-  try { body = JSON.parse(rawText).body ?? [] } catch { console.error('字幕不是 JSON: ' + rawText.slice(0, 120)); process.exit(5) }
+  try { body = parseJsonExact(rawText).body ?? [] } catch { console.error('字幕不是有效的 JSON。'); process.exit(5) }
   if (!body.length) { console.error('字幕 JSON 里 body 是空的'); process.exit(5) }
   console.log(`字幕行数: ${body.length}   覆盖 ${fmt(body[0].from)} → ${fmt(body.at(-1).to ?? body.at(-1).from)}`)
 

@@ -4,11 +4,15 @@
 import { diagnose } from '../core/diagnostics.mjs'
 import { localDay } from '../core/local-date.mjs'
 import { atomicWriteJson } from '../core/atomic-json.mjs'
+import { exactJson } from '../core/json-exact.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import { WHALE_HOME, configPath, dataPathsFor } from '../core/paths.mjs'
+import { biliCode, isExplicitRejection, isJsonContentType, isRateLimit, requiresManual } from './response.mjs'
+import { biliOperationLabel } from './endpoints.mjs'
+import { redactBiliMessage } from './cookie.mjs'
 
 export const RISK_DEFAULTS = { minGapMs: 1500, readHourly: 600, readDaily: 3000, writeHourly: 12, writeDaily: 30, writeGapSec: 120, dmGapSec: 60 }
 const digest = value => crypto.createHash('sha256').update(value).digest('hex')
@@ -30,10 +34,26 @@ export function riskSettings() {
 const isBili = u => u.hostname === 'bilibili.com' || u.hostname.endsWith('.bilibili.com')
 export class TrafficError extends Error { constructor(message) { super(message); this.name = 'TrafficError'; this.code = 'BILI_TRAFFIC_PAUSED' } }
 
+function describePause(item, kind = 'cooldown') {
+  if (!item) return null
+  let endpoint = item.endpoint
+  if (typeof endpoint !== 'string') endpoint = null
+  else if (/^https?:/i.test(endpoint)) {
+    try { endpoint = new URL(endpoint).pathname } catch { endpoint = null }
+  } else endpoint = endpoint.split(/[?#]/, 1)[0]
+  const label = biliOperationLabel(item.operation, item.method, endpoint)
+  const summary = kind === 'manual'
+    ? item.code === 12051 ? '触发重复评论限制' : '触发登录或安全验证限制'
+    : '触发请求限流'
+  return { ...item, endpoint, ...(label ? { label } : {}),
+    summary,
+    ...(item.reason ? { reason: redactBiliMessage(item.reason) } : {}) }
+}
+
 // 每个本地插件数据目录共用一份状态与进程锁，由 CLI 子进程与
 // 后台守护共享；锁仅覆盖预留与更新，绝不覆盖网络 I/O。
 export function createTrafficGuard({ directory, transport = (...a) => globalThis.fetch(...a), settings = riskSettings, now = Date.now, sleep = delay } = {}) {
-  const { traffic: stateFile, legacyApiBan } = dataPathsFor(directory)
+  const { traffic: stateFile, apiBan, legacyApiBan } = dataPathsFor(directory)
   const lockFile = stateFile + '.lock'
   function read() {
     try { const s = JSON.parse(fs.readFileSync(stateFile, 'utf8')); if (!s || typeof s !== 'object'||Array.isArray(s)||['until','nextAt','lastDispatch'].some(k=>s[k]!==undefined&&!Number.isFinite(s[k]))) throw Error('invalid state'); return s }
@@ -68,39 +88,41 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
       try { fs.unlinkSync(lockFile) } catch (e) { if (e?.code !== 'ENOENT') diagnose('traffic-lock-cleanup', e) }
     }
   }
-  function activeCooldown(s) {
-    let legacy = {}
+  function readLegacyCooldown(file) {
     try {
-      legacy = JSON.parse(fs.readFileSync(legacyApiBan, 'utf8'))
+      const legacy = JSON.parse(fs.readFileSync(file, 'utf8'))
       if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy) || !Number.isFinite(Number(legacy.until ?? 0))) throw Error('invalid ban')
+      return { until: Number(legacy.until ?? 0), endpoint: legacy.endpoint ?? null, reason: legacy.why ?? null }
     } catch (e) {
       if (e.code !== 'ENOENT') {
         diagnose('traffic-ban-read', e)
         throw new TrafficError('历史风控状态无法读取，已停止网络请求')
       }
+      return null
     }
-    const time = now()
-    const until = s.until ?? 0
-    const legacyUntil = Number(legacy.until ?? 0)
-    if (legacyUntil > Math.max(time, until)) {
-      return { until: legacyUntil, endpoint: legacy.endpoint ?? null, reason: legacy.why ?? null }
-    }
-    if (until <= time) return null
-    return {
+  }
+  function activeCooldown(s) {
+    const current = {
       ...s.riskRequest,
-      until,
+      until: s.until ?? 0,
       endpoint: s.riskRequest?.endpoint ?? s.riskEndpoint ?? null,
       reason: s.reason ?? null,
     }
+    const candidates = [current, readLegacyCooldown(apiBan), readLegacyCooldown(legacyApiBan)]
+    return describePause(candidates.reduce((latest, item) =>
+      item && item.until > (latest?.until ?? now()) ? item : latest, null))
   }
   function blocked(s, account) {
-    const manual = s.manual?.[account]
+    const manual = describePause(s.manual?.[account], 'manual')
     if (manual) {
-      const message = manual.code === 12051 ? '重复评论触发限制，需要人工核查' : '账号需要人工处理登录或验证码'
-      throw new TrafficError(`${message}；处理后运行 traffic resume --go`)
+      const operation = manual.label ?? manual.endpoint ?? '未记录的操作'
+      throw Object.assign(new TrafficError(`【${operation}】${manual.summary}，需要人工处理。处理后运行 traffic resume --go`), { pause: { manual, cooldown: null } })
     }
     const cooldown = activeCooldown(s)
-    if (cooldown) throw new TrafficError(`请求已暂停，${new Date(cooldown.until).toISOString()} 后再试（${cooldown.reason ?? '平台限制'}）`)
+    if (cooldown) {
+      const operation = cooldown.label ?? cooldown.endpoint ?? '未记录的操作'
+      throw Object.assign(new TrafficError(`【${operation}】${cooldown.summary}，${new Date(cooldown.until).toISOString()} 后再试（${cooldown.reason ?? '平台限制'}）`), { pause: { cooldown, manual: null } })
+    }
   }
   function identity(headers) {
     const cookie = new Headers(headers).get('cookie') ?? ''
@@ -188,24 +210,25 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
         options.signal?.throwIfAborted()
       }
       const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000)
-      const {dispatch:lifeDispatch,waitWriteMs,...transportOptions}=options
+      const {dispatch:lifeDispatch,waitWriteMs,operation,responseType,...transportOptions}=options
       phase='transport';timing.queuedMs=now()-startedAt
       const invoke=()=>{dispatched=true;return transport(input,{...transportOptions,signal})}
       const response = await (lifeDispatch?lifeDispatch(invoke):invoke())
       timing.transportMs=now()-startedAt-timing.queuedMs
       phase='response-body'
       let payload, bodyError
-      if ((response.headers?.get('content-type') ?? '').includes('json')) {
-        try { payload = await response.clone().json() } catch(e) { bodyError=String(e.code??e.name??'error').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,60);diagnose('traffic-response-json',e) }
+      if (responseType === 'json' || isJsonContentType(response.headers?.get('content-type'))) {
+        try { payload = await exactJson(response.clone()) } catch(e) { bodyError=String(e.code??e.name??'error').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,60);diagnose('traffic-response-json',e) }
       }
       timing.bodyMs=now()-startedAt-timing.queuedMs-timing.transportMs
       phase='state-commit'
-      const code = Number(payload?.code ?? NaN)
-      const request = { endpoint: url.pathname, method, http: response.status, code: Number.isFinite(code) ? code : null }
-      const risk = [412, 429].includes(response.status) || [-412, -352, -799, -509, -10403, 10031].includes(code)
+      const code = biliCode(payload)
+      const request = { endpoint: url.pathname, method, http: response.status, code,
+        ...(operation ? { operation } : {}) }
+      const risk = isRateLimit(response.status, code)
       const session = (new Headers(headers).get('cookie')?.match(/(?:^|;)\s*SESSDATA=([^;]+)/i) ?? [])[1]
       const authenticated = !!session && !['undefined','null'].includes(session)
-      const manual = [12015, -105, 12051].includes(code) || (authenticated && (code === -101 || response.status === 401))
+      const manual = requiresManual(response.status, code, authenticated)
       const retry = response.headers?.get('retry-after')
       const retryMs = retry ? (/^\d+(\.\d+)?$/.test(retry) ? Number(retry)*1000 : Math.max(0, Date.parse(retry)-now())) : 0
       await locked(s => {
@@ -213,7 +236,7 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
         if (risk) {
           s.streak = Math.min(8, Number(s.streak ?? 0)+1)
           s.until = Math.max(Number(s.until??0),now()+Math.max(Number.isFinite(retryMs)?retryMs:0,Math.min(1800000,300000*2**(s.streak-1))))
-          s.reason = `HTTP ${request.http} / code ${request.code ?? 'unknown'}`
+          s.reason = `HTTP ${request.http}，错误码 ${request.code ?? '未知'}`
           s.riskEndpoint = request.endpoint
           s.riskRequest = request
         } else if (code === 0 && s.riskEndpoint === url.pathname && now() >= Number(s.until??0)) s.streak = 0
@@ -223,7 +246,7 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
         }
         if (id && s.operations?.[id]) {
           if (response.ok && code === 0) s.operations[id].status = 'confirmed'
-          else if (payload && Number.isFinite(code) && code !== 0) delete s.operations[id]
+          else if (isExplicitRejection(response.status, code)) delete s.operations[id]
           else s.operations[id].status = 'unknown'
         }
         s.last = { at: now(), ...request, phase:bodyError?'response-body-error':'complete',...(bodyError?{errorCode:bodyError}:{}),elapsedMs:now()-startedAt,...timing }
@@ -238,6 +261,7 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
     }
   }
   const inflight = new Map()
+  const assertAvailable = headers => blocked(read(), identity(headers))
   return {
     fetch: (input, options={}) => {
       const url=new URL(typeof input==='string'||input instanceof URL ? input : input.url)
@@ -249,18 +273,25 @@ export function createTrafficGuard({ directory, transport = (...a) => globalThis
     status: () => read(),
     pauseStatus: headers => {
       const state = read()
-      return { cooldown: activeCooldown(state), manual: state.manual?.[identity(headers)] ?? null }
+      return { cooldown: activeCooldown(state), manual: describePause(state.manual?.[identity(headers)], 'manual') }
     },
-    pauseReason: headers => { try { blocked(read(),identity(headers));return null } catch(e) {return e.message} },
+    assertAvailable,
+    pauseReason: headers => { try { assertAvailable(headers); return null } catch (error) { return error.message } },
     resume: headers => locked(s => { if (s.manual) delete s.manual[identity(headers)] }),
     resolve: (id, outcome) => locked(s => { if (!s.operations?.[id]) throw new TrafficError('找不到操作 ID'); if (outcome === 'not-sent') delete s.operations[id]; else if (outcome === 'confirmed') s.operations[id].status='confirmed'; else throw new TrafficError('outcome 必须是 confirmed 或 not-sent') }),
   }
 }
 let singleton
 export function trafficGuard() { return singleton ??= createTrafficGuard({ directory: WHALE_HOME }) }
-export function guardedFetch(...args) {
+export function guardedFetch(input, options = {}) {
   // 测试夹具可显式替换 fetch 并退出保护；生产环境始终生效。
   // 设置 BILI_NO_CACHE 不会关闭全局流量与防风控保护。
-  if (process.env.BILI_TRAFFIC_TEST === '1' && process.env.NODE_TEST_CONTEXT) {const {dispatch,...options}=args[1]??{};const invoke=()=>globalThis.fetch(args[0],options);return dispatch?dispatch(invoke):invoke()}
-  return trafficGuard().fetch(...args)
+  const { transport, directory, ...request } = options
+  if (process.env.BILI_TRAFFIC_TEST === '1' && process.env.NODE_TEST_CONTEXT) {
+    const { dispatch, operation, responseType, waitWriteMs, ...transportOptions } = request
+    const invoke = () => (transport ?? globalThis.fetch)(input, transportOptions)
+    return dispatch ? dispatch(invoke) : invoke()
+  }
+  const guard = transport || directory ? createTrafficGuard({ directory: directory ?? WHALE_HOME, transport }) : trafficGuard()
+  return guard.fetch(input, request)
 }

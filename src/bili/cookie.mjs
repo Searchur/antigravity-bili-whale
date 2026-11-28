@@ -1,36 +1,24 @@
 /**
  * B 站登录凭据加载与错误码解释工具：读取凭据、检查写操作必需字段并格式化接口错误提示。
  */
-// 凭据的共用层（2026-10-21 加）
-//
-// 为什么要有它：写操作（私信 / 评论 / 收藏 / 弹幕）全都要 csrf = bili_jct，
-// 但只要 bili_jct 缺了、或和 SESSDATA 不是同一个账号的，B站就回一个裸的
-//   HTTP 200 code=-111 CSRF 校验失败
-// 用户看到这个只会懵 ✗（只读接口还能用，所以"体检全绿、能查到账号"反而更迷惑）
-//
-// 这一层做三件事：
-//   ① 读凭据时统一 trim（粘贴时常带空格/换行 ✗）
-//   ② 缺字段直接说缺哪个，而不是拿 undefined 去发请求
-//   ③ 把常见错误码翻译成人话（-101 / -111 / 12015 / 10031 / 12051 / -352）
 import fs from 'node:fs'
-import path from 'node:path'
 
 import { credentialsPath } from '../core/paths.mjs'
 export const CRED_PATH = credentialsPath
 
 /** 读凭据：统一 trim，容忍 BOM / 首尾空白。 */
-export function loadCred() {
+export function loadCred(file = CRED_PATH) {
   let raw
   try {
-    raw = fs.readFileSync(CRED_PATH, 'utf8')
+    raw = fs.readFileSync(file, 'utf8')
   } catch {
-    throw new Error(`没有凭据文件：${CRED_PATH}\n  请在 Antigravity 控制台【大鲸鱼与主人】使用 B 站扫码登录`)
+    throw new Error(`没有凭据文件：${file}\n  请在 Antigravity 控制台【大鲸鱼与主人】使用 B 站扫码登录`)
   }
   let j
   try {
     j = JSON.parse(raw.replace(/^\uFEFF/, ''))
-  } catch (e) {
-    throw new Error(`凭据文件不是合法 JSON：${CRED_PATH}\n  ${String(e.message).slice(0, 80)}`)
+  } catch {
+    throw new Error(`凭据文件不是合法 JSON：${file}\n  请重新扫码登录`)
   }
   const clean = (v) => String(v ?? '').replace(/^["'\s]+|["'\s]+$/g, '')
   return {
@@ -38,6 +26,31 @@ export function loadCred() {
     bili_jct: clean(j.bili_jct),
     buvid3: clean(j.buvid3),
   }
+}
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+const credentialKeys = [['SESSDATA', 'sessdata'], ['bili_jct', 'bili_jct'], ['buvid3', 'buvid3']]
+
+export function biliHeaders(cred = {}, { referer = 'https://www.bilibili.com/', origin, userAgent = UA } = {}) {
+  const cookie = credentialKeys.flatMap(([name, key]) => {
+    const value = String(cred?.[key] ?? '').trim()
+    return value && !/[;\r\n]/.test(value) && !['undefined', 'null'].includes(value) ? [name + '=' + value] : []
+  }).join('; ')
+  return { 'user-agent': userAgent, ...(referer ? { referer } : {}), ...(origin ? { origin } : {}), ...(cookie ? { cookie } : {}) }
+}
+
+export function redactBiliMessage(message, headers) {
+  const credentials = new Headers(headers)
+  const secrets = (credentials.get('cookie') ?? '').split(';').map(pair => pair.trim().replace(/^[^=]+=/, '')).filter(Boolean)
+  const authorization = credentials.get('authorization')
+  if (authorization) secrets.push(authorization)
+  let value = String(message ?? '')
+  for (const secret of secrets) {
+    for (const variant of new Set([secret, encodeURIComponent(secret)])) value = value.split(variant).join('【已隐藏】')
+  }
+  return value
+    .replace(/(\b(?:SESSDATA|bili_jct|buvid3|csrf(?:_token)?|biliCSRF|qrcode_key|w_rid)\b["']?\s*[=:]\s*["']?)[^\s&;,"']+/gi, '$1【已隐藏】')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 1000)
 }
 
 /**
@@ -62,15 +75,15 @@ export function looksLikeJct(v) {
 /** 常见返回码 → 人话 + 怎么办 */
 export const CODE_HINTS = {
   0: '成功',
-  '-101': '账号未登录 —— 登录态已失效，请在控制台【大鲸鱼与主人】重新扫码登录',
-  '-111': 'CSRF 校验失败 —— bili_jct 与当前 SESSDATA 不匹配或已过期，请在控制台【大鲸鱼与主人】重新扫码登录',
-  '-400': '请求参数错误（少见：通常是参数没传对）',
-  '-352': '风控拦截 —— 请求太快或太像机器人，等几分钟再来',
-  '-799': '请求过于频繁 —— 退避一会儿',
-  10031: '操作太快（频率限制）—— 退避，别连发',
-  12015: '需要验证码 —— 停下，人在浏览器里手动过一次',
-  12051: '疑似刷屏 —— 停下，别再发',
-  12002: '评论区已关闭 / 不能评论',
+  '-101': '账号未登录，请在控制台【大鲸鱼与主人】重新扫码登录',
+  '-111': 'CSRF 校验失败，请在控制台【大鲸鱼与主人】重新扫码登录',
+  '-400': '请求参数错误',
+  '-352': '触发平台限制，等待冷却结束',
+  '-799': '请求过于频繁，等待冷却结束',
+  10031: '操作过于频繁，等待冷却结束',
+  12015: '需要人工完成安全验证',
+  12051: '触发重复评论限制，需要人工核查',
+  12002: '评论区已关闭',
 }
 
 /** 把返回码变成一行可读的说明（含数字，方便搜）。 */
@@ -78,9 +91,4 @@ export function explainCode(code) {
   const k = String(code)
   const h = CODE_HINTS[k]
   return h ? `code=${k} ${h}` : `code=${k}（未知返回码）`
-}
-
-/** 组合：写操作失败的统一报错文本 */
-export function writeFailText(code, message) {
-  return `✗ 发送失败：HTTP 200 ${explainCode(code)}${message ? `（B站原文：${message}）` : ''}`
 }

@@ -42,6 +42,53 @@ test('D15 a freshly uploaded comment picture waits for the write gap and reaches
   assert.equal(calls().filter(p => p.endsWith('/reply/add')).length, 1, sent.stderr)
 })
 
+function commentFixture(t, status) {
+  const f = fixture(t)
+  const transport = `globalThis.fetch = async input => {
+    const { pathname } = new URL(input);
+    if (pathname.endsWith('/nav')) return Response.json({ code: 0, data: {
+      isLogin: true, mid: 101, uname: 'fixture', wbi_img: {
+        img_url: 'https://fixture.invalid/123456789abcdef0123456789abcdef0.png',
+        sub_url: 'https://fixture.invalid/0123456789abcdef0123456789abcdef.png',
+      },
+    } });
+    if (pathname.endsWith('/reply/add')) return new Response('{"code":0,"data":{"rpid":987654321098765432}}', {
+      status: ${status}, headers: { 'content-type': 'application/json' },
+    });
+    if (pathname.endsWith('/reply/reply')) return Response.json({
+      code: 0, data: { root: { rpid_str: '987654321098765432' } },
+    });
+    throw Error('Unexpected request ' + pathname);
+  };`
+  f.env.NODE_OPTIONS = '--import=data:text/javascript;base64,' + Buffer.from(transport).toString('base64')
+  return {
+    comment: (message, mode) => f.cli('comment', '--auto', '--oid', '100', '--bvid', 'BV0000000001', '--message', message, mode),
+    quotaStatus: () => f.cli('quota', 'status'),
+  }
+}
+
+test('a signed comment preview redacts the WBI signature', t => {
+  const { comment } = commentFixture(t, 200)
+  const result = comment('fixture signature 00000000000000000000000000000000', '--dry')
+  assert.equal(result.status, 0, result.stderr)
+  assert.doesNotMatch(result.stdout, /[?&]w_rid=[0-9a-f]{32}/)
+  assert.doesNotMatch(result.stdout, /0{32}/)
+})
+
+test('an HTTP error with a success code leaves the comment dispatch pending', t => {
+  const { comment, quotaStatus } = commentFixture(t, 503)
+  const preview = comment('fixture response', '--dry')
+  assert.equal(preview.status, 0, preview.stderr)
+  const dispatched = comment('fixture response', '--go')
+  assert.notEqual(dispatched.status, 0, dispatched.stdout)
+  assert.doesNotMatch(dispatched.stdout, /平台已接受/)
+  const quota = quotaStatus()
+  assert.equal(quota.status, 0, quota.stderr)
+  assert.match(quota.stdout, /待核查的发送有 1 条/)
+  const retry = comment('fixture revised response', '--dry')
+  assert.notEqual(retry.status, 0, retry.stdout)
+})
+
 test('D16 a rejected dynamic can use the same uploaded picture with revised text', t => {
   const { cli, pic, calls } = fixture(t)
   for (const text of ['fixture one', 'fixture two']) {

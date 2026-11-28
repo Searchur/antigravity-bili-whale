@@ -39,7 +39,7 @@
 │   └── workspace/                   # 隔离工作区（.prompts/、rounds/、profiles/）
 ├── cache/                           # [可安全清空缓存] 网络缓存与视频/封面/字幕抽帧缓存
 │   ├── api-cache.json               # B 站只读 API / WBI 密钥缓存
-│   ├── api-ban.json                 # B 站接口退避冷却记录
+│   ├── api-ban.json                 # 旧版冷却记录，兼容读取
 │   ├── feed-search.json             # 选题搜索候选缓存
 │   ├── picture-uploads.json         # 图床已上传图片映射缓存
 │   └── shots/                       # 视频封面（covers/）、字幕（subs/）、抽帧拼图（video/）
@@ -48,6 +48,8 @@
     ├── api-requests.log             # B 站 API 请求记录日志
     └── dm-listener-errors.log       # 私信监听异常日志
 ```
+
+请求保护使用 `state/traffic.json`。升级后会兼容读取 `cache/api-ban.json` 和更早的根目录 `api-ban.json`，仍有效的冷却取最晚截止时间。现有人工暂停、预算和待核查账本继续可读。见[B 站接口规范](bilibili-api.md)。
 
 ---
 

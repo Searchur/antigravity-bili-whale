@@ -16,7 +16,7 @@
 | `behavior/` | 运行态业务资产 | 各场景行为规范章节（`index.md` + 10 个小写 `kebab-case` 章节，控制台可直达） | 是 |
 | `stickers/` | 运行态业务资产 | 内置 42 张表情包纯静态资产（`index.json` + `small/`） | 是 |
 | `dist/` | 运行态构建产物 | 预打包单文件控制台前端产物（`dist/app.html`，零运行时依赖） | 是 |
-| `docs/` | 运行态文档 | 架构规范（`architecture.md`）、用户数据目录规范（`user-data.md`）、状态契约（`life-state-contract.md`）、流水线说明（`pipeline.md`）与配置样例 | 是 |
+| `docs/` | 运行态文档 | 架构、用户数据、状态契约、流水线说明、[B 站接口规范](bilibili-api.md)与配置样例 | 是 |
 | `src/` | 运行态核心源码 | 16 个单向无环领域子目录，全部统一 `.mjs`，零外部 npm 运行依赖 | 是 |
 | `web/` | 开发态前端源码 | 左侧栏全页控制台源码（入口 `main.mjs`/`bridge.mjs` + `views/` 视图模块，打包输出至 `dist/app.html`） | 否 |
 | `scripts/` | 开发态工具脚本 | 前端构建、结构与语法/Markdown 守卫、运行清单同步、本地部署与发布打包脚本 | 否 |
@@ -38,7 +38,7 @@
 | L2 | `src/config` | 纯配置默认值、归一化校验、作息计划推演、口味偏好匹配、会话边界指纹 | 执行网络请求或直接修改运行状态 | `core` |
 | L3 | `src/host` | Antigravity 宿主通信：`rpc.mjs`、`session.mjs`、`text-complete.mjs`、`model-quota-guard.mjs`、`sidecar-ipc.mjs` | B 站平台协议或业务调度 | `shared`, `core`, `config` |
 | L3 | `src/plugin` | 插件运行包校验、零依赖入口依赖图静态分析、原子安装/原地回滚切换、GitHub 检查与更新 | 控制台 UI 渲染或后台调度 | `core` |
-| L3 | `src/bili` | B 站平台协议：`api.mjs`、`cookie.mjs`、`credential-store.mjs`、`auth.mjs`、`qr.mjs`、`traffic.mjs`、`message-feed.mjs`、`relation.mjs`、`favorites.mjs`、`upload-pic.mjs` | 长期记忆存储或 AI 调度 | `vendor`, `core`, `config` |
+| L3 | `src/bili` | B 站操作登记、请求与结果、凭据与扫码、流量保护、媒体入口和领域协议。见 [B 站接口规范](bilibili-api.md) | 长期记忆存储或 AI 调度 | `vendor`, `core`, `config` |
 | L4 | `src/media` | 音视频与画面处理：ffmpeg 探测、视频下载、分段抽帧、封面保存、字幕筛选、观看时长/拼图策略 | 评论/私信发送或记忆存储 | `core`, `config`, `bili` |
 | L4 | `src/memory` | 记忆建模与检索：可见范围、倒排索引、相关性评分、记忆关联、生命周期、上下文编译、认知归纳规则、动态记忆与冷归档只读校验 | 检查点事务提交或网络请求 | `core`, `config` |
 | L4 | `src/affect` | 心情与主动表达状态机引擎、互动时机判断 | 模型推理与实际发消息 | `core`, `config` |

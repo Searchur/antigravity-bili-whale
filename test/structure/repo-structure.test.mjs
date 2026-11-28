@@ -110,6 +110,29 @@ test('dataPathsFor organizes user data cleanly into 6 canonical categories', () 
   assert.ok(dp.safetyLog.endsWith(path.join('logs', 'safety-blocked.jsonl')))
 })
 
+test('Bili business sources reject direct transport, ad hoc signatures and credential headers', t => {
+  const dir = makeFixtureRepo(t)
+  const cli = path.join(dir, 'src', 'cli')
+  fs.mkdirSync(cli)
+  fs.writeFileSync(path.join(cli, 'direct.mjs'), [
+    '/** 平台接口边界测试。 */',
+    'const url = "https://api.bilibili.com/x/web-interface/nav"',
+    'const cred = { sessdata: "fixture" }',
+    'const headers = { cookie: `SESSDATA=${cred.sessdata}` }',
+    'const w_rid = createHash("md5").update("fixture").digest("hex")',
+    'await globalThis.fetch(url, { headers })',
+  ].join('\n') + '\n')
+  fs.writeFileSync(path.join(dir, 'src', 'config', 'direct.mjs'), [
+    '/** 配置层不能绕过平台接口边界。 */',
+    'export const endpoint = "https://api.vc.bilibili.com/svr_sync/v1/svr_sync/fetch_session_msgs"',
+  ].join('\n') + '\n')
+  const res = checkStructure({ rootDir: dir, checkManifest: false, checkDocs: false, checkVersions: false, checkMarkdown: false })
+  assert.match(res.errors.join('\n'), /B 站接口必须通过.*src\/bili/)
+  assert.match(res.errors.join('\n'), /B 站接口必须通过.*src\/config\/direct\.mjs/)
+  assert.match(res.errors.join('\n'), /禁止自行生成 WBI/)
+  assert.match(res.errors.join('\n'), /禁止自行拼接 B 站登录凭据/)
+})
+
 test('structure guard rejects legacy punctuation in console source and static titles', t => {
   const dir = makeFixtureRepo(t)
   const examples = [

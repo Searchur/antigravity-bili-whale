@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isBuiltin } from 'node:module'
 import { validatePluginPayload } from '../src/plugin/install.mjs'
 import { syncManifest } from './sync-manifest.mjs'
+import { BILI_ENDPOINTS } from '../src/bili/endpoints.mjs'
 
 const REPO_ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 
@@ -80,6 +81,31 @@ const WEB_LEGACY_PUNCTUATION_RE = /[\u00b7\u300c\u300d]/u
 const WEB_LEGACY_JS_ESCAPE_RE = /\\(?:xb7|u(?:00b7|300[cd]|\{0*(?:b7|300[cd])\}))/i
 const WEB_LEGACY_HTML_ENTITY_RE = /&(?:(?:middot|centerdot)\b|#(?:0*(?:183|1230[01])(?!\d)|x0*(?:b7|300[cd])(?![\da-f])))/i
 const LEGACY_WEB_CODE_POINTS = new Set([0x00b7, 0x300c, 0x300d])
+const BILI_RUNTIME_SOURCE_RE = /^(?:src\/(?!(?:bili|vendor)\/)|sidecars\/|web\/)/
+const OTHER_TRANSPORT_SOURCE_RE = /^src\/(?:host|plugin)\//
+const BILI_RAW_HOST_RE = /https?:\/\/(?:api(?:\.vc|\.live)?|passport|comment|customerservice)\.bilibili\.com\b/i
+const BILI_WBI_CODE_RE = /\b(?:signWbi|wbiSign|MIXIN_TAB)\b/
+const BILI_COOKIE_BUILD_RE = /\b(?:SESSDATA|bili_jct|buvid3)\s*=\s*(?:\$\{|[\x22\x27\x60]\s*\+)/i
+
+function checkBiliBoundary(source, codeOnly, rel, errors) {
+  if (!BILI_RUNTIME_SOURCE_RE.test(rel)) return
+  const literals = stripComments(source)
+  // 更新源与 B 站接口无关，控制台只保留这一条升级传输注入。
+  const business = rel === 'src/console/api-handlers.mjs'
+    ? codeOnly.replace(/\bupdateFetch\s*=\s*globalThis\s*\.\s*fetch\b/, '')
+    : codeOnly
+  const genericTransport = /\b(?:globalThis\s*\.\s*fetch|XMLHttpRequest)\b|(?<![.\w$])fetch\s*\(/.test(business)
+  if (BILI_RAW_HOST_RE.test(literals) || /\b(?:guardedFetch|apiGet)\b/.test(codeOnly) ||
+    (genericTransport && !OTHER_TRANSPORT_SOURCE_RE.test(rel))) {
+    errors.push(`B 站接口必须通过 src/bili 的登记操作调用：${rel}`)
+  }
+  if (BILI_WBI_CODE_RE.test(codeOnly) || (/\bw_rid\b/.test(codeOnly) && /createHash\s*\(\s*[\x22\x27]md5[\x22\x27]/.test(literals))) {
+    errors.push(`业务层禁止自行生成 WBI 签名：${rel}`)
+  }
+  if (BILI_COOKIE_BUILD_RE.test(literals)) {
+    errors.push(`业务层禁止自行拼接 B 站登录凭据：${rel}`)
+  }
+}
 
 function checkWebPunctuation(source, rel, errors) {
   const legacyCss = rel.endsWith('.css') && [...source.matchAll(/\\([\da-f]{1,6})/gi)]
@@ -377,6 +403,7 @@ export function checkStructure({
     if (rel.startsWith('src/vendor/') || rel === 'scripts/check-structure.mjs') continue
     const source = fs.readFileSync(path.join(rootDir, rel), 'utf8')
     const codeOnly = stripCommentsAndStrings(source)
+    checkBiliBoundary(source, codeOnly, rel, errors)
 
     if (/\bvar\s+[a-zA-Z_$]/.test(codeOnly)) {
       errors.push(`违反 ES2026 规范，禁止使用 var 声明：${rel}`)
@@ -565,6 +592,18 @@ export function checkStructure({
 
   // 8. 架构文档防漂移校验
   if (checkDocs) {
+    const apiFile = path.join(rootDir, 'docs', 'bilibili-api.md')
+    if (!fs.existsSync(apiFile)) {
+      errors.push('缺少 B 站接口规范：docs/bilibili-api.md')
+    } else {
+      const catalog = fs.readFileSync(apiFile, 'utf8').split(/\r?\n/)
+      for (const [id, route] of Object.entries(BILI_ENDPOINTS)) {
+        const prefix = '| `' + id + '` | `' + route.method + '` | `' + route.origin + route.path + '` |'
+        if (catalog.filter(line => line.startsWith(prefix)).length !== 1) {
+          errors.push(`B 站接口清单与登记的操作不一致：${id}`)
+        }
+      }
+    }
     const archFile = path.join(rootDir, 'docs', 'architecture.md')
     if (!fs.existsSync(archFile)) {
       errors.push('缺少统一目录架构文档：docs/architecture.md')

@@ -1,20 +1,18 @@
 /**
  * CLI 命令 `dm-await`：监听主人与已关注粉丝的新私信，支持预览、确认回执与待核查标记。
  */
-import { credentialsPath } from '../../core/paths.mjs'
 // 退出码约定：0 = 命中消息/确认/基线初始化；1 + {hit:false} = 正常无新消息；2 = 参数无效；3 = 执行失败。
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from '../../config/index.mjs'
-import { readHistory } from '../../social/dm-history.mjs'
+import { advanceDmCursor, anchorDmCursor, hasDmCursor, readHistory } from '../../social/dm-history.mjs'
+import { pollFanSessions } from '../../social/dm-fan-scan.mjs'
 import { acquireProcessLock } from '../../core/process-lock.mjs'
-import { exactJson } from '../../core/json-exact.mjs'
-import { guardedFetch as fetch } from '../../bili/traffic.mjs'
-import { checkRelation } from '../../bili/relation.mjs'
-import { checkFanQuota } from '../../social/fan-quota.mjs'
+import { dmReadIssue } from '../../bili/private-messages.mjs'
 import { dmListenerScope } from '../../social/dm-listener-scope.mjs'
-import { apiGet } from '../../bili/api.mjs'
+import { requestBili } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
 import { atomicWriteJson } from '../../core/atomic-json.mjs'
 
 const argv = process.argv.slice(2)
@@ -52,123 +50,46 @@ function recordFanReceipt(receipt, mid) {
 }
 
 function acknowledge(state, message) {
+  const settled = { ...state, pending: undefined, queue: state.queue ?? [], at: new Date().toISOString() }
   if (message.isFan) {
-    const fanCursors = { ...(state.fanCursors ?? {}) }
-    const prev = fanCursors[message.mid] ?? {}
-    const same = Number(prev.lastSeen) === message.ts
-    fanCursors[message.mid] = {
-      lastSeen: message.ts,
-      lastKey: message.key,
-      lastKeys: [...new Set([...(same ? (prev.lastKeys ?? (prev.lastKey ? [prev.lastKey] : [])) : []), message.key])],
-    }
-    return { ...state, fanCursors, pending: undefined, queue: state.queue ?? [], at: new Date().toISOString() }
+    return { ...settled, fanCursors: {
+      ...state.fanCursors,
+      [message.mid]: advanceDmCursor(state.fanCursors?.[message.mid] ?? {}, message),
+    } }
   }
-  const same = Number(state.lastSeen) === message.ts
-  return {
-    ...state,
-    owner,
-    lastSeen: message.ts,
-    lastKey: message.key,
-    lastKeys: [...new Set([...(same ? (state.lastKeys ?? (state.lastKey ? [state.lastKey] : [])) : []), message.key])],
-    pending: undefined,
-    queue: state.queue ?? [],
-    at: new Date().toISOString(),
-  }
+  return { ...advanceDmCursor(settled, message), owner }
 }
 
 const UNCONFIRMED_MAX = 50
 function markUnconfirmed(state, p) {
-  const entry = { key: p.key, mid: p.mid, isFan: !!p.isFan, ts: p.ts, receipt: p.receipt, text: String(p.text ?? '').slice(0, 200), at: new Date().toISOString() }
-  const list = [...(state.unconfirmed ?? []).filter(x => x.key !== entry.key), entry].slice(-UNCONFIRMED_MAX)
+  const entry = { key: p.key, seq: p.seq, mid: p.mid, isFan: !!p.isFan, ts: p.ts, receipt: p.receipt, text: String(p.text ?? '').slice(0, 200), at: new Date().toISOString() }
+  const list = [...(state.unconfirmed ?? []).filter(x => x.receipt !== p.receipt), entry].slice(-UNCONFIRMED_MAX)
   const next = acknowledge({ ...state, unconfirmed: list }, p)
   return { ...next, unconfirmed: list }
 }
 
-function emit(message) {
-  if (!channelOn(message, checkScope())) return empty()
-  console.log(json ? JSON.stringify(message) : `DM_HIT mid=${message.mid} fan=${!!message.isFan} text=${message.text}`)
+function emit(message, readErrors = []) {
+  if (!channelOn(message, checkScope())) return empty(readErrors)
+  if (json) console.log(JSON.stringify(readErrors.length ? { ...message, readErrors } : message))
+  else {
+    console.log(`DM_HIT mid=${message.mid} fan=${!!message.isFan} text=${message.text}`)
+    reportReadErrors(readErrors)
+  }
   return 0
 }
 
-function empty() {
-  console.log(json ? JSON.stringify({ hit: false }) : '无新私信')
-  return 1
+function reportReadErrors(readErrors) {
+  for (const { stage, code } of readErrors) console.error(`私信读取失败（阶段 ${stage}，错误码 ${code}）`)
 }
 
-async function pollFanSessions(headers, state, nav) {
-  const fanCursors = { ...(state.fanCursors ?? {}) }
-  const nowSec = Math.floor(Date.now() / 1000)
-  const firstFanPoll = !Number.isFinite(Number(state.fanBaselineAt)) || Number(state.fanBaselineAt) <= 0
-  const fanBaselineAt = firstFanPoll ? nowSec : Number(state.fanBaselineAt)
-
-  const url = 'https://api.vc.bilibili.com/session_svr/v1/session_svr/get_sessions?session_type=1&group_fold=1&unfollow_fold=0&sort_rule=2&size=20&build=0&mobi_app=web'
-  const res = await exactJson(await fetch(url, { headers }))
-  if (res?.code !== 0 || !Array.isArray(res.data?.session_list)) {
-    return { messages: [], fanCursors, fanBaselineAt }
+function empty(readErrors = []) {
+  if (readErrors.length) {
+    if (json) console.log(JSON.stringify({ hit: false, readErrors }))
+    else reportReadErrors(readErrors)
+    return 3
   }
-
-  const out = []
-  for (const sess of res.data.session_list.slice(0, 12)) {
-    const talker = String(sess.talker_id ?? '').trim()
-    if (!/^[1-9]\d{0,19}$/.test(talker)) continue
-    if (talker === owner || talker === selfMid) continue
-    const lastTs = Number(sess.last_msg?.timestamp ?? 0)
-    const senderUid = String(sess.last_msg?.sender_uid ?? '')
-
-    let cursor = fanCursors[talker]
-    if (!cursor) {
-      if (firstFanPoll || lastTs <= fanBaselineAt) {
-        // 首次开启粉丝私信监听时的历史会话：记录基线，不倒灌历史旧私信
-        fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
-        continue
-      }
-      // 监听启用后新发来私信的新粉丝：立即投递首条消息，绝不静默丢弃！
-      cursor = { lastSeen: fanBaselineAt, lastKey: '', lastKeys: [] }
-    }
-
-    if (senderUid && senderUid !== talker) continue
-    const lastSeen = Number(cursor.lastSeen ?? 0)
-    const lastKey = String(sess.last_msg?.msg_key ?? '')
-    const known = cursor.lastKeys ?? (cursor.lastKey ? [cursor.lastKey] : [])
-    if (lastTs < lastSeen || (lastTs === lastSeen &&
-        (lastTs <= fanBaselineAt || (lastKey && known.includes(lastKey))))) continue
-
-    const relation = await checkRelation(talker, headers)
-    if (!relation.ok) continue
-    const skipped = { lastSeen: lastTs, lastKey, lastKeys: lastKey ? [lastKey] : [] }
-    if (!relation.isFollower) {
-      fanCursors[talker] = skipped
-      continue
-    }
-    const fq = checkFanQuota({
-      channel: 'dm',
-      uid: talker,
-      perUserDaily: cfg.fanLimits?.dmPerUserDaily ?? 2,
-      totalDaily: cfg.fanLimits?.dmTotalDaily ?? 10,
-    })
-    if (!fq.allowed) {
-      // 超出当日限额的来信推进游标，避免次日积压倒灌或每次轮询重复打关系接口
-      fanCursors[talker] = skipped
-      continue
-    }
-
-    try {
-      const hist = await readHistory(talker, headers, cursor, { nav })
-      for (const m of hist.messages) {
-        out.push({
-          ...m,
-          mid: talker,
-          name: sess.account_info?.name || `粉丝(${talker})`,
-          isFan: true,
-        })
-      }
-      if (hist.messages.length === 0 && lastTs > Number(cursor.lastSeen ?? 0)) {
-        fanCursors[talker] = { lastSeen: lastTs, lastKey: '', lastKeys: [] }
-      }
-    } catch {}
-    if (out.length >= 5) break
-  }
-  return { messages: out, fanCursors, fanBaselineAt }
+  console.log(json ? JSON.stringify({ hit: false }) : '无新私信')
+  return 1
 }
 
 async function main() {
@@ -216,64 +137,67 @@ async function main() {
   // 暂停的通道保留队列与既有回执，另一通道可继续消费。
   const queued = [...(state.pending ? [state.pending] : []), ...(state.queue ?? [])]
   state = { ...state, pending: undefined, queue: queued }
+  const readErrors = []
 
   if (!queued.some(message => channelOn(message, listen)) || explicitBaseline) {
-    const cred = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'))
-    const headers = {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      referer: 'https://www.bilibili.com/',
-      cookie: `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct}; buvid3=${cred.buvid3 ?? ''}`,
+    const headers = biliHeaders(loadCred())
+    let nav
+    try {
+      nav = await requestBili('nav', { headers })
+    } catch (error) {
+      return empty([dmReadIssue('identity', error)])
     }
-    const nav = await apiGet('https://api.bilibili.com/x/web-interface/nav', headers)
-    if (nav.code !== 0 || nav.data?.isLogin !== true || String(nav.data.mid) !== selfMid)
+    if (!nav.ok) return empty([dmReadIssue('identity', { code: nav.code || 'HTTP_' + nav.status })])
+    if (nav.data?.isLogin !== true || String(nav.data.mid) !== selfMid)
       throw Error('当前 B 站登录账号与配置不一致，未推进私信游标')
     checkScope()
 
-    const combined = []
     if (listen.dmOwner && owner) {
-      const baseline = explicitBaseline
-      const result = await readHistory(owner, headers, state, { baseline, nav })
-      if (!checkScope().dmOwner) return empty()
-      if (baseline) {
-        const latest = result.all.at(-1)
-        const ts = latest?.ts ?? 0
-        state = {
-          ...state,
-          owner,
-          lastSeen: ts,
-          lastKey: latest?.key,
-          lastKeys: result.all.filter(r => r.ts === ts).map(r => r.key),
-          pending: undefined,
-          queue: queued.filter(m => m.isFan),
+      const baseline = explicitBaseline || !hasDmCursor(state)
+      const result = await readHistory(owner, headers, state, { baseline, nav, scan: state.ownerScan })
+        .catch(error => ({ error, scan: state.ownerScan }))
+      if (checkScope().dmOwner) {
+        if (result.error) {
+          readErrors.push(dmReadIssue('owner-history', result.error))
+          if (explicitBaseline) return empty(readErrors)
+        } else if (baseline) {
+          state = { ...anchorDmCursor(state, result.head), owner }
+          if (explicitBaseline) state.queue = queued.filter(message => message.isFan)
+        } else if (result.messages.length) {
+          const ownerMessages = result.messages.map(message => ({ ...message, mid: owner, name: ownerName, isFan: false }))
+          state = {
+            ...state, owner, queue: [...state.queue, ...ownerMessages],
+            lastIncoming: ownerMessages.reduce((latest, message) => Math.max(latest, message.ts), Number(state.lastIncoming ?? 0)),
+          }
+        } else if (!result.scan) {
+          state = advanceDmCursor(state, result.head)
         }
+        state.ownerScan = result.scan ?? undefined
+        save(state)
         if (explicitBaseline) {
-          save(state)
           console.log('已把当前私信状态标记为已读')
           return 0
         }
-      } else {
-        for (const m of result.messages) {
-          combined.push({ ...m, mid: owner, name: ownerName, isFan: false })
-        }
-        state = { ...state, owner, lastIncoming: Math.max(Number(state.lastIncoming ?? 0), ...result.messages.map(r => r.ts)) }
       }
     }
 
-    if (listen.dmFan && !explicitBaseline) {
-      const fanRes = await pollFanSessions(headers, state, nav)
-      if (!checkScope().dmFan) return empty()
-      state = { ...state, fanCursors: fanRes.fanCursors, fanBaselineAt: fanRes.fanBaselineAt }
-      combined.push(...fanRes.messages)
+    if (listen.dmFan && checkScope().dmFan && !explicitBaseline && !readErrors.some(issue => issue.code === 'BILI_TRAFFIC_PAUSED')) {
+      const result = await pollFanSessions({ headers, nav, state, owner, account: selfMid, fanLimits: cfg.fanLimits })
+      if (checkScope().dmFan) {
+        readErrors.push(...result.readErrors)
+        const combined = [...state.queue.slice(queued.length), ...result.messages].sort((a, b) => a.ts - b.ts)
+        state = {
+          ...state, fanCursors: result.fanCursors, fanBaselineAt: result.fanBaselineAt, fanScan: result.fanScan,
+          queue: [...queued, ...combined],
+        }
+        save(state)
+      }
     }
-
-    combined.sort((a, b) => a.ts - b.ts)
-    state = { ...state, queue: [...state.queue, ...combined] }
-    save(state)
   }
 
   const currentListen = checkScope()
   const index = state.queue.findIndex(message => channelOn(message, currentListen))
-  if (index === -1) return empty()
+  if (index === -1) return empty(readErrors)
   const [row] = state.queue.splice(index, 1)
   const receipt = row.receipt || crypto.randomUUID()
   const message = {
@@ -287,13 +211,14 @@ async function main() {
     contentKind: row.contentKind ?? (row.type === 7 ? 'share' : 'message'),
     ts: row.ts,
     key: row.key,
+    seq: row.seq ?? undefined,
     receipt,
   }
-  if (!channelOn(message, checkScope())) return empty()
+  if (!channelOn(message, checkScope())) return empty(readErrors)
   if (message.isFan) recordFanReceipt(receipt, message.mid)
   if (peek) save({ ...state, pending: message })
   else save(acknowledge(state, message))
-  return emit(message)
+  return emit(message, readErrors)
 }
 
 let release

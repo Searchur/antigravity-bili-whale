@@ -22,7 +22,7 @@ const map = {
   'check-dynamic': ['verify/check-dynamic.mjs', '看动态的结构化内容（类型/图片/节点）'],
   'check-mention': ['verify/check-mention.mjs', '确认动态里的 @ 是不是真提及（查 opus 页）'],
   'comment-digest': ['commands/comment-digest.mjs', '回复+@ 收件箱汇总（只读）：--hours 24 --pages 2 [--only-unread]'],
-  recon: ['verify/recon.mjs', '发评论前的侦查：BV→aid + 评论区状态 + WBI 材料'],
+  recon: ['verify/recon.mjs', '发评论前核验：BV → aid、评论区状态及 WBI 签名状态'],
   subtitles: ['commands/subtitles.mjs', '拉官方字幕辅助查看（WBI 签名，带时间戳）：<BV> [--lan ai-zh] [--print N]'],
   'watch-video': ['commands/watch-video.mjs', '抽帧看视频：取直链 → 抽帧拼图 → 返回画面：<BV> [2x2|3x3|4x4] [--every N] [--max-frames N] [--profile auto|owner|fan]'],
   debrief: ['commands/debrief.mjs', '看懂一条视频（一条龙）：封面+简介+官方字幕+弹幕热区+热评+画面抽帧：<BV> [--profile auto|owner|fan] [--confirmed] [--bucket 30] [--top 5]'],

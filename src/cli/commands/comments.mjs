@@ -1,9 +1,8 @@
 /**
  * CLI 命令 `comments`：只读拉取指定视频的评论区热评与最新评论列表。
  */
-import fs from 'node:fs'
-import { dataPath } from '../../core/paths.mjs'
-import { apiGet } from '../../bili/api.mjs'
+import { biliJson } from '../../bili/api.mjs'
+import { biliHeaders, loadCred } from '../../bili/cookie.mjs'
 
 const VALUE_FLAGS = new Set(['ps', 'pn', 'sort', 'max-chars'])
 const argv = process.argv.slice(2)
@@ -31,14 +30,11 @@ const SORT = String(opt.sort ?? 'hot') === 'time' ? 0 : 2
 const MAXC = Math.max(40, Number(opt['max-chars'] ?? 200) || 200)
 const AS_JSON = Boolean(opt.json)
 
-let cred = {}
-try { cred = JSON.parse(fs.readFileSync(dataPath('credentials.json'), 'utf8')) } catch {}
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-const cookie = cred.sessdata ? `SESSDATA=${cred.sessdata}; bili_jct=${cred.bili_jct ?? ''}; buvid3=${cred.buvid3 ?? ''}` : ''
-const H = { 'user-agent': UA, referer: `https://www.bilibili.com/video/${bvid}/`, ...(cookie ? { cookie } : {}) }
-const jget = u => apiGet(u, H)
+let cred
+try { cred = loadCred() } catch {}
+const headers = biliHeaders(cred?.sessdata ? cred : undefined, { referer: `https://www.bilibili.com/video/${bvid}/` })
 
-const view = await jget(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`)
+const view = await biliJson('view', { headers, query: { bvid } })
 if (view.code !== 0) {
   const msg = `view 失败 code=${view.code} ${view.message ?? ''}`
   if (AS_JSON) console.log(JSON.stringify({ ok: false, error: msg, bvid }, null, 2))
@@ -48,7 +44,7 @@ if (view.code !== 0) {
 const d = view.data
 const aid = d.aid
 
-const rep = await jget(`https://api.bilibili.com/x/v2/reply?type=1&oid=${aid}&sort=${SORT}&ps=${PS}&pn=${PN}`)
+const rep = await biliJson('comments', { headers, query: { type: 1, oid: aid, sort: SORT, ps: PS, pn: PN } })
 if (rep.code !== 0) {
   const msg = `reply 失败 code=${rep.code} ${rep.message ?? ''}`
   if (AS_JSON) console.log(JSON.stringify({ ok: false, error: msg, bvid, aid }, null, 2))
@@ -57,7 +53,7 @@ if (rep.code !== 0) {
 }
 
 const one = (r, tag = '') => ({
-  rpid: String(r.rpid ?? ''),
+  rpid: String(r.rpid_str || (r.rpid ?? '')),
   user: String(r.member?.uname ?? '匿名'),
   mid: String(r.member?.mid ?? ''),
   like: Number(r.like ?? 0),

@@ -674,26 +674,9 @@ export function renderInteractTab(state, actions) {
   return el('div', {}, mod1Card, mod2Card, mod3Card, mod4Card, mod5Card)
 }
 
-const TRAFFIC_OPERATIONS = {
-  '/x/v2/reply/add': '发表评论或回复',
-  '/x/v2/reply/del': '删除评论',
-  '/x/v2/reply/main': '读取评论',
-  '/x/msgfeed/reply': '检查评论回复提醒',
-  '/x/msgfeed/at': '检查评论区 @ 提醒',
-  '/web_im/v1/web_im/send_msg': '发送私信',
-  '/session_svr/v1/session_svr/get_sessions': '检查私信会话',
-  '/svr_sync/v1/svr_sync/fetch_session_msgs': '读取私信内容',
-  '/x/dynamic/feed/create/dyn': '发布动态',
-  '/x/dynamic/feed/draw/upload_bfs': '上传图片',
-  '/x/v3/fav/resource/deal': '收藏视频',
-  '/x/web-interface/archive/like': '视频点赞',
-  '/x/relation/modify': '关注操作',
-  '/x/web-interface/wbi/search/type': '搜索 B 站内容',
-  '/x/web-interface/nav': '检查 B 站登录状态',
-}
-
-function trafficTrigger({ endpoint, method, code, http, reason }) {
-  const operation = TRAFFIC_OPERATIONS[endpoint] || [method, endpoint].filter(Boolean).join(' ') || '未记录的操作'
+function trafficTrigger({ label, endpoint, method, code, http, reason }) {
+  const path = typeof endpoint === 'string' && endpoint.startsWith('/') ? endpoint.split(/[?#]/, 1)[0] : null
+  const operation = label || [method, path].filter(Boolean).join(' ') || '未记录的操作'
   const codes = [http >= 400 && `HTTP ${http}`, Number.isFinite(code) && code !== 0 && `错误码 ${code}`].filter(Boolean)
   const context = codes.join('，') || reason
   return `【${operation}】${context ? `（${context}）` : ''}`
@@ -703,12 +686,12 @@ function renderTrafficPause({ cooldown, manual }) {
   const hints = []
   if (cooldown) {
     const until = new Date(cooldown.until).toLocaleString('zh-CN', { dateStyle: 'long', timeStyle: 'medium', hour12: false })
-    hints.push(`${trafficTrigger(cooldown)}触发请求限流。冷却至 ${until}（本地时间）。`)
+    hints.push(`${trafficTrigger(cooldown)}${cooldown.summary || '触发请求限流'}。冷却至 ${until}（本地时间）。`)
     if (!manual) hints.push('冷却结束可恢复请求，无需人工处理。')
   }
   if (manual) {
     const duplicate = manual.code === 12051
-    hints.push(`${trafficTrigger(manual)}${duplicate ? '触发重复评论限制' : '触发登录或安全验证限制'}。`)
+    hints.push(`${trafficTrigger(manual)}${manual.summary || '触发人工处理限制'}。`)
     hints.push(cooldown
       ? '需要人工处理，核查并解除暂停后，仍须等冷却结束才可恢复请求。'
       : '需要人工处理，核查并解除暂停后可恢复请求。')
